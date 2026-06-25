@@ -1,0 +1,89 @@
+version: '3'
+
+vars:
+  PACKAGE_NAME: kestra-playground
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  sync:
+    desc: Sync project dependencies with uv
+    cmds:
+      - uv sync --dev
+
+  lock:
+    desc: Refresh uv.lock
+    cmds:
+      - uv lock
+
+  run:
+    desc: Run the application
+    cmds:
+      - uv run python -m {{.PACKAGE_NAME}}
+
+  test:
+    desc: Run tests
+    cmds:
+      - uv run pytest
+
+  test-verbose:
+    desc: Run tests with verbose output
+    cmds:
+      - uv run pytest -vv
+
+  test-cov:
+    desc: Run tests with coverage
+    cmds:
+      - uv run pytest --cov={{.PACKAGE_NAME}} --cov-report=term-missing
+
+  lint:
+    desc: Run Ruff lint checks
+    cmds:
+      - uv run ruff check .
+
+  typecheck:
+    desc: Run ty type checks
+    cmds:
+      - uv run ty check .
+
+  fmt:
+    desc: Format code with Ruff
+    cmds:
+      - uv run ruff format .
+
+  fmt-check:
+    desc: Check formatting without modifying files
+    cmds:
+      - uv run ruff format --check .
+
+  build:
+    desc: Build the package
+    cmds:
+      - uv build
+
+  gitleaks:
+    desc: Scan staged changes for secrets before commit
+    cmds:
+      - gitleaks git --pre-commit --redact --staged --verbose
+
+  install-git-hooks:
+    desc: Install the Nix-managed pre-commit hook configuration
+    cmds:
+      - nix develop -c pre-commit install --install-hooks
+
+  clean:
+    desc: Remove generated artifacts
+    cmds:
+      - rm -rf build dist htmlcov .coverage .pytest_cache .ruff_cache src/*.egg-info
+
+  ci:
+    desc: Run the standard CI checks
+    cmds:
+      - task: fmt-check
+      - task: lint
+      - task: typecheck
+      - task: test
+      - task: build
