@@ -32,6 +32,10 @@ apply_tofu() {
 
 deploy_gce_single() {
   apply_tofu "infra/terraform/gce-single" "../../live/dev/gce-single.tfvars"
+  if [[ -n "${KESTRA_IMAGE:-}" ]]; then
+    echo "Reconciling ${TARGET_ENVIRONMENT} single-VM instance group after image replacement"
+    apply_tofu "infra/terraform/gce-single" "../../live/dev/gce-single.tfvars"
+  fi
 }
 
 deploy_gce_cluster() {

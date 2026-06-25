@@ -185,12 +185,6 @@ resource "google_compute_instance_group" "kestra" {
     name = "http"
     port = 8080
   }
-
-  lifecycle {
-    replace_triggered_by = [
-      terraform_data.kestra_image,
-    ]
-  }
 }
 
 resource "google_compute_global_address" "https" {
