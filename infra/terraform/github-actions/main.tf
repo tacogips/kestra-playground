@@ -18,6 +18,20 @@ locals {
   ])
 }
 
+resource "google_artifact_registry_repository" "kestra" {
+  location      = var.region
+  repository_id = var.artifact_registry_repository_id
+  description   = "Kestra playground runtime images."
+  format        = "DOCKER"
+}
+
+resource "google_artifact_registry_repository_iam_member" "github_actions_writer" {
+  location   = google_artifact_registry_repository.kestra.location
+  repository = google_artifact_registry_repository.kestra.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${google_service_account.github_actions.email}"
+}
+
 resource "google_storage_bucket" "terraform_state" {
   name                        = local.terraform_state_bucket
   location                    = "asia-northeast1"
@@ -84,4 +98,8 @@ output "workload_identity_provider" {
 
 output "service_account_email" {
   value = google_service_account.github_actions.email
+}
+
+output "artifact_registry_repository" {
+  value = "${google_artifact_registry_repository.kestra.location}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.kestra.repository_id}"
 }

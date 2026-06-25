@@ -33,6 +33,7 @@ tf_output() {
 cloud_sql_instance="$(tf_output '.cloud_sql_instance.value')"
 gcp_service_account="$(tf_output '.gcp_service_account.value')"
 project_id="$(tf_output '.project_id.value')"
+kestra_image="$(tf_output '.kestra_image.value')"
 
 secret_value() {
   jq -er ".kubernetes_secret_values.value.$1" "$outputs_json"
@@ -49,6 +50,11 @@ gcp_secret_value() {
 
 cp -R k8s "${tmpdir}/k8s"
 work_overlay="${tmpdir}/${OVERLAY_DIR}"
+
+(
+  cd "$work_overlay"
+  kustomize edit set image "kestra/kestra:latest=${kestra_image}"
+)
 
 cat >"${work_overlay}/configmap.yaml" <<EOF
 apiVersion: v1

@@ -21,6 +21,12 @@ variable "kestra_basic_auth_username" {
   default     = "admin@kestra.local"
 }
 
+variable "kestra_image" {
+  type        = string
+  description = "Container image used for the Kestra runtime."
+  default     = "kestra/kestra:latest"
+}
+
 variable "sql_tier" {
   type        = string
   default     = "db-g1-small"

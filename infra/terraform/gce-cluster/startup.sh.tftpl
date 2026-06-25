@@ -27,6 +27,7 @@ if ! command -v gcloud >/dev/null 2>&1; then
 fi
 
 mkdir -p /opt/kestra/config /tmp/kestra-wd
+gcloud auth configure-docker "${artifact_registry_host}" --quiet
 
 read_secret() {
   gcloud secrets versions access latest --project="${project_id}" --secret="${name_prefix}-$1"
@@ -84,11 +85,12 @@ ENV_BATCH_DB_URL=$${ENV_BATCH_DB_URL}
 ENV_BATCH_DB_USERNAME=$${ENV_BATCH_DB_USERNAME}
 ENV_BATCH_DB_PASSWORD=$${ENV_BATCH_DB_PASSWORD}
 CLOUD_SQL_INSTANCE=$${CLOUD_SQL_INSTANCE}
+KESTRA_IMAGE=${kestra_image}
 EOF
 
 cat >/opt/kestra/docker-compose.yml <<'YAML'
 x-kestra-common: &kestra-common
-  image: kestra/kestra:latest
+  image: $${KESTRA_IMAGE}
   user: "root"
   restart: unless-stopped
   env_file: .env
