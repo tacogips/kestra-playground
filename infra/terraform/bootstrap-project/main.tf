@@ -2,6 +2,7 @@ provider "google" {}
 
 locals {
   services = toset([
+    "cloudresourcemanager.googleapis.com",
     "compute.googleapis.com",
     "container.googleapis.com",
     "dns.googleapis.com",
