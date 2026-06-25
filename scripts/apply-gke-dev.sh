@@ -13,6 +13,7 @@ require_command() {
 }
 
 require_command jq
+require_command gcloud
 require_command kubectl
 require_command kustomize
 require_command tofu
@@ -31,9 +32,19 @@ tf_output() {
 
 cloud_sql_instance="$(tf_output '.cloud_sql_instance.value')"
 gcp_service_account="$(tf_output '.gcp_service_account.value')"
+project_id="$(tf_output '.project_id.value')"
 
 secret_value() {
   jq -er ".kubernetes_secret_values.value.$1" "$outputs_json"
+}
+
+basic_auth_secret_id() {
+  jq -er ".kestra_basic_auth_secret_ids.value.$1" "$outputs_json"
+}
+
+gcp_secret_value() {
+  local secret_id="$1"
+  gcloud secrets versions access latest --project="$project_id" --secret="$secret_id"
 }
 
 cp -R k8s "${tmpdir}/k8s"
@@ -70,8 +81,8 @@ stringData:
   KESTRA_DB_USERNAME: $(secret_value KESTRA_DB_USERNAME)
   KESTRA_DB_PASSWORD: $(secret_value KESTRA_DB_PASSWORD)
   KESTRA_GCS_BUCKET: $(secret_value KESTRA_GCS_BUCKET)
-  KESTRA_BASIC_AUTH_USERNAME: $(secret_value KESTRA_BASIC_AUTH_USERNAME)
-  KESTRA_BASIC_AUTH_PASSWORD: $(secret_value KESTRA_BASIC_AUTH_PASSWORD)
+  KESTRA_BASIC_AUTH_USERNAME: $(gcp_secret_value "$(basic_auth_secret_id username)")
+  KESTRA_BASIC_AUTH_PASSWORD: $(gcp_secret_value "$(basic_auth_secret_id password)")
   ENV_BATCH_DB_URL: $(secret_value ENV_BATCH_DB_URL)
   ENV_BATCH_DB_USERNAME: $(secret_value ENV_BATCH_DB_USERNAME)
   ENV_BATCH_DB_PASSWORD: $(secret_value ENV_BATCH_DB_PASSWORD)

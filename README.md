@@ -36,9 +36,9 @@ those SQL fixtures into PostgreSQL tasks, and the test suite checks that the dep
 in sync with the committed fixture files.
 
 Current Kestra OSS requires Basic Auth. Local defaults are in `local/docker/.env.example`; the GCP
-Terraform roots generate/store runtime credentials in Secret Manager. For the live single-VM
-environment, `KESTRA_BASIC_AUTH_USERNAME` and `KESTRA_BASIC_AUTH_PASSWORD` have also been imported
-into kinko for command-line use.
+Terraform roots generate/store runtime credentials in Secret Manager. The GCE roots read Basic Auth
+directly from Secret Manager at startup, and the GKE apply helper renders the Kubernetes Secret from
+GKE-specific Secret Manager entries.
 
 ## Local Kestra
 
@@ -205,6 +205,11 @@ Apply the live GKE overlay with Terraform outputs without writing real secrets i
 ```bash
 task k8s:apply:dev
 ```
+
+For the live GKE environment, Kestra Basic Auth is stored in Secret Manager as
+`kestra-dev-gke-kestra-basic-auth-username` and
+`kestra-dev-gke-kestra-basic-auth-password`. `scripts/apply-gke-dev.sh` reads those values at apply
+time and writes them only into a temporary rendered manifest before updating the Kubernetes Secret.
 
 ## Common Commands
 
