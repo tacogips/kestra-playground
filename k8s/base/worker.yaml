@@ -19,6 +19,7 @@ spec:
       containers:
         - name: kestra
           image: kestra/kestra:latest
+          imagePullPolicy: IfNotPresent
           command: ["/bin/bash", "-ec"]
           args:
             - |

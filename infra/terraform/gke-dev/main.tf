@@ -5,6 +5,10 @@ provider "google" {
 
 provider "cloudflare" {}
 
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
 locals {
   https_enabled          = var.domain_name != ""
   domain_name            = trimsuffix(var.domain_name, ".")
@@ -132,6 +136,18 @@ resource "google_project_iam_member" "cloudsql_client" {
   member  = "serviceAccount:${google_service_account.kestra.email}"
 }
 
+resource "google_project_iam_member" "artifact_registry_reader" {
+  project = var.project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:${google_service_account.kestra.email}"
+}
+
+resource "google_project_iam_member" "gke_node_artifact_registry_reader" {
+  project = var.project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
 resource "google_service_account_iam_member" "workload_identity" {
   service_account_id = google_service_account.kestra.name
   role               = "roles/iam.workloadIdentityUser"
@@ -224,6 +240,10 @@ output "kestra_basic_auth_secret_ids" {
     username = google_secret_manager_secret.kestra_basic_auth["kestra-basic-auth-username"].secret_id
     password = google_secret_manager_secret.kestra_basic_auth["kestra-basic-auth-password"].secret_id
   }
+}
+
+output "kestra_image" {
+  value = var.kestra_image
 }
 
 output "kestra_https_url" {

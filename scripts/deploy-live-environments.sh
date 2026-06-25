@@ -18,11 +18,16 @@ require_command tofu
 apply_tofu() {
   local root="$1"
   local var_file="$2"
+  local apply_args=(-input=false -auto-approve -var-file="${var_file}")
+
+  if [[ -n "${KESTRA_IMAGE:-}" ]]; then
+    apply_args+=("-var=kestra_image=${KESTRA_IMAGE}")
+  fi
 
   echo "Applying ${root}"
   tofu -chdir="${root}" init -input=false
   tofu -chdir="${root}" validate
-  tofu -chdir="${root}" apply -input=false -auto-approve -var-file="${var_file}"
+  tofu -chdir="${root}" apply "${apply_args[@]}"
 }
 
 deploy_gce_single() {
