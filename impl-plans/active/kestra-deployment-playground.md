@@ -520,3 +520,30 @@ required GitHub repository secrets:
   created the versioned GCS backend bucket `kestra-playground-260625-tofu-state`, migrated live root
   states to per-root prefixes, imported the state bucket into the `github-actions` root, and
   confirmed all migrated roots still plan with exit code 0.
+
+### Session: 2026-06-25 21:45
+
+**Tasks Completed**: Audited the objective against current state and found that GCE Basic Auth was
+managed through Secret Manager but GKE Basic Auth was only flowing from Terraform output into the
+Kubernetes Secret. Added GKE-specific Secret Manager resources for Kestra Basic Auth, granted the
+GKE service account secret accessor on those secrets, and changed the GKE apply and live verification
+scripts to read GKE Kestra Basic Auth from Secret Manager.
+
+**Tasks In Progress**: None.
+
+**Blockers**: None.
+
+**Validation**:
+- Applied `infra/terraform/gke-dev`; it created:
+  - `kestra-dev-gke-kestra-basic-auth-username`
+  - `kestra-dev-gke-kestra-basic-auth-password`
+- `scripts/apply-gke-dev.sh` successfully rendered and applied the GKE overlay from Secret Manager
+  values, and all Kestra GKE deployments rolled out.
+- `scripts/verify-live-environments.sh all 2026-06-25 run-batch` passed using Secret Manager auth
+  for all three HTTPS environments. Executions:
+  - `gce-compose`: generator `SUCCESS` (`2gHUMk5PBrGpCU5OBrAzxV`), report `SUCCESS`
+    (`3GUuQWH3R1cNiCW6E6mI36`)
+  - `gce-container`: generator `SUCCESS` (`61Wsj065u334IByrYvVqEc`), report `SUCCESS`
+    (`3kZuK6LstD30p3k2KJsFsy`)
+  - `k8s`: generator `SUCCESS` (`2GoMEy3ZcwPlVEKen26sCe`), report `SUCCESS`
+    (`1ZasuplGdlrq7gA0kw7CoX`)

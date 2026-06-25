@@ -14,6 +14,11 @@ locals {
   dns_zone_name          = var.dns_zone_name != "" ? var.dns_zone_name : "${var.name_prefix}-${replace(local.domain_name, ".", "-")}"
   google_dns_enabled     = local.https_enabled && var.dns_provider == "google"
   cloudflare_dns_enabled = local.https_enabled && var.dns_provider == "cloudflare"
+
+  kestra_basic_auth_secret_values = {
+    kestra-basic-auth-username = var.kestra_basic_auth_username
+    kestra-basic-auth-password = random_password.kestra_basic_auth.result
+  }
 }
 
 resource "random_password" "db" {
@@ -33,6 +38,30 @@ resource "random_id" "bucket" {
 resource "google_service_account" "kestra" {
   account_id   = "${var.name_prefix}-gke"
   display_name = "Kestra GKE workload identity service account"
+}
+
+resource "google_secret_manager_secret" "kestra_basic_auth" {
+  for_each  = local.kestra_basic_auth_secret_values
+  secret_id = "${var.name_prefix}-gke-${each.key}"
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "kestra_basic_auth" {
+  for_each = local.kestra_basic_auth_secret_values
+
+  secret      = google_secret_manager_secret.kestra_basic_auth[each.key].id
+  secret_data = each.value
+}
+
+resource "google_secret_manager_secret_iam_member" "kestra_basic_auth_reader" {
+  for_each = google_secret_manager_secret.kestra_basic_auth
+
+  secret_id = each.value.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.kestra.email}"
 }
 
 resource "google_container_cluster" "kestra" {
@@ -159,6 +188,10 @@ output "cluster_name" {
   value = google_container_cluster.kestra.name
 }
 
+output "project_id" {
+  value = var.project_id
+}
+
 output "cloud_sql_instance" {
   value = google_sql_database_instance.postgres.connection_name
 }
@@ -174,17 +207,22 @@ output "gcp_service_account" {
 output "kubernetes_secret_values" {
   sensitive = true
   value = {
-    KESTRA_DB_URL              = "jdbc:postgresql://127.0.0.1:5432/kestra"
-    KESTRA_DB_USERNAME         = google_sql_user.kestra.name
-    KESTRA_DB_PASSWORD         = random_password.db.result
-    KESTRA_GCS_BUCKET          = google_storage_bucket.storage.name
-    KESTRA_BASIC_AUTH_USERNAME = var.kestra_basic_auth_username
-    KESTRA_BASIC_AUTH_PASSWORD = random_password.kestra_basic_auth.result
-    ENV_BATCH_DB_URL           = "jdbc:postgresql://127.0.0.1:5432/ecommerce_ops"
-    ENV_BATCH_DB_USERNAME      = google_sql_user.kestra.name
-    ENV_BATCH_DB_PASSWORD      = random_password.db.result
-    CLOUD_SQL_INSTANCE         = google_sql_database_instance.postgres.connection_name
-    GCP_SERVICE_ACCOUNT        = google_service_account.kestra.email
+    KESTRA_DB_URL         = "jdbc:postgresql://127.0.0.1:5432/kestra"
+    KESTRA_DB_USERNAME    = google_sql_user.kestra.name
+    KESTRA_DB_PASSWORD    = random_password.db.result
+    KESTRA_GCS_BUCKET     = google_storage_bucket.storage.name
+    ENV_BATCH_DB_URL      = "jdbc:postgresql://127.0.0.1:5432/ecommerce_ops"
+    ENV_BATCH_DB_USERNAME = google_sql_user.kestra.name
+    ENV_BATCH_DB_PASSWORD = random_password.db.result
+    CLOUD_SQL_INSTANCE    = google_sql_database_instance.postgres.connection_name
+    GCP_SERVICE_ACCOUNT   = google_service_account.kestra.email
+  }
+}
+
+output "kestra_basic_auth_secret_ids" {
+  value = {
+    username = google_secret_manager_secret.kestra_basic_auth["kestra-basic-auth-username"].secret_id
+    password = google_secret_manager_secret.kestra_basic_auth["kestra-basic-auth-password"].secret_id
   }
 }
 

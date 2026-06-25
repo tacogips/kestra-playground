@@ -2,8 +2,6 @@
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-kestra-playground-260625}"
-REGION="${REGION:-asia-northeast1}"
-K8S_NAMESPACE="${K8S_NAMESPACE:-kestra-dev}"
 TARGET_ENVIRONMENT="${1:-${TARGET_ENVIRONMENT:-all}}"
 BUSINESS_DATE="${2:-${BUSINESS_DATE:-2026-06-25}}"
 MODE="${3:-${MODE:-run-batch}}"
@@ -15,29 +13,13 @@ require_command() {
   fi
 }
 
-require_command base64
 require_command curl
 require_command gcloud
 require_command jq
-require_command kubectl
 
 secret_value() {
   local secret_name="$1"
   gcloud secrets versions access latest --project="${PROJECT_ID}" --secret="${secret_name}"
-}
-
-k8s_secret_value() {
-  local key="$1"
-  kubectl -n "${K8S_NAMESPACE}" get secret kestra-secrets \
-    -o "jsonpath={.data.${key}}" | base64_decode
-}
-
-base64_decode() {
-  if base64 --decode >/dev/null 2>&1 </dev/null; then
-    base64 --decode
-  else
-    base64 -D
-  fi
 }
 
 configure_gce_auth() {
@@ -49,13 +31,10 @@ configure_gce_auth() {
 }
 
 configure_k8s_auth() {
-  gcloud container clusters get-credentials kestra-dev \
-    --region "${REGION}" \
-    --project "${PROJECT_ID}" >/dev/null
   export KESTRA_BASIC_AUTH_USERNAME
   export KESTRA_BASIC_AUTH_PASSWORD
-  KESTRA_BASIC_AUTH_USERNAME="$(k8s_secret_value KESTRA_BASIC_AUTH_USERNAME)"
-  KESTRA_BASIC_AUTH_PASSWORD="$(k8s_secret_value KESTRA_BASIC_AUTH_PASSWORD)"
+  KESTRA_BASIC_AUTH_USERNAME="$(secret_value kestra-dev-gke-kestra-basic-auth-username)"
+  KESTRA_BASIC_AUTH_PASSWORD="$(secret_value kestra-dev-gke-kestra-basic-auth-password)"
 }
 
 wait_for_execution() {
