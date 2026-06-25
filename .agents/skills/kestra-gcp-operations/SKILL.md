@@ -1,6 +1,6 @@
 ---
 name: kestra-gcp-operations
-description: Operate, deploy, verify, or troubleshoot this repository's Kestra playground on GCP. Use when Codex is asked to work with Kestra flows, Artifact Registry runtime images, GitHub Actions deployment, OpenTofu/Terraform live roots, Cloudflare-backed subdomains, GCE single or clustered environments, GKE dev manifests, Secret Manager values, live batch execution, or UI verification for gce-compose, gce-container, or k8s environments.
+description: Operate, deploy, verify, or troubleshoot this repository's Kestra playground on GCP. Use when Codex is asked to work with Kestra flows, Artifact Registry runtime images, GitHub Actions deployment, OpenTofu/Terraform live roots, Cloudflare-backed subdomains, GCE single or clustered environments, GKE dev manifests, OpenTelemetry/OTEL export, Secret Manager values, live batch execution, or UI verification for gce-compose, gce-container, or k8s environments.
 ---
 
 # Kestra GCP Operations
@@ -38,7 +38,7 @@ For code or flow changes:
 1. Update flows, fixtures, scripts, docs, or Terraform with small scoped edits.
 2. Run `nix develop -c task ci`.
 3. Run infrastructure checks relevant to the change:
-   - `nix develop -c shellcheck scripts/*.sh`
+   - `nix develop -c task scripts:check`
    - `nix develop -c tofu fmt -check -recursive infra/terraform`
    - `nix develop -c kustomize build k8s/overlays/dev`
    - `nix develop -c kubectl version --client=true`
@@ -59,6 +59,33 @@ asia-northeast1-docker.pkg.dev/example-project-id/kestra-playground/kestra-runti
 Deploy scripts pass the SHA-tagged image through `KESTRA_IMAGE`. For manual redeploys, set
 `KESTRA_IMAGE` explicitly and keep the value out of Terraform variable files unless the requested
 change is to update the committed desired image.
+
+## OpenTelemetry
+
+For GKE OTEL work, update both Kubernetes manifests and operational docs. The expected GKE path is:
+
+1. Kestra `application.yaml` enables Micronaut OTEL and `kestra.traces.root: DEFAULT`.
+2. Kestra exports OTLP to `http://otel-collector:4317`.
+3. `k8s/base/otel-collector.yaml` receives OTLP/gRPC and OTLP/HTTP and exports through `debug`.
+4. Each Kestra component has a distinct `OTEL_SERVICE_NAME`.
+5. Batch flows are split into granular tasks so execution traces expose auditable step spans.
+
+Validate with:
+
+```bash
+nix develop -c kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev.yaml
+nix develop -c uv run pytest
+```
+
+For live GKE, verify the collector rollout and inspect collector logs after a batch run:
+
+```bash
+kubectl -n kestra-dev rollout status deployment/otel-collector
+kubectl -n kestra-dev logs deployment/otel-collector --since=10m
+```
+
+When auditing task-level spans, map collector `kestra.uid` values to task-run IDs from the Kestra
+execution API. The execution API task-run `id` is the human-readable bridge to `taskId`.
 
 ## Secrets
 

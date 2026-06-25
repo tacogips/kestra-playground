@@ -10,3 +10,4 @@ resources:
   - worker.yaml
   - service.yaml
   - hpa.yaml
+  - otel-collector.yaml

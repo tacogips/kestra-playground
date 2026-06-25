@@ -21,7 +21,7 @@ pluginDefaults:
       password: "{{ envs.batch_db_password }}"
 
 tasks:
-  - id: write_customer_segments
+  - id: ensure_customer_segments_table
     type: io.kestra.plugin.jdbc.postgresql.Queries
     fetchType: NONE
     sql: |
@@ -39,9 +39,17 @@ tasks:
         PRIMARY KEY (business_date, customer_id)
       );
 
+  - id: purge_customer_segments
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
       DELETE FROM ecommerce_customer_segments
       WHERE business_date = '{{ inputs.business_date }}'::date;
 
+  - id: write_customer_segments
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
       INSERT INTO ecommerce_customer_segments (
         business_date,
         customer_id,

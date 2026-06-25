@@ -102,6 +102,7 @@ chmod 600 "$rendered"
 kustomize build "$work_overlay" >"$rendered"
 
 kubectl apply -f "$rendered"
+kubectl -n "$NAMESPACE" rollout status deployment/otel-collector --timeout=10m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-webserver --timeout=15m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-executor --timeout=15m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-scheduler --timeout=15m

@@ -116,7 +116,7 @@ tasks:
             env_file=kestra/config/envs/local.env
           fi
         fi
-        KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh generate_ecommerce_mock_data "${BUSINESS_DATE:-2026-06-25}" "${KESTRA_URL:-http://localhost:8080}"
+        KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh generate_ecommerce_mock_data "${BUSINESS_DATE:-}" "${KESTRA_URL:-http://localhost:8080}"
 
   kestra:flows:report:
     desc: Execute the ecommerce daily report flow
@@ -130,7 +130,7 @@ tasks:
             env_file=kestra/config/envs/local.env
           fi
         fi
-        KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_ecommerce_daily_report "${BUSINESS_DATE:-2026-06-25}" "${KESTRA_URL:-http://localhost:8080}"
+        KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_ecommerce_daily_report "${BUSINESS_DATE:-}" "${KESTRA_URL:-http://localhost:8080}"
 
   kestra:flows:segments:
     desc: Execute the ecommerce customer segments flow
@@ -144,7 +144,7 @@ tasks:
             env_file=kestra/config/envs/local.env
           fi
         fi
-        KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_ecommerce_customer_segments "${BUSINESS_DATE:-2026-06-25}" "${KESTRA_URL:-http://localhost:8080}"
+        KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_ecommerce_customer_segments "${BUSINESS_DATE:-}" "${KESTRA_URL:-http://localhost:8080}"
 
   kestra:live:deploy:
     desc: Deploy live GCP environments from committed dev tfvars
@@ -154,17 +154,31 @@ tasks:
   kestra:live:verify:
     desc: Register flows and verify live HTTPS endpoints without running the batch
     cmds:
-      - scripts/verify-live-environments.sh "${TARGET_ENVIRONMENT:-all}" "${BUSINESS_DATE:-2026-06-25}" health
+      - scripts/verify-live-environments.sh "${TARGET_ENVIRONMENT:-all}" "${BUSINESS_DATE:-}" health
 
   kestra:live:run-batch:
     desc: Register flows and run the ecommerce batch against live environments
     cmds:
-      - scripts/verify-live-environments.sh "${TARGET_ENVIRONMENT:-all}" "${BUSINESS_DATE:-2026-06-25}" run-batch
+      - scripts/verify-live-environments.sh "${TARGET_ENVIRONMENT:-all}" "${BUSINESS_DATE:-}" run-batch
 
   infra:fmt:
     desc: Format Terraform/OpenTofu files
     cmds:
       - tofu fmt -recursive infra/terraform
+
+  scripts:check:
+    desc: Run syntax and ShellCheck validation for repository shell scripts
+    cmds:
+      - |
+        {
+          git ls-files -z -- '*.sh'
+          git ls-files -z --others --exclude-standard -- '*.sh'
+        } | xargs -0 -n 1 bash -n
+      - |
+        {
+          git ls-files -z -- '*.sh'
+          git ls-files -z --others --exclude-standard -- '*.sh'
+        } | xargs -0 shellcheck -x
 
   k8s:build:dev:
     desc: Render the dev Kustomize overlay

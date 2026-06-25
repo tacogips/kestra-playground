@@ -1,10 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ID="${PROJECT_ID:-example-project-id}"
 TARGET_ENVIRONMENT="${1:-${TARGET_ENVIRONMENT:-all}}"
-BUSINESS_DATE="${2:-${BUSINESS_DATE:-2026-06-25}}"
+BUSINESS_DATE_INPUT="${2:-}"
 MODE="${3:-${MODE:-run-batch}}"
+
+# shellcheck source=scripts/lib/business-date.sh
+source "${SCRIPT_DIR}/lib/business-date.sh"
+
+case "${MODE}" in
+  health)
+    BUSINESS_DATE=""
+    ;;
+  run-batch)
+    BUSINESS_DATE="$(resolve_business_date "${BUSINESS_DATE_INPUT}")"
+    ;;
+  *)
+    echo "Unknown mode: ${MODE}" >&2
+    echo "Use one of: health, run-batch" >&2
+    exit 1
+    ;;
+esac
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -126,15 +144,6 @@ verify_k8s() {
   configure_k8s_auth
   verify_environment k8s "https://k8s.example.com"
 }
-
-case "${MODE}" in
-  health | run-batch) ;;
-  *)
-    echo "Unknown mode: ${MODE}" >&2
-    echo "Use one of: health, run-batch" >&2
-    exit 1
-    ;;
-esac
 
 case "${TARGET_ENVIRONMENT}" in
   all)

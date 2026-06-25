@@ -6,6 +6,19 @@ metadata:
 data:
   CLOUD_SQL_INSTANCE: "replace-with-cloud-sql-connection-name"
   application.yaml: |
+    micronaut:
+      otel:
+        enabled: ${OTEL_ENABLED:true}
+    otel:
+      traces:
+        exporter: ${OTEL_TRACES_EXPORTER:otlp}
+      metrics:
+        exporter: ${OTEL_METRICS_EXPORTER:otlp}
+      logs:
+        exporter: ${OTEL_LOGS_EXPORTER:otlp}
+      exporter:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
     datasources:
       postgres:
         url: ${KESTRA_DB_URL}
@@ -29,6 +42,8 @@ data:
       tasks:
         tmp-dir:
           path: /tmp/kestra-wd/tmp
+      traces:
+        root: ${KESTRA_TRACES_ROOT:DEFAULT}
       url: http://kestra-webserver:8080/
       variables:
         env-vars-prefix: "ENV_"

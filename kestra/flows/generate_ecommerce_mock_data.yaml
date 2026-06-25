@@ -122,7 +122,7 @@ tasks:
         region = EXCLUDED.region,
         signup_date = EXCLUDED.signup_date;
 
-  - id: generate_daily_facts
+  - id: purge_daily_facts
     type: io.kestra.plugin.jdbc.postgresql.Queries
     fetchType: NONE
     sql: |
@@ -138,6 +138,10 @@ tasks:
       DELETE FROM ecommerce_orders WHERE order_date = '{{ inputs.business_date }}'::date;
       DELETE FROM ecommerce_inventory_snapshots WHERE snapshot_date = '{{ inputs.business_date }}'::date;
 
+  - id: insert_orders_and_items
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
       WITH order_seed AS (
         SELECT
           ('{{ inputs.business_date }}'::date - DATE '2020-01-01')::bigint * 100000 + order_no AS order_id,
@@ -203,6 +207,10 @@ tasks:
       FROM priced
       JOIN inserted_orders USING (order_id);
 
+  - id: insert_payments
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
       INSERT INTO ecommerce_payments (
         payment_id,
         order_id,
@@ -221,6 +229,10 @@ tasks:
       FROM ecommerce_orders
       WHERE order_date = '{{ inputs.business_date }}'::date;
 
+  - id: insert_inventory_snapshots
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
       INSERT INTO ecommerce_inventory_snapshots (
         snapshot_date,
         product_id,
@@ -236,6 +248,10 @@ tasks:
         30
       FROM ecommerce_products;
 
+  - id: insert_support_tickets
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
       INSERT INTO ecommerce_support_tickets (
         ticket_id,
         order_id,

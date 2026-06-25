@@ -46,3 +46,6 @@ Notable items that do not fit into architecture or client categories.
   subdomain independently.
 - The GKE secret render path is intentionally temporary-file based. If that helper fails, inspect the
   temporary render and Kubernetes Secret key set, but do not commit rendered secret manifests.
+- GKE OTEL currently exports to the in-cluster collector's `debug` exporter. This proves Kestra can
+  emit and the cluster can receive OTLP telemetry; add a vendor-specific exporter later when a
+  durable observability backend is chosen.

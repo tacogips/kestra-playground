@@ -129,3 +129,15 @@ apply manifest changes instead.
 Secret values are intentionally outside source control. Local development uses non-production values
 from local env files. Live GCE and GKE credentials come from Secret Manager, and the Cloudflare token
 is injected through `kinko` or GitHub Actions secrets.
+
+### OpenTelemetry On GKE
+
+The GKE dev manifests include an in-cluster OpenTelemetry Collector. Kestra components export
+traces, metrics, and logs to the collector over OTLP/gRPC at `http://otel-collector:4317`.
+The collector currently uses the `debug` exporter so telemetry delivery can be audited from
+collector logs without adding a vendor-specific backend.
+
+Kestra flow tracing is enabled with `kestra.traces.root: DEFAULT`, which produces execution and task
+spans. The ecommerce batch flows are intentionally split into smaller SQL tasks so the OTEL trace
+timeline can identify purge, insert, aggregation, and fetch steps separately. Collector spans expose
+`kestra.uid`; that value maps to Kestra execution API task-run IDs for human-readable task names.

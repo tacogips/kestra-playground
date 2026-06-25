@@ -29,9 +29,9 @@ Three mock ecommerce flows live under `kestra/flows/`:
 - `build_ecommerce_customer_segments` writes and fetches a customer lifecycle segment snapshot from
   the generated order and support activity.
 
-Both flows use `ENV_BATCH_DB_URL`, `ENV_BATCH_DB_USERNAME`, and `ENV_BATCH_DB_PASSWORD` so local and
-GCP database connection values can be switched by environment file, Secret Manager, or Kubernetes
-Secret.
+All three flows use `ENV_BATCH_DB_URL`, `ENV_BATCH_DB_USERNAME`, and `ENV_BATCH_DB_PASSWORD` so
+local and GCP database connection values can be switched by environment file, Secret Manager, or
+Kubernetes Secret.
 
 The generated ecommerce data is tracked in `kestra/fixtures/ecommerce/`. The generator flow embeds
 those SQL fixtures into PostgreSQL tasks, and the test suite checks that the deployed flow SQL stays
@@ -70,7 +70,8 @@ task kestra:local:docker:stop
 
 Kestra UI defaults to `http://localhost:8080`.
 
-Flow helper scripts can load credentials and URL settings from an env file:
+Flow helper scripts can load credentials, URL settings, and default batch date settings from an env
+file:
 
 ```bash
 KESTRA_ENV_FILE=kestra/config/envs/local.env scripts/register-flows.sh
@@ -80,7 +81,9 @@ KESTRA_ENV_FILE=local/docker/.env scripts/register-flows.sh
 The `task kestra:flows:*` commands use `KESTRA_ENV_FILE` when provided, otherwise they prefer
 `local/docker/.env` and fall back to `kestra/config/envs/local.env`.
 
-Registering/running flows against an authenticated endpoint:
+Registering/running flows against an authenticated endpoint. If a business date is not provided,
+the helper scripts default to the current date in `Asia/Tokyo`; set `BUSINESS_DATE_TZ` to override
+that default timezone. Explicit dates must use `YYYY-MM-DD`.
 
 ```bash
 export KESTRA_BASIC_AUTH_USERNAME=...
@@ -215,7 +218,29 @@ Kubernetes manifests are Kustomize-based:
 
 ```bash
 kustomize build k8s/overlays/dev
+scripts/apply-gke-dev.sh
 ```
+
+The GKE dev overlay includes an in-cluster OpenTelemetry Collector at
+`otel-collector.kestra-dev.svc.cluster.local` with OTLP/gRPC on `4317` and OTLP/HTTP on `4318`.
+Kestra's Kubernetes `application.yaml` enables Micronaut OpenTelemetry and Kestra flow traces by
+default, exporting traces, metrics, and logs to `http://otel-collector:4317`.
+
+Each Kestra component sets a distinct `OTEL_SERVICE_NAME` (`kestra-webserver`, `kestra-executor`,
+`kestra-scheduler`, `kestra-indexer`, and `kestra-worker`) plus resource attributes for the
+namespace, pod, environment, and Kestra component. Batch flow tasks are split into granular SQL
+steps so OTEL traces expose auditable spans for purging, inserts, summaries, and fetches.
+
+After applying GKE, verify telemetry is being received by checking the collector rollout and logs:
+
+```bash
+kubectl -n kestra-dev rollout status deployment/otel-collector
+kubectl -n kestra-dev logs deployment/otel-collector --tail=200
+```
+
+Collector spans include `kestra.executionId`, `kestra.flowId`, and `kestra.uid`. The `kestra.uid`
+value maps to the task-run ID returned by the Kestra execution API, which lets operators correlate
+collector spans back to specific granular batch tasks.
 
 Apply the live GKE overlay with Terraform outputs without writing real secrets into the repository:
 
@@ -238,6 +263,7 @@ task lint
 task typecheck
 task fmt
 task build
+task scripts:check
 task kestra:local:apple:start
 task kestra:flows:register
 task infra:fmt

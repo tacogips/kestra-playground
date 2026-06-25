@@ -244,6 +244,9 @@ task kestra:live:verify
 TARGET_ENVIRONMENT=k8s task kestra:live:verify
 ```
 
+Health verification does not consume or validate `BUSINESS_DATE`; date resolution is only part of
+batch execution.
+
 ### Batch Verification
 
 Run all batch flows in dependency order:
@@ -268,6 +271,39 @@ The live verification helper loads Kestra Basic Auth credentials from Secret Man
 1. `generate_ecommerce_mock_data`
 2. `build_ecommerce_daily_report`
 3. `build_ecommerce_customer_segments`
+
+### OpenTelemetry Verification
+
+GKE dev deploys an in-cluster OpenTelemetry Collector and configures Kestra to send traces, metrics,
+and logs to it through OTLP/gRPC:
+
+```bash
+kubectl -n kestra-dev rollout status deployment/otel-collector
+kubectl -n kestra-dev get service otel-collector
+kubectl -n kestra-dev logs deployment/otel-collector --tail=200
+```
+
+Run a batch after the collector is ready, then inspect collector logs for spans from the Kestra
+component services and execution IDs:
+
+```bash
+TARGET_ENVIRONMENT=k8s BUSINESS_DATE=2026-06-25 task kestra:live:run-batch
+kubectl -n kestra-dev logs deployment/otel-collector --since=10m | \
+  rg 'kestra.executionId|generate_ecommerce_mock_data|build_ecommerce_daily_report|build_ecommerce_customer_segments'
+```
+
+Expected service names include `kestra-webserver`, `kestra-executor`, `kestra-scheduler`,
+`kestra-indexer`, and `kestra-worker`.
+
+Collector spans include `kestra.uid`, which maps to the task-run ID in the Kestra execution API.
+Use that mapping to audit span timing back to granular task names:
+
+```bash
+curl --fail --silent --show-error \
+  -u "${KESTRA_BASIC_AUTH_USERNAME}:${KESTRA_BASIC_AUTH_PASSWORD}" \
+  "https://k8s.example.com/api/v1/main/executions/<execution-id>" | \
+  jq -r '.taskRunList[] | [.id, .taskId, .state.current] | @tsv'
+```
 
 ### UI Verification
 

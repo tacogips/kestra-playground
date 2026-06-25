@@ -35,10 +35,14 @@ tasks:
         PRIMARY KEY (business_date, metric_group, metric_name, dimension)
       );
 
+  - id: purge_report
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
       DELETE FROM ecommerce_daily_reports
       WHERE business_date = '{{ inputs.business_date }}'::date;
 
-  - id: write_report
+  - id: write_sales_summary
     type: io.kestra.plugin.jdbc.postgresql.Queries
     fetchType: NONE
     sql: |
@@ -59,6 +63,10 @@ tasks:
       WHERE order_date = '{{ inputs.business_date }}'::date
         AND status = 'completed';
 
+  - id: write_order_status_summary
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
       INSERT INTO ecommerce_daily_reports (
         business_date,
         metric_group,
@@ -76,6 +84,10 @@ tasks:
       WHERE order_date = '{{ inputs.business_date }}'::date
       GROUP BY status;
 
+  - id: write_channel_summary
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
       INSERT INTO ecommerce_daily_reports (
         business_date,
         metric_group,
@@ -94,6 +106,10 @@ tasks:
         AND status = 'completed'
       GROUP BY channel;
 
+  - id: write_inventory_summary
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
       INSERT INTO ecommerce_daily_reports (
         business_date,
         metric_group,
@@ -111,6 +127,10 @@ tasks:
       WHERE snapshot_date = '{{ inputs.business_date }}'::date
         AND stock_on_hand - reserved_quantity < reorder_point;
 
+  - id: write_support_summary
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
       INSERT INTO ecommerce_daily_reports (
         business_date,
         metric_group,

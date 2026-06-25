@@ -1,9 +1,9 @@
 # Kestra Deployment Playground Plan
 
-**Status**: IN_PROGRESS  
+**Status**: COMPLETED
 **Design Reference**: `design-docs/specs/architecture.md`  
 **Created**: 2026-06-25  
-**Updated**: 2026-06-25
+**Updated**: 2026-06-26
 
 ## Scope
 
@@ -19,6 +19,7 @@ manifests, and development-shell dependencies.
 **Deliverables**:
 - `kestra/flows/generate_ecommerce_mock_data.yaml`
 - `kestra/flows/build_ecommerce_daily_report.yaml`
+- `kestra/flows/build_ecommerce_customer_segments.yaml`
 - `kestra/config/application.yaml`
 - `kestra/config/envs/local.env.example`
 - `local/apple-container/start.sh`
@@ -36,6 +37,7 @@ manifests, and development-shell dependencies.
 **Checklist**:
 - [x] Create ecommerce data generator flow.
 - [x] Create ecommerce report flow.
+- [x] Create ecommerce customer segment flow.
 - [x] Add local Kestra config and env file.
 - [x] Add Apple container start/stop scripts.
 - [x] Add Docker Compose fallback.
@@ -114,6 +116,9 @@ manifests, and development-shell dependencies.
 - `Taskfile.yml`
 - `scripts/register-flows.sh`
 - `scripts/run-flow.sh`
+- `scripts/deploy-live-environments.sh`
+- `scripts/verify-live-environments.sh`
+- `.github/workflows/deploy.yml`
 
 **Status**: COMPLETED
 
@@ -137,7 +142,7 @@ manifests, and development-shell dependencies.
 | GCP Single VM Terraform | `infra/terraform/bootstrap-project`, `infra/terraform/gce-single` | COMPLETED | `tofu validate` |
 | GCE Cluster Terraform | `infra/terraform/gce-cluster` | COMPLETED | `tofu validate` |
 | GKE Dev Manifests | `infra/terraform/gke-dev`, `k8s/` | COMPLETED | `tofu validate`, Kustomize render |
-| Tooling And Documentation | `flake.nix`, `README.md`, `Taskfile.yml`, `scripts/` | COMPLETED | Nix shell, Python checks |
+| Tooling And Documentation | `flake.nix`, `README.md`, `Taskfile.yml`, `scripts/`, `.github/workflows/deploy.yml` | COMPLETED | CI, ShellCheck, workflow security review |
 
 ## Dependencies
 
@@ -145,7 +150,8 @@ manifests, and development-shell dependencies.
 - GCP credentials must have project creation, billing attachment, IAM, Compute, Cloud SQL, GKE,
   Secret Manager, and Storage permissions. Cloud SQL is used by the cluster and GKE roots; the
   single-VM root uses PostgreSQL in Docker Compose.
-- A real parent DNS domain is required before live HTTPS certificate provisioning can be verified.
+- The live development domain path uses Cloudflare-backed `example.com` DNS. New HTTPS domains
+  require either Cloudflare DNS edit access or a delegated Cloud DNS managed zone.
 - Apple container local path requires Apple Silicon macOS with the `container` CLI installed and
   system services started.
 - Live Terraform apply, GKE deploy, and Kestra runtime verification require cloud credentials and
@@ -153,7 +159,7 @@ manifests, and development-shell dependencies.
 
 ## Completion Criteria
 
-- [x] Two ecommerce mock Kestra flows exist and can be registered.
+- [x] Three ecommerce mock Kestra flows exist and can be registered.
 - [x] Local Apple container scripts and Docker Compose fallback can run Kestra with PostgreSQL.
 - [x] Terraform can create a new GCP project and all requested GCP deployment shapes.
 - [x] GCE single-VM setup runs non-clustered Kestra from Docker Compose.
@@ -163,7 +169,7 @@ manifests, and development-shell dependencies.
 - [x] README and command docs explain the workflows.
 - [x] Available static validation has been executed and results recorded.
 - [x] Live GCP apply and live Kestra flow execution are verified with project credentials.
-- [ ] Live HTTPS domain delegation and certificate provisioning are verified with a real domain.
+- [x] Live HTTPS domain delegation and certificate provisioning are verified with a real domain.
 
 ## Progress Log
 
@@ -456,10 +462,10 @@ manifest from Terraform outputs. Added the GKE auth plugin to the Nix dev shell.
 ### Session: 2026-06-25 11:50
 
 **Tasks Completed**: Performed end-to-end runtime verification in each live HTTPS environment by
-registering the two ecommerce flows and executing both the mock data generator and daily report
-flows. Fixed the GKE manifests so Kestra containers wait for the Cloud SQL proxy sidecar to accept
-connections on `127.0.0.1:5432` before starting; without this, the fresh GKE executor accepted
-executions but left them in `CREATED`.
+registering the two initial ecommerce flows and executing both the mock data generator and daily
+report flows. Fixed the GKE manifests so Kestra containers wait for the Cloud SQL proxy sidecar to
+accept connections on `127.0.0.1:5432` before starting; without this, the fresh GKE executor
+accepted executions but left them in `CREATED`.
 
 **Tasks In Progress**: None.
 
@@ -547,3 +553,179 @@ scripts to read GKE Kestra Basic Auth from Secret Manager.
     (`3kZuK6LstD30p3k2KJsFsy`)
   - `k8s`: generator `SUCCESS` (`2GoMEy3ZcwPlVEKen26sCe`), report `SUCCESS`
     (`1ZasuplGdlrq7gA0kw7CoX`)
+
+### Session: 2026-06-26 00:49
+
+**Tasks Completed**: Reviewed the active implementation and design diff for the live operations
+runbook, GitHub Actions deploy path, and helper scripts. Found that helper scripts documented
+invalid business dates as rejected but only checked the `YYYY-MM-DD` shape. Added shared business
+date resolution in `scripts/lib/business-date.sh`, sourced it from `scripts/run-flow.sh` and
+`scripts/verify-live-environments.sh`, and now reject calendar-invalid dates before any Kestra
+execution starts. Added `task scripts:check` and updated GitHub Actions plus the Kestra operations
+skill so tracked and untracked nested shell helpers are covered by syntax and ShellCheck validation.
+Reviewed the deployment workflow against the GitHub Actions hardening rules and updated
+`actions/checkout` from the pinned `v4.2.2` commit to the current pinned `v7.0.0` commit.
+
+**Tasks In Progress**: None.
+
+**Blockers**: None.
+
+**Validation**:
+- `bash -n scripts/lib/business-date.sh scripts/run-flow.sh scripts/verify-live-environments.sh`
+  passed.
+- `shellcheck scripts/lib/business-date.sh scripts/run-flow.sh scripts/verify-live-environments.sh`
+  passed.
+- `scripts/run-flow.sh generate_ecommerce_mock_data 2026-99-99 http://127.0.0.1:1` failed before
+  curl with the expected invalid-date error.
+- `nix develop -c task ci` passed.
+- `nix develop -c task scripts:check` passed.
+- `nix develop -c tofu fmt -check -recursive infra/terraform` passed.
+- `nix develop -c kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev.yaml` passed.
+- GitHub Actions latest stable tags checked with `gh api`; `DeterminateSystems/nix-installer-action`
+  and `google-github-actions/auth` were already on their latest pinned tags.
+
+### Session: 2026-06-26 00:57
+
+**Tasks Completed**: Performed a follow-up review of the current implementation and design diff.
+Fixed `task scripts:check` so review-time validation includes untracked shell helpers as well as
+tracked scripts. Updated all `actions/checkout` workflow references to the current stable pinned
+`v7.0.0` commit while preserving minimal permissions, job timeouts, and
+`persist-credentials: false`. Tightened the flow task ID test helper so it reads only IDs under the
+YAML `tasks:` section and does not confuse flow inputs with executable tasks.
+
+**Tasks In Progress**: None.
+
+**Blockers**: None.
+
+**Validation**:
+- `nix develop -c task scripts:check` passed.
+- `nix develop -c task ci` passed.
+- `nix develop -c kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev.yaml` passed.
+- GitHub Actions audit confirmed 11 `uses:` entries, all pinned to full 40-character commit SHAs,
+  with four job timeouts and four checkout steps using `persist-credentials: false`.
+
+### Session: 2026-06-26 01:03
+
+**Tasks Completed**: Reviewed the current implementation and design diff again with the active
+workflow, GKE OTEL, script helper, and test changes in scope. Replaced brittle text-fragment YAML
+assertions with structured `PyYAML` assertions for Kestra flows and Kubernetes manifests. Added
+business-date regression tests for default resolution, explicit argument precedence, calendar-invalid
+date rejection, and `scripts/run-flow.sh` failing before curl when the date is invalid. Added
+`PyYAML` as a dev-only test dependency and refreshed `uv.lock`.
+
+**Tasks In Progress**: None.
+
+**Blockers**: None.
+
+**Validation**:
+- `nix develop -c uv run pytest -q` passed with 11 tests.
+- `nix develop -c uv run ruff check tests/test_package.py` passed.
+- `nix develop -c uv run ty check tests/test_package.py` passed.
+- `nix develop -c task ci` passed.
+- `nix develop -c task scripts:check` passed.
+- `nix develop -c kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev.yaml` passed.
+- `nix develop -c tofu fmt -check -recursive infra/terraform` passed.
+- `git diff --check` passed.
+- GitHub Actions latest stable tags checked with `gh api`: `actions/checkout@v7.0.0`,
+  `DeterminateSystems/nix-installer-action@v22`, and `google-github-actions/auth@v3`.
+- Workflow audit confirmed 11 `uses:` entries pinned to full SHAs, four job timeouts, and four
+  checkout steps with `persist-credentials: false`.
+
+### Session: 2026-06-26 01:15
+
+**Tasks Completed**: Reviewed the implementation and design diff after the OTEL, business-date, and
+workflow hardening changes. Found that splitting SQL into granular Kestra tasks weakened the fixture
+source-of-truth tests for `generate_daily_facts.sql` and `build_customer_segments.sql`. Restored that
+coverage by asserting the concatenated split task SQL still matches the fixture files while keeping
+the granular task ID checks used for OTEL auditability.
+
+**Tasks In Progress**: None.
+
+**Blockers**: None.
+
+**Validation**:
+- `nix develop -c uv run pytest -q` passed with 7 tests.
+- `nix develop -c uv run ruff format --check tests/test_package.py` passed.
+- `nix develop -c uv run ruff check tests/test_package.py` passed.
+- `nix develop -c uv run ty check tests/test_package.py` passed.
+- `nix develop -c task ci` passed.
+- `nix develop -c task scripts:check` passed.
+- `nix develop -c kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev.yaml` passed.
+- `git diff --check` passed.
+- Workflow audit confirmed 11 `uses:` entries pinned to full SHAs, four job timeouts, and four
+  checkout steps with `persist-credentials: false`.
+
+### Session: 2026-06-26 01:20
+
+**Tasks Completed**: Reviewed the current implementation and design diff with the live verification
+workflow in scope. Found that `scripts/verify-live-environments.sh` validated `BUSINESS_DATE` before
+checking whether it was running in `health` mode, so a deploy-only health check could fail because
+of a batch-only input. Moved mode handling before date resolution so `health` ignores the unused
+business date while `run-batch` still validates it before command checks or flow execution. Added
+regression coverage for both paths and updated the command runbook to document the distinction.
+
+**Tasks In Progress**: None.
+
+**Blockers**: None.
+
+**Validation**:
+- `nix develop -c uv run pytest -q` passed with 13 tests.
+- `nix develop -c uv run ruff check tests/test_package.py` passed.
+- `nix develop -c uv run ty check tests/test_package.py` passed.
+- `nix develop -c task scripts:check` passed.
+- `nix develop -c task ci` passed.
+- `nix develop -c kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev.yaml` passed.
+- `nix develop -c tofu fmt -check -recursive infra/terraform` passed.
+
+### Session: 2026-06-26 01:25
+
+**Tasks Completed**: Reviewed the current implementation and design diff after the OTEL, workflow
+hardening, and business-date changes. Found that `task scripts:check` passed all shell scripts to one
+`bash -n` invocation, which only syntax-checks the first script and treats the rest as positional
+arguments. Updated the task to run Bash syntax validation once per shell file and added a regression
+test so the validation command keeps checking each script individually.
+
+**Tasks In Progress**: None.
+
+**Blockers**: None.
+
+**Validation**:
+- `nix develop -c uv run pytest -q` passed with 14 tests.
+- `nix develop -c task scripts:check` passed.
+- `nix develop -c uv run ruff check tests/test_package.py` passed.
+- `nix develop -c uv run ty check tests/test_package.py` passed.
+- `nix develop -c uv run ruff format --check tests/test_package.py` passed.
+- `nix develop -c kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev.yaml` passed.
+- `nix develop -c task ci` passed.
+- `nix develop -c tofu fmt -check -recursive infra/terraform` passed.
+- `git diff --check` passed.
+- GitHub Actions latest stable tags were verified with `gh api` for `actions/checkout@v7.0.0`,
+  `DeterminateSystems/nix-installer-action@v22`, and `google-github-actions/auth@v3`.
+- Workflow audit confirmed 11 `uses:` entries pinned to full SHAs, four job timeouts, and four
+  checkout steps with `persist-credentials: false`.
+
+### Session: 2026-06-26 01:35
+
+**Tasks Completed**: Reviewed the implementation and design diff again with the granular OTEL flow
+design and shared date helper in scope. Split `build_ecommerce_daily_report` purging into a
+dedicated `purge_report` task so report cleanup has its own trace span, matching the generator and
+customer segment flows. Hardened `scripts/lib/business-date.sh` so missing Python exits with the
+intended command error instead of continuing with an empty command name, and added regression tests
+for both changes.
+
+**Tasks In Progress**: None.
+
+**Blockers**: None.
+
+**Validation**:
+- `uv run pytest` passed with 15 tests.
+- `bash -n scripts/lib/business-date.sh scripts/run-flow.sh scripts/verify-live-environments.sh scripts/apply-gke-dev.sh` passed.
+- `task scripts:check` passed.
+- `kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev.yaml` passed.
+- `uv run ruff format .` left files unchanged.
+- `uv run ruff check .` passed.
+- `uv run ty check` passed.
+- `task ci` passed, including Ruff format check, Ruff lint, ty type check, pytest, and package build.
+- `git diff --check` passed.
+- GitHub Action tag pins were verified with `git ls-remote` for `actions/checkout@v7.0.0`,
+  `DeterminateSystems/nix-installer-action@v22`, and `google-github-actions/auth@v3`.

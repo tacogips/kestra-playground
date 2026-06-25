@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FLOW_ID="${1:?Usage: scripts/run-flow.sh <flow-id> [business-date] [kestra-url]}"
-BUSINESS_DATE="${2:-2026-06-25}"
 
 if [[ -n "${KESTRA_ENV_FILE:-}" ]]; then
   set -a
@@ -11,6 +11,9 @@ if [[ -n "${KESTRA_ENV_FILE:-}" ]]; then
   set +a
 fi
 
+# shellcheck source=scripts/lib/business-date.sh
+source "${SCRIPT_DIR}/lib/business-date.sh"
+BUSINESS_DATE="$(resolve_business_date "${2:-}")"
 KESTRA_URL="${3:-${KESTRA_URL:-http://localhost:8080}}"
 NAMESPACE="${NAMESPACE:-playground.ecommerce}"
 
