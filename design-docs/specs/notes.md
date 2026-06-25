@@ -33,3 +33,16 @@ Notable items that do not fit into architecture or client categories.
 - HTTPS/domain support is optional and parameterized by `domain_name`. If Terraform creates a new
   Cloud DNS managed zone, the registrar or parent zone still needs NS delegation to the output name
   servers before Google-managed certificates can become active.
+- The live development domain path uses Cloudflare DNS for `example.com`; the scoped
+  Cloudflare API token is intentionally injected from `kinko` rather than committed.
+- Scheduled and default helper-script batch runs use the current date in `Asia/Tokyo`. Historical
+  replays should pass `BUSINESS_DATE=YYYY-MM-DD` explicitly; invalid date strings fail before a
+  Kestra execution is created.
+- `task kestra:live:verify` is a health and flow-registration check only. Use
+  `task kestra:live:run-batch` when the deployment must prove the ecommerce batch can write and read
+  the business database.
+- UI verification is separate from API verification. When the user asks to touch the live Kestra UI,
+  use Brave Browser through Computer Use, avoid printing secret values, and verify each public
+  subdomain independently.
+- The GKE secret render path is intentionally temporary-file based. If that helper fails, inspect the
+  temporary render and Kubernetes Secret key set, but do not commit rendered secret manifests.

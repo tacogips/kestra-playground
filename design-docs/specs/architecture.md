@@ -34,8 +34,10 @@ The workload namespace is `playground.ecommerce`.
   and support ticket mock data for ecommerce operations.
 - `build_ecommerce_daily_report` reads the mock tables and emits an operational daily report into
   `ecommerce_daily_reports`, with rows returned in the Kestra execution output.
+- `build_ecommerce_customer_segments` writes a daily customer lifecycle segment snapshot into
+  `ecommerce_customer_segments` and returns the segment summary.
 
-Both flows use the PostgreSQL JDBC plugin and read their target business database from Kestra
+All flows use the PostgreSQL JDBC plugin and read their target business database from Kestra
 environment variables:
 
 | Environment variable | Purpose |
@@ -101,3 +103,29 @@ entire manifest tree.
 For HTTPS, `infra/terraform/gke-dev` can reserve a global static IP and create the Cloud DNS record.
 The dev overlay includes a GKE `ManagedCertificate` and Ingress placeholder that are patched with
 the Terraform hostname and static IP name before apply.
+
+Live development HTTPS currently uses Cloudflare DNS records for `example.com`:
+
+- `https://k8s.example.com`
+- `https://gce-container.example.com`
+- `https://gce-compose.example.com`
+
+GKE Basic Auth credentials are stored in Secret Manager and rendered into Kubernetes only through
+the temporary manifest path in `scripts/apply-gke-dev.sh`.
+
+### Operational Boundaries
+
+GitHub Actions is the default release controller. A push to `main` validates source, Terraform, and
+Kubernetes manifests; builds the runtime container; pushes it to Artifact Registry; deploys live
+development infrastructure; and performs HTTPS health verification. Scheduled and manually requested
+batch runs reuse the same verification helper so operational behavior stays close to local scripts.
+
+Terraform owns cloud infrastructure, DNS records, load balancing, service accounts, Secret Manager
+containers and versions, Cloud SQL, GCS, GCE, and GKE cluster resources. Kustomize owns Kubernetes
+workloads under `k8s/`, with `scripts/apply-gke-dev.sh` bridging Terraform outputs into the dev
+overlay. Do not hand-edit live Kubernetes resources except for short-lived diagnostics; commit and
+apply manifest changes instead.
+
+Secret values are intentionally outside source control. Local development uses non-production values
+from local env files. Live GCE and GKE credentials come from Secret Manager, and the Cloudflare token
+is injected through `kinko` or GitHub Actions secrets.
