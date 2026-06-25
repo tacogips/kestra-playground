@@ -18,7 +18,7 @@ variable "name_prefix" {
 variable "kestra_basic_auth_username" {
   type        = string
   description = "Kestra Basic Auth username. Kestra OSS requires Basic Auth."
-  default     = "admin@kestra.local"
+  default     = "admin@example.com"
 }
 
 variable "kestra_image" {

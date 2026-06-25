@@ -21,11 +21,13 @@ uv run pytest
 
 ## Kestra Workloads
 
-Two mock ecommerce flows live under `kestra/flows/`:
+Three mock ecommerce flows live under `kestra/flows/`:
 
 - `generate_ecommerce_mock_data` creates product, customer, order, payment, inventory, and support
   ticket data in PostgreSQL.
 - `build_ecommerce_daily_report` writes and fetches daily operational metrics from that data.
+- `build_ecommerce_customer_segments` writes and fetches a customer lifecycle segment snapshot from
+  the generated order and support activity.
 
 Both flows use `ENV_BATCH_DB_URL`, `ENV_BATCH_DB_USERNAME`, and `ENV_BATCH_DB_PASSWORD` so local and
 GCP database connection values can be switched by environment file, Secret Manager, or Kubernetes
@@ -50,6 +52,7 @@ task kestra:local:apple:start
 task kestra:flows:register
 task kestra:flows:generate
 task kestra:flows:report
+task kestra:flows:segments
 task kestra:local:apple:stop
 ```
 
@@ -61,6 +64,7 @@ task kestra:local:docker:start
 task kestra:flows:register
 task kestra:flows:generate
 task kestra:flows:report
+task kestra:flows:segments
 task kestra:local:docker:stop
 ```
 
@@ -84,6 +88,7 @@ export KESTRA_BASIC_AUTH_PASSWORD=...
 scripts/register-flows.sh http://34.84.21.87:8080
 scripts/run-flow.sh generate_ecommerce_mock_data 2026-06-25 http://34.84.21.87:8080
 scripts/run-flow.sh build_ecommerce_daily_report 2026-06-25 http://34.84.21.87:8080
+scripts/run-flow.sh build_ecommerce_customer_segments 2026-06-25 http://34.84.21.87:8080
 ```
 
 ## GCP Deployment Shapes

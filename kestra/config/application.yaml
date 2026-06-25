@@ -9,8 +9,8 @@ datasources:
 kestra:
   server:
     basic-auth:
-      username: ${KESTRA_BASIC_AUTH_USERNAME:admin@kestra.local}
-      password: ${KESTRA_BASIC_AUTH_PASSWORD:kestra}
+      username: ${KESTRA_BASIC_AUTH_USERNAME:admin@example.com}
+      password: ${KESTRA_BASIC_AUTH_PASSWORD:KestraDev1234!}
   repository:
     type: postgres
   queue:

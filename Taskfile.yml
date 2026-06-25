@@ -132,6 +132,20 @@ tasks:
         fi
         KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_ecommerce_daily_report "${BUSINESS_DATE:-2026-06-25}" "${KESTRA_URL:-http://localhost:8080}"
 
+  kestra:flows:segments:
+    desc: Execute the ecommerce customer segments flow
+    cmds:
+      - |
+        env_file="${KESTRA_ENV_FILE:-}"
+        if [ -z "$env_file" ]; then
+          if [ -f local/docker/.env ]; then
+            env_file=local/docker/.env
+          else
+            env_file=kestra/config/envs/local.env
+          fi
+        fi
+        KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_ecommerce_customer_segments "${BUSINESS_DATE:-2026-06-25}" "${KESTRA_URL:-http://localhost:8080}"
+
   kestra:live:deploy:
     desc: Deploy live GCP environments from committed dev tfvars
     cmds:

@@ -108,6 +108,7 @@ verify_environment() {
   if [[ "${MODE}" == "run-batch" ]]; then
     run_flow_and_wait "${url}" generate_ecommerce_mock_data
     run_flow_and_wait "${url}" build_ecommerce_daily_report
+    run_flow_and_wait "${url}" build_ecommerce_customer_segments
   fi
 }
 

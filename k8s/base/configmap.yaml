@@ -16,8 +16,8 @@ data:
     kestra:
       server:
         basic-auth:
-          username: ${KESTRA_BASIC_AUTH_USERNAME}
-          password: ${KESTRA_BASIC_AUTH_PASSWORD}
+          username: ${KESTRA_SERVER_BASIC__AUTH_USERNAME}
+          password: ${KESTRA_SERVER_BASIC__AUTH_PASSWORD}
       repository:
         type: postgres
       queue:

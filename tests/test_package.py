@@ -16,6 +16,13 @@ def test_ecommerce_fixture_sql_is_embedded_in_generator_flow() -> None:
     )
 
 
+def test_customer_segments_fixture_sql_is_embedded_in_batch_flow() -> None:
+    assert _flow_task_sql(
+        "kestra/flows/build_ecommerce_customer_segments.yaml",
+        "write_customer_segments",
+    ) == _read_text("kestra/fixtures/ecommerce/build_customer_segments.sql")
+
+
 def _read_text(path: str) -> str:
     with open(path, encoding="utf-8") as file:
         return file.read().rstrip()

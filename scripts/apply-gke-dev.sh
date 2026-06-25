@@ -89,6 +89,8 @@ stringData:
   KESTRA_GCS_BUCKET: $(secret_value KESTRA_GCS_BUCKET)
   KESTRA_BASIC_AUTH_USERNAME: $(gcp_secret_value "$(basic_auth_secret_id username)")
   KESTRA_BASIC_AUTH_PASSWORD: $(gcp_secret_value "$(basic_auth_secret_id password)")
+  KESTRA_SERVER_BASIC__AUTH_USERNAME: $(gcp_secret_value "$(basic_auth_secret_id username)")
+  KESTRA_SERVER_BASIC__AUTH_PASSWORD: $(gcp_secret_value "$(basic_auth_secret_id password)")
   ENV_BATCH_DB_URL: $(secret_value ENV_BATCH_DB_URL)
   ENV_BATCH_DB_USERNAME: $(secret_value ENV_BATCH_DB_USERNAME)
   ENV_BATCH_DB_PASSWORD: $(secret_value ENV_BATCH_DB_PASSWORD)
