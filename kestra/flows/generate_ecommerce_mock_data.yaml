@@ -1,0 +1,270 @@
+id: generate_ecommerce_mock_data
+namespace: playground.ecommerce
+description: Generate deterministic mock ecommerce operational data in PostgreSQL.
+
+labels:
+  environment: playground
+  domain: ecommerce
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+    description: Date used for the generated ecommerce orders.
+
+pluginDefaults:
+  - type: io.kestra.plugin.jdbc.postgresql
+    values:
+      url: "{{ envs.batch_db_url }}"
+      username: "{{ envs.batch_db_username }}"
+      password: "{{ envs.batch_db_password }}"
+
+tasks:
+  - id: create_tables
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      CREATE TABLE IF NOT EXISTS ecommerce_products (
+        product_id integer PRIMARY KEY,
+        sku text NOT NULL UNIQUE,
+        category text NOT NULL,
+        product_name text NOT NULL,
+        unit_price numeric(12, 2) NOT NULL,
+        active boolean NOT NULL DEFAULT true
+      );
+
+      CREATE TABLE IF NOT EXISTS ecommerce_customers (
+        customer_id integer PRIMARY KEY,
+        segment text NOT NULL,
+        region text NOT NULL,
+        signup_date date NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS ecommerce_orders (
+        order_id bigint PRIMARY KEY,
+        order_date date NOT NULL,
+        customer_id integer NOT NULL REFERENCES ecommerce_customers(customer_id),
+        channel text NOT NULL,
+        status text NOT NULL,
+        gross_amount numeric(12, 2) NOT NULL,
+        discount_amount numeric(12, 2) NOT NULL,
+        net_amount numeric(12, 2) NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS ecommerce_order_items (
+        order_item_id bigint PRIMARY KEY,
+        order_id bigint NOT NULL REFERENCES ecommerce_orders(order_id),
+        product_id integer NOT NULL REFERENCES ecommerce_products(product_id),
+        quantity integer NOT NULL,
+        unit_price numeric(12, 2) NOT NULL,
+        line_amount numeric(12, 2) NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS ecommerce_payments (
+        payment_id bigint PRIMARY KEY,
+        order_id bigint NOT NULL REFERENCES ecommerce_orders(order_id),
+        payment_method text NOT NULL,
+        payment_status text NOT NULL,
+        paid_amount numeric(12, 2) NOT NULL,
+        processed_at timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS ecommerce_inventory_snapshots (
+        snapshot_date date NOT NULL,
+        product_id integer NOT NULL REFERENCES ecommerce_products(product_id),
+        stock_on_hand integer NOT NULL,
+        reserved_quantity integer NOT NULL,
+        reorder_point integer NOT NULL,
+        PRIMARY KEY (snapshot_date, product_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS ecommerce_support_tickets (
+        ticket_id bigint PRIMARY KEY,
+        order_id bigint REFERENCES ecommerce_orders(order_id),
+        ticket_date date NOT NULL,
+        reason text NOT NULL,
+        priority text NOT NULL,
+        resolved boolean NOT NULL
+      );
+
+  - id: seed_dimensions
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      INSERT INTO ecommerce_products (product_id, sku, category, product_name, unit_price, active)
+      VALUES
+        (1, 'APP-TSHIRT-BLK', 'apparel', 'Black Logo T-Shirt', 2800, true),
+        (2, 'APP-HOODIE-GRY', 'apparel', 'Gray Hoodie', 7200, true),
+        (3, 'HOME-MUG-WHT', 'home', 'Ceramic Coffee Mug', 1600, true),
+        (4, 'HOME-TOTE-NAT', 'home', 'Canvas Tote Bag', 2200, true),
+        (5, 'ELEC-CHARGER-65W', 'electronics', '65W USB-C Charger', 5400, true),
+        (6, 'ELEC-CABLE-2M', 'electronics', 'Braided USB-C Cable', 1800, true),
+        (7, 'BEAUTY-SOAP-YUZU', 'beauty', 'Yuzu Handmade Soap', 900, true),
+        (8, 'FOOD-COFFEE-200G', 'food', 'Single Origin Coffee 200g', 2400, true)
+      ON CONFLICT (product_id) DO UPDATE SET
+        sku = EXCLUDED.sku,
+        category = EXCLUDED.category,
+        product_name = EXCLUDED.product_name,
+        unit_price = EXCLUDED.unit_price,
+        active = EXCLUDED.active;
+
+      INSERT INTO ecommerce_customers (customer_id, segment, region, signup_date)
+      SELECT
+        customer_id,
+        (ARRAY['new', 'returning', 'vip'])[1 + (customer_id % 3)],
+        (ARRAY['hokkaido', 'kanto', 'chubu', 'kansai', 'kyushu'])[1 + (customer_id % 5)],
+        DATE '2025-01-01' + (customer_id % 365)
+      FROM generate_series(1, 120) AS customer_id
+      ON CONFLICT (customer_id) DO UPDATE SET
+        segment = EXCLUDED.segment,
+        region = EXCLUDED.region,
+        signup_date = EXCLUDED.signup_date;
+
+  - id: generate_daily_facts
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      DELETE FROM ecommerce_support_tickets WHERE ticket_date = '{{ inputs.business_date }}'::date;
+      DELETE FROM ecommerce_payments
+      WHERE order_id IN (
+        SELECT order_id FROM ecommerce_orders WHERE order_date = '{{ inputs.business_date }}'::date
+      );
+      DELETE FROM ecommerce_order_items
+      WHERE order_id IN (
+        SELECT order_id FROM ecommerce_orders WHERE order_date = '{{ inputs.business_date }}'::date
+      );
+      DELETE FROM ecommerce_orders WHERE order_date = '{{ inputs.business_date }}'::date;
+      DELETE FROM ecommerce_inventory_snapshots WHERE snapshot_date = '{{ inputs.business_date }}'::date;
+
+      WITH order_seed AS (
+        SELECT
+          ('{{ inputs.business_date }}'::date - DATE '2020-01-01')::bigint * 100000 + order_no AS order_id,
+          '{{ inputs.business_date }}'::date AS order_date,
+          1 + (order_no * 17 % 120) AS customer_id,
+          (ARRAY['web', 'mobile_app', 'marketplace'])[1 + (order_no % 3)] AS channel,
+          CASE
+            WHEN order_no % 31 = 0 THEN 'cancelled'
+            WHEN order_no % 17 = 0 THEN 'returned'
+            ELSE 'completed'
+          END AS status,
+          1 + (order_no * 7 % 8) AS product_id,
+          1 + (order_no % 4) AS quantity,
+          CASE WHEN order_no % 9 = 0 THEN 0.10 ELSE 0.00 END AS discount_rate
+        FROM generate_series(1, 80) AS order_no
+      ),
+      priced AS (
+        SELECT
+          order_seed.*,
+          products.unit_price,
+          ROUND(products.unit_price * order_seed.quantity, 2) AS gross_amount
+        FROM order_seed
+        JOIN ecommerce_products AS products USING (product_id)
+      ),
+      inserted_orders AS (
+        INSERT INTO ecommerce_orders (
+          order_id,
+          order_date,
+          customer_id,
+          channel,
+          status,
+          gross_amount,
+          discount_amount,
+          net_amount
+        )
+        SELECT
+          order_id,
+          order_date,
+          customer_id,
+          channel,
+          status,
+          gross_amount,
+          ROUND(gross_amount * discount_rate, 2),
+          ROUND(gross_amount * (1 - discount_rate), 2)
+        FROM priced
+        RETURNING order_id
+      )
+      INSERT INTO ecommerce_order_items (
+        order_item_id,
+        order_id,
+        product_id,
+        quantity,
+        unit_price,
+        line_amount
+      )
+      SELECT
+        priced.order_id * 10 + 1,
+        priced.order_id,
+        priced.product_id,
+        priced.quantity,
+        priced.unit_price,
+        priced.gross_amount
+      FROM priced
+      JOIN inserted_orders USING (order_id);
+
+      INSERT INTO ecommerce_payments (
+        payment_id,
+        order_id,
+        payment_method,
+        payment_status,
+        paid_amount,
+        processed_at
+      )
+      SELECT
+        order_id,
+        order_id,
+        (ARRAY['credit_card', 'konbini', 'wallet', 'bank_transfer'])[1 + (order_id % 4)],
+        CASE WHEN status = 'completed' THEN 'captured' ELSE 'voided' END,
+        CASE WHEN status = 'completed' THEN net_amount ELSE 0 END,
+        order_date::timestamptz + make_interval(hours => (order_id % 24)::integer)
+      FROM ecommerce_orders
+      WHERE order_date = '{{ inputs.business_date }}'::date;
+
+      INSERT INTO ecommerce_inventory_snapshots (
+        snapshot_date,
+        product_id,
+        stock_on_hand,
+        reserved_quantity,
+        reorder_point
+      )
+      SELECT
+        '{{ inputs.business_date }}'::date,
+        product_id,
+        35 + ((product_id * 23 + EXTRACT(DOY FROM '{{ inputs.business_date }}'::date)::integer) % 120),
+        3 + (product_id * 5 % 18),
+        30
+      FROM ecommerce_products;
+
+      INSERT INTO ecommerce_support_tickets (
+        ticket_id,
+        order_id,
+        ticket_date,
+        reason,
+        priority,
+        resolved
+      )
+      SELECT
+        order_id + 900000000,
+        order_id,
+        order_date,
+        (ARRAY['delivery_delay', 'return_request', 'payment_question', 'damaged_item'])[1 + (order_id % 4)],
+        CASE WHEN order_id % 19 = 0 THEN 'high' ELSE 'normal' END,
+        order_id % 5 <> 0
+      FROM ecommerce_orders
+      WHERE order_date = '{{ inputs.business_date }}'::date
+        AND order_id % 6 = 0;
+
+  - id: summarize_generated_data
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    fetchType: FETCH
+    sql: |
+      SELECT
+        '{{ inputs.business_date }}'::date AS business_date,
+        COUNT(*) AS order_count,
+        SUM(net_amount) AS net_sales,
+        COUNT(*) FILTER (WHERE status = 'completed') AS completed_orders,
+        COUNT(*) FILTER (WHERE status = 'returned') AS returned_orders,
+        COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled_orders
+      FROM ecommerce_orders
+      WHERE order_date = '{{ inputs.business_date }}'::date;

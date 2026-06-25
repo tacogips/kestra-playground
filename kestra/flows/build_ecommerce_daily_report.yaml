@@ -1,0 +1,145 @@
+id: build_ecommerce_daily_report
+namespace: playground.ecommerce
+description: Build an ecommerce operations report from generated mock data.
+
+labels:
+  environment: playground
+  domain: ecommerce
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+    description: Date to report.
+
+pluginDefaults:
+  - type: io.kestra.plugin.jdbc.postgresql
+    values:
+      url: "{{ envs.batch_db_url }}"
+      username: "{{ envs.batch_db_username }}"
+      password: "{{ envs.batch_db_password }}"
+
+tasks:
+  - id: ensure_report_table
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      CREATE TABLE IF NOT EXISTS ecommerce_daily_reports (
+        business_date date NOT NULL,
+        metric_group text NOT NULL,
+        metric_name text NOT NULL,
+        metric_value numeric(14, 2) NOT NULL,
+        dimension text NOT NULL DEFAULT 'all',
+        generated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (business_date, metric_group, metric_name, dimension)
+      );
+
+      DELETE FROM ecommerce_daily_reports
+      WHERE business_date = '{{ inputs.business_date }}'::date;
+
+  - id: write_report
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      INSERT INTO ecommerce_daily_reports (
+        business_date,
+        metric_group,
+        metric_name,
+        metric_value,
+        dimension
+      )
+      SELECT
+        '{{ inputs.business_date }}'::date,
+        'sales',
+        'net_sales',
+        COALESCE(SUM(net_amount), 0),
+        'all'
+      FROM ecommerce_orders
+      WHERE order_date = '{{ inputs.business_date }}'::date
+        AND status = 'completed';
+
+      INSERT INTO ecommerce_daily_reports (
+        business_date,
+        metric_group,
+        metric_name,
+        metric_value,
+        dimension
+      )
+      SELECT
+        '{{ inputs.business_date }}'::date,
+        'orders',
+        'order_count',
+        COUNT(*),
+        status
+      FROM ecommerce_orders
+      WHERE order_date = '{{ inputs.business_date }}'::date
+      GROUP BY status;
+
+      INSERT INTO ecommerce_daily_reports (
+        business_date,
+        metric_group,
+        metric_name,
+        metric_value,
+        dimension
+      )
+      SELECT
+        '{{ inputs.business_date }}'::date,
+        'sales_by_channel',
+        'net_sales',
+        COALESCE(SUM(net_amount), 0),
+        channel
+      FROM ecommerce_orders
+      WHERE order_date = '{{ inputs.business_date }}'::date
+        AND status = 'completed'
+      GROUP BY channel;
+
+      INSERT INTO ecommerce_daily_reports (
+        business_date,
+        metric_group,
+        metric_name,
+        metric_value,
+        dimension
+      )
+      SELECT
+        '{{ inputs.business_date }}'::date,
+        'inventory',
+        'below_reorder_point',
+        COUNT(*),
+        'all'
+      FROM ecommerce_inventory_snapshots
+      WHERE snapshot_date = '{{ inputs.business_date }}'::date
+        AND stock_on_hand - reserved_quantity < reorder_point;
+
+      INSERT INTO ecommerce_daily_reports (
+        business_date,
+        metric_group,
+        metric_name,
+        metric_value,
+        dimension
+      )
+      SELECT
+        '{{ inputs.business_date }}'::date,
+        'support',
+        'open_ticket_count',
+        COUNT(*),
+        priority
+      FROM ecommerce_support_tickets
+      WHERE ticket_date = '{{ inputs.business_date }}'::date
+        AND resolved = false
+      GROUP BY priority;
+
+  - id: fetch_report
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    fetchType: FETCH
+    sql: |
+      SELECT
+        business_date,
+        metric_group,
+        metric_name,
+        dimension,
+        metric_value,
+        generated_at
+      FROM ecommerce_daily_reports
+      WHERE business_date = '{{ inputs.business_date }}'::date
+      ORDER BY metric_group, metric_name, dimension;

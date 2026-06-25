@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+apt-get update
+apt-get install -y ca-certificates curl gnupg docker.io
+if ! apt-get install -y docker-compose-plugin; then
+  apt-get install -y docker-compose
+fi
+systemctl enable --now docker
+
+compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  else
+    docker-compose "$@"
+  fi
+}
+
+if ! command -v gcloud >/dev/null 2>&1; then
+  install -m 0755 -d /usr/share/keyrings
+  curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+    | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+  echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+    >/etc/apt/sources.list.d/google-cloud-sdk.list
+  apt-get update
+  apt-get install -y google-cloud-cli
+fi
+
+mkdir -p /opt/kestra/config /opt/kestra/storage /tmp/kestra-wd
+
+read_secret() {
+  gcloud secrets versions access latest --project="${project_id}" --secret="${name_prefix}-$1"
+}
+
+KESTRA_DB_URL="$(read_secret kestra-db-url)"
+KESTRA_DB_USERNAME="$(read_secret kestra-db-username)"
+KESTRA_DB_PASSWORD="$(read_secret kestra-db-password)"
+KESTRA_BASIC_AUTH_USERNAME="$(read_secret kestra-basic-auth-username)"
+KESTRA_BASIC_AUTH_PASSWORD="$(read_secret kestra-basic-auth-password)"
+POSTGRES_DB="$(read_secret postgres-db)"
+POSTGRES_USER="$(read_secret postgres-user)"
+POSTGRES_PASSWORD="$(read_secret postgres-password)"
+BATCH_DB="$(read_secret batch-db)"
+BATCH_DB_USER="$(read_secret batch-db-user)"
+BATCH_DB_PASSWORD="$(read_secret batch-db-password)"
+ENV_BATCH_DB_URL="$(read_secret batch-db-url)"
+ENV_BATCH_DB_USERNAME="$(read_secret batch-db-username)"
+ENV_BATCH_DB_PASSWORD="$(read_secret batch-db-password)"
+
+cat >/opt/kestra/config/application.yaml <<'YAML'
+datasources:
+  postgres:
+    url: $${KESTRA_DB_URL}
+    driver-class-name: org.postgresql.Driver
+    username: $${KESTRA_DB_USERNAME}
+    password: $${KESTRA_DB_PASSWORD}
+kestra:
+  server:
+    basic-auth:
+      username: $${KESTRA_BASIC_AUTH_USERNAME}
+      password: $${KESTRA_BASIC_AUTH_PASSWORD}
+  repository:
+    type: postgres
+  queue:
+    type: postgres
+  storage:
+    type: local
+    local:
+      base-path: /app/storage
+  tasks:
+    tmp-dir:
+      path: /tmp/kestra-wd/tmp
+  url: http://localhost:8080/
+  variables:
+    env-vars-prefix: "ENV_"
+YAML
+
+cat >/opt/kestra/.env <<EOF
+POSTGRES_DB=$${POSTGRES_DB}
+POSTGRES_USER=$${POSTGRES_USER}
+POSTGRES_PASSWORD=$${POSTGRES_PASSWORD}
+BATCH_DB=$${BATCH_DB}
+BATCH_DB_USER=$${BATCH_DB_USER}
+BATCH_DB_PASSWORD=$${BATCH_DB_PASSWORD}
+KESTRA_DB_URL=$${KESTRA_DB_URL}
+KESTRA_DB_USERNAME=$${KESTRA_DB_USERNAME}
+KESTRA_DB_PASSWORD=$${KESTRA_DB_PASSWORD}
+KESTRA_BASIC_AUTH_USERNAME=$${KESTRA_BASIC_AUTH_USERNAME}
+KESTRA_BASIC_AUTH_PASSWORD=$${KESTRA_BASIC_AUTH_PASSWORD}
+ENV_BATCH_DB_URL=$${ENV_BATCH_DB_URL}
+ENV_BATCH_DB_USERNAME=$${ENV_BATCH_DB_USERNAME}
+ENV_BATCH_DB_PASSWORD=$${ENV_BATCH_DB_PASSWORD}
+EOF
+
+cat >/opt/kestra/init-batch-db.sh <<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+psql -v ON_ERROR_STOP=1 --username "$${POSTGRES_USER}" --dbname "$${POSTGRES_DB}" <<SQL
+SELECT 'CREATE DATABASE $${BATCH_DB}'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$${BATCH_DB}')\gexec
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$${BATCH_DB_USER}') THEN
+    CREATE ROLE $${BATCH_DB_USER} LOGIN PASSWORD '$${BATCH_DB_PASSWORD}';
+  END IF;
+END
+\$\$;
+GRANT ALL PRIVILEGES ON DATABASE $${BATCH_DB} TO $${BATCH_DB_USER};
+SQL
+
+psql -v ON_ERROR_STOP=1 --username "$${POSTGRES_USER}" --dbname "$${BATCH_DB}" <<SQL
+GRANT ALL ON SCHEMA public TO $${BATCH_DB_USER};
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $${BATCH_DB_USER};
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $${BATCH_DB_USER};
+SQL
+BASH
+chmod +x /opt/kestra/init-batch-db.sh
+
+cat >/opt/kestra/docker-compose.yml <<'YAML'
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - /opt/kestra/init-batch-db.sh:/docker-entrypoint-initdb.d/20-init-batch-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kestra:
+    image: kestra/kestra:latest
+    user: "root"
+    command: server standalone --worker-thread=64 --config /etc/kestra/application.yaml
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    volumes:
+      - /opt/kestra/storage:/app/storage
+      - /tmp/kestra-wd:/tmp/kestra-wd
+      - /opt/kestra/config/application.yaml:/etc/kestra/application.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+YAML
+
+compose -f /opt/kestra/docker-compose.yml --env-file /opt/kestra/.env up -d

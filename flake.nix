@@ -45,6 +45,20 @@
             fd
             gnused
             gitleaks
+            opentofu
+            (google-cloud-sdk.withExtraComponents [
+              google-cloud-sdk.components.gke-gcloud-auth-plugin
+            ])
+            kubectl
+            kubernetes-helm
+            kustomize
+            postgresql_16
+            docker_29
+            docker-compose
+            jq
+            yq-go
+            curl
+            shellcheck
           ]) ++ preCommitCheck.enabledPackages;
 
           shellHook = ''
@@ -55,6 +69,11 @@
             echo "uv version: $(uv --version)"
             echo "Task version: $(task --version 2>/dev/null || echo 'not available')"
             echo "Gitleaks version: $(gitleaks version 2>/dev/null || echo 'not available')"
+            echo "OpenTofu version: $(tofu version 2>/dev/null | head -n 1 || echo 'not available')"
+            echo "gcloud version: $(gcloud version 2>/dev/null | head -n 1 || echo 'not available')"
+            echo "kubectl version: $(kubectl version --client=true 2>/dev/null | head -n 1 || echo 'not available')"
+            echo "helm version: $(helm version --short 2>/dev/null || echo 'not available')"
+            echo "kustomize version: $(kustomize version 2>/dev/null || echo 'not available')"
           '';
         };
       }
