@@ -1,4 +1,4 @@
-from kestra-playground import greet
+from kestra_playground import greet
 
 
 def main() -> int:

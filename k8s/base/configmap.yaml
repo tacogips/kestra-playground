@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kestra-config
+  namespace: kestra
+data:
+  CLOUD_SQL_INSTANCE: "replace-with-cloud-sql-connection-name"
+  application.yaml: |
+    datasources:
+      postgres:
+        url: ${KESTRA_DB_URL}
+        driver-class-name: org.postgresql.Driver
+        username: ${KESTRA_DB_USERNAME}
+        password: ${KESTRA_DB_PASSWORD}
+        maximum-pool-size: ${KESTRA_DB_MAX_POOL_SIZE:2}
+    kestra:
+      server:
+        basic-auth:
+          username: ${KESTRA_BASIC_AUTH_USERNAME}
+          password: ${KESTRA_BASIC_AUTH_PASSWORD}
+      repository:
+        type: postgres
+      queue:
+        type: postgres
+      storage:
+        type: gcs
+        gcs:
+          bucket: ${KESTRA_GCS_BUCKET}
+      tasks:
+        tmp-dir:
+          path: /tmp/kestra-wd/tmp
+      url: http://kestra-webserver:8080/
+      variables:
+        env-vars-prefix: "ENV_"

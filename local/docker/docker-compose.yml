@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      BATCH_DB: ${BATCH_DB}
+      BATCH_DB_USER: ${BATCH_DB_USER}
+      BATCH_DB_PASSWORD: ${BATCH_DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-batch-db.sh:/docker-entrypoint-initdb.d/20-init-batch-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kestra:
+    image: kestra/kestra:latest
+    user: "root"
+    command: server standalone --worker-thread=64 --config /etc/kestra/application.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      KESTRA_DB_URL: ${KESTRA_DB_URL}
+      KESTRA_DB_USERNAME: ${KESTRA_DB_USERNAME}
+      KESTRA_DB_PASSWORD: ${KESTRA_DB_PASSWORD}
+      KESTRA_URL: ${KESTRA_URL}
+      KESTRA_STORAGE_TYPE: ${KESTRA_STORAGE_TYPE}
+      KESTRA_LOCAL_STORAGE_PATH: ${KESTRA_LOCAL_STORAGE_PATH}
+      KESTRA_BASIC_AUTH_USERNAME: ${KESTRA_BASIC_AUTH_USERNAME}
+      KESTRA_BASIC_AUTH_PASSWORD: ${KESTRA_BASIC_AUTH_PASSWORD}
+      ENV_BATCH_DB_URL: ${ENV_BATCH_DB_URL}
+      ENV_BATCH_DB_USERNAME: ${ENV_BATCH_DB_USERNAME}
+      ENV_BATCH_DB_PASSWORD: ${ENV_BATCH_DB_PASSWORD}
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    volumes:
+      - kestra-data:/app/storage
+      - /tmp/kestra-wd:/tmp/kestra-wd
+      - ../../kestra/config/application.yaml:/etc/kestra/application.yaml:ro
+
+volumes:
+  postgres-data:
+  kestra-data:

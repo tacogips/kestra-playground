@@ -1,0 +1,144 @@
+name: Deploy Kestra Playground
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: Environment to deploy or execute
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - gce-compose
+          - gce-container
+          - k8s
+      run_batch:
+        description: Execute the ecommerce batch after deployment
+        required: true
+        default: false
+        type: boolean
+      business_date:
+        description: Batch business date
+        required: true
+        default: "2026-06-25"
+        type: string
+  schedule:
+    - cron: "15 18 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kestra-playground-deploy
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Enable Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - name: Run project checks
+        run: nix develop -c task ci
+      - name: Run infrastructure checks
+        run: |
+          nix develop -c shellcheck scripts/*.sh
+          nix develop -c tofu fmt -check -recursive infra/terraform
+          nix develop -c tofu -chdir=infra/terraform/gce-single init -backend=false -input=false
+          nix develop -c tofu -chdir=infra/terraform/gce-single validate
+          nix develop -c tofu -chdir=infra/terraform/gce-cluster init -backend=false -input=false
+          nix develop -c tofu -chdir=infra/terraform/gce-cluster validate
+          nix develop -c tofu -chdir=infra/terraform/gke-dev init -backend=false -input=false
+          nix develop -c tofu -chdir=infra/terraform/gke-dev validate
+          nix develop -c tofu -chdir=infra/terraform/github-actions init -backend=false -input=false
+          nix develop -c tofu -chdir=infra/terraform/github-actions validate
+          nix develop -c kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev.yaml
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    needs:
+      - validate
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    environment:
+      name: development
+      url: https://k8s.example.com
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      PROJECT_ID: example-project-id
+      REGION: asia-northeast1
+      TARGET_ENVIRONMENT: ${{ inputs.target_environment || 'all' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Enable Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Apply live environments
+        run: nix develop -c scripts/deploy-live-environments.sh "$TARGET_ENVIRONMENT"
+      - name: Register flows and check HTTPS
+        env:
+          BUSINESS_DATE: ${{ inputs.business_date || '2026-06-25' }}
+          MODE: health
+        run: nix develop -c scripts/verify-live-environments.sh "$TARGET_ENVIRONMENT" "$BUSINESS_DATE" "$MODE"
+
+  run-batch:
+    name: Run Batch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    needs:
+      - validate
+      - deploy
+    if: ${{ always() && needs.validate.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_batch && needs.deploy.result == 'success')) }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      BUSINESS_DATE: ${{ inputs.business_date || '2026-06-25' }}
+      PROJECT_ID: example-project-id
+      REGION: asia-northeast1
+      TARGET_ENVIRONMENT: ${{ inputs.target_environment || 'all' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Enable Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Execute ecommerce batch
+        env:
+          MODE: run-batch
+        run: nix develop -c scripts/verify-live-environments.sh "$TARGET_ENVIRONMENT" "$BUSINESS_DATE" "$MODE"

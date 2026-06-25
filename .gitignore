@@ -28,6 +28,13 @@ htmlcov/
 **/.envrc.private*
 **/*.private*
 
+## terraform/opentofu local state
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+crash.log
+crash.*.log
+
 ## ide's /meta infos
 **/.vscode
 **/.idea

@@ -1,0 +1,25 @@
+project_id = "example-project-id"
+
+# Set these to reserve a static GKE Ingress IP and create the DNS record for
+# the environment hostname. The Kubernetes overlay still needs the output
+# hostname and ingress_static_ip_name patched into its Ingress and
+# ManagedCertificate resources before kubectl apply.
+domain_name      = "example.com"
+environment_name = "gke-dev"
+subdomain        = "gke-dev"
+dns_provider     = "google"
+
+# Use true when Terraform should create a new Cloud DNS zone for domain_name.
+# Delegate the parent domain to the output dns_name_servers before expecting
+# the GKE-managed certificate to become ACTIVE.
+create_dns_zone = true
+
+# When using an existing Cloud DNS managed zone, set create_dns_zone=false and
+# provide the existing zone name here.
+dns_zone_name = ""
+
+# For a Cloudflare-managed domain, use:
+# dns_provider           = "cloudflare"
+# cloudflare_zone_id     = "..."
+# cloudflare_dns_proxied = false
+# and set CLOUDFLARE_API_TOKEN in the environment or inject it from kinko.
