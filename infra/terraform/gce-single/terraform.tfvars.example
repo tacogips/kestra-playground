@@ -1,0 +1,23 @@
+project_id = "kestra-playground-260625"
+
+# Set these to enable Terraform-managed HTTPS for this environment.
+# Leave domain_name empty to keep the current direct HTTP VM endpoint only.
+domain_name      = "example.com"
+environment_name = "dev"
+subdomain        = "dev"
+dns_provider     = "google"
+
+# Use true when Terraform should create a new Cloud DNS zone for domain_name.
+# Delegate the parent domain to the output dns_name_servers before expecting
+# the Google-managed SSL certificate to become ACTIVE.
+create_dns_zone = true
+
+# When using an existing Cloud DNS managed zone, set create_dns_zone=false and
+# provide the existing zone name here.
+dns_zone_name = ""
+
+# For a Cloudflare-managed domain, use:
+# dns_provider           = "cloudflare"
+# cloudflare_zone_id     = "..."
+# cloudflare_dns_proxied = false
+# and set CLOUDFLARE_API_TOKEN in the environment or inject it from kinko.

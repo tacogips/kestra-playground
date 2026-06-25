@@ -17,7 +17,7 @@ Homepage = "https://github.com/user/repo"
 Repository = "https://github.com/user/repo"
 
 [project.scripts]
-"kestra-playground" = "kestra-playground.cli:main"
+"kestra-playground" = "kestra_playground.cli:main"
 
 [dependency-groups]
 dev = [
@@ -28,7 +28,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/kestra-playground"]
+packages = ["src/kestra_playground"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
