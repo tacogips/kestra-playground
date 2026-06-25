@@ -516,3 +516,7 @@ required GitHub repository secrets:
 - `kustomize build k8s/overlays/dev` passed.
 - `tofu plan -detailed-exitcode` returned 0 for `gce-single`, `gce-cluster`, `gke-dev`, and
   `github-actions`, confirming no live infrastructure drift.
+- After the first GitHub Actions deploy attempt proved fresh runners had no local Terraform state,
+  created the versioned GCS backend bucket `kestra-playground-260625-tofu-state`, migrated live root
+  states to per-root prefixes, imported the state bucket into the `github-actions` root, and
+  confirmed all migrated roots still plan with exit code 0.

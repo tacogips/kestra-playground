@@ -3,6 +3,8 @@ provider "google" {
 }
 
 locals {
+  terraform_state_bucket = "${var.project_id}-tofu-state"
+
   deploy_roles = toset([
     "roles/cloudsql.admin",
     "roles/compute.admin",
@@ -14,6 +16,20 @@ locals {
     "roles/serviceusage.serviceUsageAdmin",
     "roles/storage.admin",
   ])
+}
+
+resource "google_storage_bucket" "terraform_state" {
+  name                        = local.terraform_state_bucket
+  location                    = "asia-northeast1"
+  uniform_bucket_level_access = true
+
+  versioning {
+    enabled = true
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "google_service_account" "github_actions" {

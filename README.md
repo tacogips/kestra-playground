@@ -147,6 +147,10 @@ expects these repository secrets:
 The current repository secrets are initialized from the `infra/terraform/github-actions` outputs and
 the kinko-managed Cloudflare token.
 
+Live Terraform state is stored in the versioned GCS bucket
+`gs://kestra-playground-260625-tofu-state`. The live roots use per-root prefixes so GitHub Actions
+can deploy from a fresh checkout without recreating existing resources.
+
 ## HTTPS Domains
 
 The GCE single-VM, GCE cluster, and GKE dev Terraform roots support HTTPS domain configuration.
