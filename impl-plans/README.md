@@ -45,7 +45,7 @@ Large features are split into multiple related plans with cross-references.
 
 | Plan | Completed | Design Reference |
 |------|-----------|------------------|
-| (No completed plans yet) | - | - |
+| [Kestra Deployment Playground](completed/kestra-deployment-playground.md) | 2026-06-26 | `design-docs/specs/architecture.md` |
 
 ## Phase Dependencies (for impl-exec-auto)
 
