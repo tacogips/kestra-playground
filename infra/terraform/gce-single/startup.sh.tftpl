@@ -27,6 +27,7 @@ if ! command -v gcloud >/dev/null 2>&1; then
 fi
 
 mkdir -p /opt/kestra/config /opt/kestra/storage /tmp/kestra-wd
+gcloud auth configure-docker "${artifact_registry_host}" --quiet
 
 read_secret() {
   gcloud secrets versions access latest --project="${project_id}" --secret="${name_prefix}-$1"
@@ -90,6 +91,7 @@ KESTRA_BASIC_AUTH_PASSWORD=$${KESTRA_BASIC_AUTH_PASSWORD}
 ENV_BATCH_DB_URL=$${ENV_BATCH_DB_URL}
 ENV_BATCH_DB_USERNAME=$${ENV_BATCH_DB_USERNAME}
 ENV_BATCH_DB_PASSWORD=$${ENV_BATCH_DB_PASSWORD}
+KESTRA_IMAGE=${kestra_image}
 EOF
 
 cat >/opt/kestra/init-batch-db.sh <<'BASH'
@@ -133,7 +135,7 @@ services:
       retries: 10
 
   kestra:
-    image: kestra/kestra:latest
+    image: $${KESTRA_IMAGE}
     user: "root"
     command: server standalone --worker-thread=64 --config /etc/kestra/application.yaml
     restart: unless-stopped

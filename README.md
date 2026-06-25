@@ -119,6 +119,18 @@ The commands use OpenTofu from the Nix shell; the files are Terraform-compatible
 
 The live development project created for this playground is `kestra-playground-260625`.
 
+Kestra runtime images are published to Artifact Registry:
+
+```text
+asia-northeast1-docker.pkg.dev/kestra-playground-260625/kestra-playground/kestra-runtime
+```
+
+The runtime image extends `kestra/kestra:latest` and bakes in `kestra/flows/`,
+`kestra/fixtures/`, `kestra/config/`, and the Python batch source under `src/`. The deployment
+workflow builds and pushes a commit-SHA tag plus `latest`, then passes the SHA-tagged image to
+Terraform through `KESTRA_IMAGE`. The GCE roots use that image in Docker Compose; the GKE apply
+helper applies the same image through Kustomize before `kubectl apply`.
+
 Committed live dev tfvars live under `infra/live/dev/`. They contain non-secret environment shape
 such as project, domain, subdomain, and Cloudflare zone ID. The Cloudflare API token is intentionally
 kept out of git; locally it is injected from kinko:

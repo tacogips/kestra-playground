@@ -32,6 +32,16 @@ resource "google_service_account" "vm" {
   display_name = "Kestra single VM service account"
 }
 
+resource "terraform_data" "kestra_image" {
+  triggers_replace = [var.kestra_image]
+}
+
+resource "google_project_iam_member" "artifact_registry_reader" {
+  project = var.project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:${google_service_account.vm.email}"
+}
+
 resource "google_compute_network" "main" {
   name                    = "${var.name_prefix}-network"
   auto_create_subnetworks = true
@@ -146,11 +156,20 @@ resource "google_compute_instance" "kestra" {
   }
 
   metadata_startup_script = templatefile("${path.module}/startup.sh.tftpl", {
-    project_id  = var.project_id
-    name_prefix = var.name_prefix
+    artifact_registry_host = "${var.region}-docker.pkg.dev"
+    kestra_image           = var.kestra_image
+    project_id             = var.project_id
+    name_prefix            = var.name_prefix
   })
 
+  lifecycle {
+    replace_triggered_by = [
+      terraform_data.kestra_image,
+    ]
+  }
+
   depends_on = [
+    google_project_iam_member.artifact_registry_reader,
     google_secret_manager_secret_iam_member.vm_secret_reader,
   ]
 }
@@ -311,4 +330,8 @@ output "https_ip_address" {
 
 output "dns_name_servers" {
   value = local.google_dns_enabled && var.create_dns_zone ? google_dns_managed_zone.domain[0].name_servers : []
+}
+
+output "kestra_image" {
+  value = var.kestra_image
 }

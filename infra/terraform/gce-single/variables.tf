@@ -27,6 +27,12 @@ variable "kestra_basic_auth_username" {
   default     = "admin@kestra.local"
 }
 
+variable "kestra_image" {
+  type        = string
+  description = "Container image used for the Kestra runtime."
+  default     = "kestra/kestra:latest"
+}
+
 variable "authorized_source_ranges" {
   type        = list(string)
   description = "CIDR ranges allowed to reach Kestra HTTP."

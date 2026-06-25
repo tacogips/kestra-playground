@@ -80,14 +80,29 @@ run_flow_and_wait() {
   wait_for_execution "${url}" "${execution_id}"
 }
 
+wait_for_ui() {
+  local url="$1"
+
+  for _ in {1..120}; do
+    if curl --fail --silent --show-error \
+      -u "${KESTRA_BASIC_AUTH_USERNAME}:${KESTRA_BASIC_AUTH_PASSWORD}" \
+      "${url%/}/ui/" >/dev/null; then
+      return 0
+    fi
+
+    sleep 10
+  done
+
+  echo "Kestra UI did not become ready: ${url}" >&2
+  return 1
+}
+
 verify_environment() {
   local name="$1"
   local url="$2"
 
   echo "=== ${name} (${url}) ==="
-  curl --fail --silent --show-error \
-    -u "${KESTRA_BASIC_AUTH_USERNAME}:${KESTRA_BASIC_AUTH_PASSWORD}" \
-    "${url%/}/ui/" >/dev/null
+  wait_for_ui "${url}"
   scripts/register-flows.sh "${url}"
 
   if [[ "${MODE}" == "run-batch" ]]; then
