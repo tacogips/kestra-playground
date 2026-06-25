@@ -1,0 +1,13 @@
+{
+  "variables": {
+    "AUTHOR_EMAIL": "",
+    "AUTHOR_NAME": "",
+    "DESCRIPTION": "A Python project",
+    "HAS_AUTHOR": false,
+    "HOMEPAGE": "https://github.com/user/repo",
+    "PACKAGE_NAME": "kestra-playground",
+    "PROJECT_NAME": "kestra-playground",
+    "REPOSITORY": "https://github.com/user/repo",
+    "VERSION": "0.1.0"
+  }
+}
