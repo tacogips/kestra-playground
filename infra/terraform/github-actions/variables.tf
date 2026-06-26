@@ -1,7 +1,6 @@
 variable "project_id" {
   type        = string
   description = "GCP project ID that GitHub Actions can deploy to."
-  default     = "example-project-id"
 }
 
 variable "region" {

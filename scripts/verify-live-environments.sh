@@ -2,10 +2,24 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ID="${PROJECT_ID:-example-project-id}"
+PROJECT_ID="${PROJECT_ID:-${GCP_PROJECT_ID:-}}"
 TARGET_ENVIRONMENT="${1:-${TARGET_ENVIRONMENT:-all}}"
 BUSINESS_DATE_INPUT="${2:-}"
 MODE="${3:-${MODE:-run-batch}}"
+LIVE_DOMAIN_NAME="${LIVE_DOMAIN_NAME:-}"
+LIVE_GCE_SINGLE_SUBDOMAIN="${LIVE_GCE_SINGLE_SUBDOMAIN:-gce-compose}"
+LIVE_GCE_CLUSTER_SUBDOMAIN="${LIVE_GCE_CLUSTER_SUBDOMAIN:-gce-container}"
+LIVE_GKE_SUBDOMAIN="${LIVE_GKE_SUBDOMAIN:-k8s}"
+
+if [[ -z "${PROJECT_ID}" ]]; then
+  echo "Missing required environment variable: PROJECT_ID or GCP_PROJECT_ID" >&2
+  exit 1
+fi
+
+if [[ -z "${LIVE_DOMAIN_NAME}" ]]; then
+  echo "Missing required environment variable: LIVE_DOMAIN_NAME" >&2
+  exit 1
+fi
 
 # shellcheck source=scripts/lib/business-date.sh
 source "${SCRIPT_DIR}/lib/business-date.sh"
@@ -132,17 +146,17 @@ verify_environment() {
 
 verify_gce_compose() {
   configure_gce_auth kestra-dev
-  verify_environment gce-compose "https://gce-compose.example.com"
+  verify_environment gce-compose "https://${LIVE_GCE_SINGLE_SUBDOMAIN}.${LIVE_DOMAIN_NAME}"
 }
 
 verify_gce_container() {
   configure_gce_auth kestra-cluster-dev
-  verify_environment gce-container "https://gce-container.example.com"
+  verify_environment gce-container "https://${LIVE_GCE_CLUSTER_SUBDOMAIN}.${LIVE_DOMAIN_NAME}"
 }
 
 verify_k8s() {
   configure_k8s_auth
-  verify_environment k8s "https://k8s.example.com"
+  verify_environment k8s "https://${LIVE_GKE_SUBDOMAIN}.${LIVE_DOMAIN_NAME}"
 }
 
 case "${TARGET_ENVIRONMENT}" in

@@ -29,7 +29,8 @@ Use these target names consistently:
 | `gce-container` | `gce-cluster` | `https://gce-container.example.com` | `infra/terraform/gce-cluster` |
 | `k8s` | `gke-dev` | `https://k8s.example.com` | `infra/terraform/gke-dev` |
 
-The live project is `example-project-id`; the primary region is `asia-northeast1`.
+The live project ID is injected through `PROJECT_ID` or `GCP_PROJECT_ID`; the primary region is
+`asia-northeast1`.
 
 ## Standard Workflow
 
@@ -52,8 +53,8 @@ For code or flow changes:
 GitHub Actions builds and pushes:
 
 ```text
-asia-northeast1-docker.pkg.dev/example-project-id/kestra-playground/kestra-runtime:<git-sha>
-asia-northeast1-docker.pkg.dev/example-project-id/kestra-playground/kestra-runtime:latest
+<region>-docker.pkg.dev/<project-id>/kestra-playground/kestra-runtime:<git-sha>
+<region>-docker.pkg.dev/<project-id>/kestra-playground/kestra-runtime:latest
 ```
 
 Deploy scripts pass the SHA-tagged image through `KESTRA_IMAGE`. For manual redeploys, set

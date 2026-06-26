@@ -147,7 +147,7 @@ tasks:
         KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_ecommerce_customer_segments "${BUSINESS_DATE:-}" "${KESTRA_URL:-http://localhost:8080}"
 
   kestra:live:deploy:
-    desc: Deploy live GCP environments from committed dev tfvars
+    desc: Deploy live GCP environments from kinko-backed generated tfvars
     cmds:
       - scripts/deploy-live-environments.sh "${TARGET_ENVIRONMENT:-all}"
 

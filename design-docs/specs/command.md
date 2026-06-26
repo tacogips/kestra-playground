@@ -120,16 +120,31 @@ temporary manifest only, and waits for Kestra deployments to roll out.
 ### Live Operations
 
 ```bash
-kinko exec --env CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
-task kestra:live:verify
-task kestra:live:run-batch
-TARGET_ENVIRONMENT=k8s BUSINESS_DATE=2026-06-25 task kestra:live:run-batch
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:verify
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
+TARGET_ENVIRONMENT=k8s BUSINESS_DATE=2026-06-25 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
 ```
 
 ## Kestra GCP Operations Runbook
 
 Use this runbook when building, releasing, deploying, or verifying the live development Kestra
 playground. The current live project is `example-project-id` in `asia-northeast1`.
+
+### Operations Flow Summary
+
+The normal operating flow is:
+
+1. Change flows, fixtures, source, Terraform, Kubernetes manifests, or docs.
+2. Validate locally with `task ci` and targeted infrastructure checks.
+3. Push to `main`; GitHub Actions builds the Kestra runtime image and pushes it to Artifact
+   Registry.
+4. Deploy the selected live targets with the SHA-tagged image.
+5. Verify HTTPS readiness and register the checked-in flows.
+6. Run the batch sequence for one business date:
+   `generate_ecommerce_mock_data`, `build_ecommerce_daily_report`, then
+   `build_ecommerce_customer_segments`.
+7. For GKE, inspect OpenTelemetry Collector logs when execution trace evidence is needed.
 
 ### Environment Map
 
@@ -207,8 +222,8 @@ The deploy job passes the SHA-tagged image as `KESTRA_IMAGE` to `scripts/deploy-
 For a manual local redeploy of an existing image, set `KESTRA_IMAGE` explicitly:
 
 ```bash
-export KESTRA_IMAGE="asia-northeast1-docker.pkg.dev/example-project-id/kestra-playground/kestra-runtime:<git-sha>"
-kinko exec --env CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
+export KESTRA_IMAGE="<region>-docker.pkg.dev/<project-id>/kestra-playground/kestra-runtime:<git-sha>"
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
 ```
 
 ### Deploy Targets
@@ -216,21 +231,21 @@ kinko exec --env CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
 Deploy all environments:
 
 ```bash
-kinko exec --env CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
 ```
 
 Deploy one environment:
 
 ```bash
-TARGET_ENVIRONMENT=gce-compose kinko exec --env CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
-TARGET_ENVIRONMENT=gce-container kinko exec --env CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
-TARGET_ENVIRONMENT=k8s kinko exec --env CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
+TARGET_ENVIRONMENT=gce-compose kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
+TARGET_ENVIRONMENT=gce-container kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
+TARGET_ENVIRONMENT=k8s kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
 ```
 
 The GKE deploy path also refreshes local kubeconfig and applies the rendered Kustomize overlay:
 
 ```bash
-gcloud container clusters get-credentials kestra-dev --region asia-northeast1 --project example-project-id
+gcloud container clusters get-credentials kestra-dev --region asia-northeast1 --project "$PROJECT_ID"
 scripts/apply-gke-dev.sh
 ```
 
@@ -240,8 +255,8 @@ Run health verification after every deploy. This waits for each HTTPS UI endpoin
 checked-in flows without executing batch work:
 
 ```bash
-task kestra:live:verify
-TARGET_ENVIRONMENT=k8s task kestra:live:verify
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:verify
+TARGET_ENVIRONMENT=k8s kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:verify
 ```
 
 Health verification does not consume or validate `BUSINESS_DATE`; date resolution is only part of
@@ -252,14 +267,14 @@ batch execution.
 Run all batch flows in dependency order:
 
 ```bash
-task kestra:live:run-batch
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
 ```
 
 For repeatable verification, pin the business date:
 
 ```bash
-BUSINESS_DATE=2026-06-25 task kestra:live:run-batch
-TARGET_ENVIRONMENT=gce-container BUSINESS_DATE=2026-06-25 task kestra:live:run-batch
+BUSINESS_DATE=2026-06-25 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
+TARGET_ENVIRONMENT=gce-container BUSINESS_DATE=2026-06-25 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
 ```
 
 If `BUSINESS_DATE` is unset or blank, the helper uses the current `Asia/Tokyo` date. Set
@@ -328,7 +343,7 @@ for secret in \
   kestra-dev-gke-kestra-basic-auth-username \
   kestra-dev-gke-kestra-basic-auth-password; do
   gcloud secrets versions list "$secret" \
-    --project=example-project-id \
+    --project="$PROJECT_ID" \
     --filter='state:ENABLED' \
     --limit=1 \
     --format='value(name,state)'
@@ -356,7 +371,7 @@ Check the latest Artifact Registry image:
 
 ```bash
 gcloud artifacts docker images list \
-  asia-northeast1-docker.pkg.dev/example-project-id/kestra-playground/kestra-runtime \
+  "${REGION}-docker.pkg.dev/${PROJECT_ID}/kestra-playground/kestra-runtime" \
   --include-tags \
   --sort-by='~UPDATE_TIME' \
   --limit=5
@@ -375,25 +390,25 @@ Check GCE instance health:
 ```bash
 gcloud compute instance-groups unmanaged list-instances kestra-dev-single \
   --zone=asia-northeast1-a \
-  --project=example-project-id
+  --project="$PROJECT_ID"
 
 gcloud compute instance-groups managed describe kestra-cluster-dev-mig \
   --region=asia-northeast1 \
-  --project=example-project-id \
+  --project="$PROJECT_ID" \
   --format=json | jq '.targetSize,.currentActions'
 ```
 
 ### Drift Checks
 
-Before changing live infrastructure, run targeted plans with the committed live tfvars:
+Before changing live infrastructure, render ignored live config from `kinko`, then run targeted
+plans:
 
 ```bash
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- scripts/render-live-config.sh
+kinko exec --env CLOUDFLARE_API_TOKEN -- \
+  tofu -chdir=infra/terraform/gce-single init -backend-config=../../live/dev/gce-single.backend.hcl
 kinko exec --env CLOUDFLARE_API_TOKEN -- \
   tofu -chdir=infra/terraform/gce-single plan -var-file=../../live/dev/gce-single.tfvars
-kinko exec --env CLOUDFLARE_API_TOKEN -- \
-  tofu -chdir=infra/terraform/gce-cluster plan -var-file=../../live/dev/gce-cluster.tfvars
-kinko exec --env CLOUDFLARE_API_TOKEN -- \
-  tofu -chdir=infra/terraform/gke-dev plan -var-file=../../live/dev/gke-dev.tfvars
 ```
 
 ### Troubleshooting

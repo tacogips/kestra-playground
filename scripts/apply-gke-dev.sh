@@ -17,6 +17,7 @@ require_command gcloud
 require_command kubectl
 require_command kustomize
 require_command tofu
+require_command yq
 
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
@@ -34,6 +35,9 @@ cloud_sql_instance="$(tf_output '.cloud_sql_instance.value')"
 gcp_service_account="$(tf_output '.gcp_service_account.value')"
 project_id="$(tf_output '.project_id.value')"
 kestra_image="$(tf_output '.kestra_image.value')"
+kestra_https_url="$(tf_output '.kestra_https_url.value // empty')"
+ingress_static_ip_name="$(tf_output '.ingress_static_ip_name.value // empty')"
+kestra_hostname="${kestra_https_url#https://}"
 
 secret_value() {
   jq -er ".kubernetes_secret_values.value.$1" "$outputs_json"
@@ -55,6 +59,15 @@ work_overlay="${tmpdir}/${OVERLAY_DIR}"
   cd "$work_overlay"
   kustomize edit set image "kestra/kestra:latest=${kestra_image}"
 )
+
+if [[ -n "${kestra_hostname}" ]]; then
+  KESTRA_HOSTNAME="$kestra_hostname" INGRESS_STATIC_IP_NAME="$ingress_static_ip_name" \
+    yq -i '.spec.rules[0].host = strenv(KESTRA_HOSTNAME) | .metadata.annotations."kubernetes.io/ingress.global-static-ip-name" = strenv(INGRESS_STATIC_IP_NAME)' \
+    "${work_overlay}/ingress.yaml"
+  KESTRA_HOSTNAME="$kestra_hostname" \
+    yq -i '.spec.domains = [strenv(KESTRA_HOSTNAME)]' \
+    "${work_overlay}/managed-certificate.yaml"
+fi
 
 cat >"${work_overlay}/configmap.yaml" <<EOF
 apiVersion: v1

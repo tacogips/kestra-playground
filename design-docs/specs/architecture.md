@@ -26,6 +26,29 @@ four deployment shapes:
    internal storage, and a load-balanced webserver tier.
 4. GKE Autopilot development deployment using Kustomize base manifests plus environment overlays.
 
+### System Composition Summary
+
+The important architectural traits are:
+
+- The workload contract is shared: the same Kestra flow definitions, SQL fixtures, and runtime image
+  are promoted through local, GCE, and GKE targets.
+- Terraform owns cloud infrastructure: GCP project bootstrap, Artifact Registry, IAM, Secret
+  Manager, Cloud SQL, GCS, GCE, GKE inputs, load balancers, and DNS records.
+- Kustomize owns Kubernetes workload shape for GKE, with Terraform outputs bridged into the dev
+  overlay by `scripts/apply-gke-dev.sh`.
+- GitHub Actions is the default release controller and uses OIDC to deploy without long-lived GCP
+  keys.
+- Secret values are not source artifacts. Local env files, Secret Manager, GitHub Actions secrets,
+  and `kinko` provide runtime values.
+
+The live environment exposes three HTTPS targets under the same Cloudflare-backed domain:
+
+| Target | URL | Runtime shape |
+|--------|-----|---------------|
+| `gce-compose` | `https://gce-compose.example.com` | One GCE VM running Kestra and PostgreSQL through Docker Compose |
+| `gce-container` | `https://gce-container.example.com` | GCE instance group running split Kestra components with shared Cloud SQL and GCS |
+| `k8s` | `https://k8s.example.com` | GKE Autopilot running split Kestra components from Kustomize manifests |
+
 ### Workload
 
 The workload namespace is `playground.ecommerce`.
@@ -36,6 +59,13 @@ The workload namespace is `playground.ecommerce`.
   `ecommerce_daily_reports`, with rows returned in the Kestra execution output.
 - `build_ecommerce_customer_segments` writes a daily customer lifecycle segment snapshot into
   `ecommerce_customer_segments` and returns the segment summary.
+
+Batch execution order is deliberately simple:
+
+1. `generate_ecommerce_mock_data` prepares the source partition for the business date.
+2. `build_ecommerce_daily_report` aggregates the generated facts into operational report rows.
+3. `build_ecommerce_customer_segments` derives customer lifecycle segments from the same source
+   partition.
 
 All flows use the PostgreSQL JDBC plugin and read their target business database from Kestra
 environment variables:

@@ -32,6 +32,8 @@ htmlcov/
 **/.terraform/
 **/*.tfstate
 **/*.tfstate.*
+infra/live/**/*.tfvars
+infra/live/**/*.backend.hcl
 crash.log
 crash.*.log
 

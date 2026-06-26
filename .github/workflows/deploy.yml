@@ -80,7 +80,7 @@ jobs:
     outputs:
       image: ${{ steps.image.outputs.image }}
     env:
-      IMAGE_REPOSITORY: asia-northeast1-docker.pkg.dev/example-project-id/kestra-playground/kestra-runtime
+      IMAGE_REPOSITORY: ${{ vars.KESTRA_IMAGE_REPOSITORY }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -122,14 +122,17 @@ jobs:
     if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     environment:
       name: development
-      url: https://k8s.example.com
+      url: ${{ vars.LIVE_K8S_URL }}
     permissions:
       contents: read
       id-token: write
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      PROJECT_ID: example-project-id
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       REGION: asia-northeast1
+      LIVE_DOMAIN_NAME: ${{ vars.LIVE_DOMAIN_NAME }}
+      TOFU_STATE_BUCKET: ${{ vars.TOFU_STATE_BUCKET }}
       TARGET_ENVIRONMENT: ${{ inputs.target_environment || 'all' }}
       KESTRA_IMAGE: ${{ needs.build-image.outputs.image }}
     steps:
@@ -165,8 +168,9 @@ jobs:
       id-token: write
     env:
       BUSINESS_DATE: ${{ inputs.business_date || '' }}
-      PROJECT_ID: example-project-id
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       REGION: asia-northeast1
+      LIVE_DOMAIN_NAME: ${{ vars.LIVE_DOMAIN_NAME }}
       TARGET_ENVIRONMENT: ${{ inputs.target_environment || 'all' }}
     steps:
       - name: Checkout
