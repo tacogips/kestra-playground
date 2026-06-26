@@ -146,16 +146,11 @@ resource "google_sql_database_instance" "postgres" {
       enabled = false
     }
     ip_configuration {
-      ipv4_enabled    = true
-      private_network = var.external_gce_worker_enabled ? google_compute_network.external_gce_worker[0].id : null
+      ipv4_enabled = true
     }
   }
 
   deletion_protection = false
-
-  depends_on = [
-    google_service_networking_connection.external_gce_worker,
-  ]
 }
 
 resource "google_sql_database" "kestra" {
@@ -201,24 +196,6 @@ resource "google_compute_subnetwork" "external_gce_worker" {
   network                  = google_compute_network.external_gce_worker[0].id
   private_ip_google_access = true
   region                   = var.region
-}
-
-resource "google_compute_global_address" "external_gce_worker_private_services" {
-  count = var.external_gce_worker_enabled ? 1 : 0
-
-  name          = "${var.name_prefix}-gce-worker-private-services"
-  purpose       = "VPC_PEERING"
-  address_type  = "INTERNAL"
-  prefix_length = 16
-  network       = google_compute_network.external_gce_worker[0].id
-}
-
-resource "google_service_networking_connection" "external_gce_worker" {
-  count = var.external_gce_worker_enabled ? 1 : 0
-
-  network                 = google_compute_network.external_gce_worker[0].id
-  service                 = "servicenetworking.googleapis.com"
-  reserved_peering_ranges = [google_compute_global_address.external_gce_worker_private_services[0].name]
 }
 
 resource "google_compute_firewall" "external_gce_worker_iap_ssh" {

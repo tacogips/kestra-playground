@@ -92,7 +92,6 @@ docker run -d \
   --restart unless-stopped \
   gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1 \
   --structured-logs \
-  --private-ip \
   --address=0.0.0.0 \
   --port=5432 \
   "$${CLOUD_SQL_INSTANCE}"

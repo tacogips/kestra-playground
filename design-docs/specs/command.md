@@ -134,7 +134,7 @@ external_gce_worker_gpu_count = 1
 ```
 
 The VM uses Container-Optimized OS, has no public IP address, reads Secret Manager through the
-metadata-token API, starts Cloud SQL Proxy over private IP, and runs only the Kestra worker
+metadata-token API, starts Cloud SQL Auth Proxy, and runs only the Kestra worker
 component. GPU workloads still need a compatible image, driver/toolchain installation, and quota
 sized for the selected accelerator.
 

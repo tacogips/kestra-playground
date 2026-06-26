@@ -58,4 +58,4 @@ Notable items that do not fit into architecture or client categories.
   matching worker instead of falling back to the default GKE worker.
 - The external worker intentionally has no public IP address to avoid regional
   `IN_USE_ADDRESSES` quota pressure. It uses Container-Optimized OS, Private Google Access,
-  Secret Manager REST calls with the metadata service token, and Cloud SQL private IP.
+  Secret Manager REST calls with the metadata service token, and Cloud SQL Auth Proxy.
