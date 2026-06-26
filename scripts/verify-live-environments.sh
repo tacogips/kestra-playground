@@ -75,18 +75,23 @@ wait_for_execution() {
   local url="$1"
   local execution_id="$2"
   local status_url="${url%/}/api/v1/main/executions/${execution_id}"
+  local execution_json
   local state=""
 
   for _ in {1..120}; do
-    state="$(
+    execution_json="$(
       curl --fail --silent --show-error \
         -u "${KESTRA_BASIC_AUTH_USERNAME}:${KESTRA_BASIC_AUTH_PASSWORD}" \
-        "${status_url}" | jq -r '.state.current // empty'
+        "${status_url}"
+    )"
+    state="$(
+      jq -r '.state.current // empty' <<<"${execution_json}"
     )"
 
     case "${state}" in
       SUCCESS)
         echo "Execution ${execution_id} succeeded."
+        print_execution_task_summary "${execution_json}"
         return 0
         ;;
       FAILED | KILLED | WARNING)
@@ -100,6 +105,28 @@ wait_for_execution() {
 
   echo "Execution ${execution_id} did not finish. Last state: ${state:-unknown}" >&2
   return 1
+}
+
+print_execution_task_summary() {
+  local execution_json="$1"
+
+  jq -r '
+    (.taskRunList // []) as $taskRuns
+    | if ($taskRuns | length) == 0 then
+        "Task run summary: unavailable"
+      else
+        "Task run summary:",
+        (["taskId", "state", "workerGroup", "workerId"] | @tsv),
+        ($taskRuns[]
+          | [
+              (.taskId // ""),
+              (.state.current // ""),
+              (.workerGroup.key // .workerGroup // ""),
+              (.workerId // .worker.id // .attempts[-1].workerId // "")
+            ]
+          | @tsv)
+      end
+  ' <<<"${execution_json}"
 }
 
 run_flow_and_wait() {
