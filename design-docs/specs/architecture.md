@@ -151,8 +151,10 @@ the temporary manifest path in `scripts/apply-gke-dev.sh`.
 The `gke-dev` Terraform root can also model a hybrid execution plane for Kestra Enterprise:
 
 - the Kestra control-plane components and one default worker run in GKE;
-- one external GCE VM runs only `kestra server worker --worker-group=gce-heavy`;
+- one private external GCE VM runs only `kestra server worker --worker-group=gce-heavy`;
 - both worker locations use the same Cloud SQL repository/queue and GCS internal storage;
+- the external worker VPC uses Private Google Access and Cloud SQL private IP, so the VM does not
+  consume a regional external address quota slot;
 - heavy or GPU-oriented flows can be updated from `kestra/flows-enterprise/` so selected tasks carry
   `workerGroup.key: gce-heavy` and never execute on the default GKE worker.
 

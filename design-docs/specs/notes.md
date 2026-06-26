@@ -56,3 +56,6 @@ Notable items that do not fit into architecture or client categories.
   a separate Kestra agent; it runs the normal Kestra worker component with `--worker-group`. Selected
   tasks use `workerGroup.key` in the flow overlay. With `fallback: WAIT`, those tasks wait for a
   matching worker instead of falling back to the default GKE worker.
+- The external worker intentionally has no public IP address to avoid regional
+  `IN_USE_ADDRESSES` quota pressure. It uses Container-Optimized OS, Private Google Access,
+  Secret Manager REST calls with the metadata service token, and Cloud SQL private IP.

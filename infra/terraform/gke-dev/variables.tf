@@ -122,6 +122,12 @@ variable "external_gce_worker_machine_type" {
   default     = "e2-standard-4"
 }
 
+variable "external_gce_worker_subnet_cidr" {
+  type        = string
+  description = "CIDR range for the optional private external GCE worker subnet."
+  default     = "10.42.0.0/24"
+}
+
 variable "external_gce_worker_boot_disk_size_gb" {
   type        = number
   description = "Boot disk size in GB for the optional external GCE worker."

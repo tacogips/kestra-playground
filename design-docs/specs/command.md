@@ -123,6 +123,7 @@ To add one external GCE worker for Enterprise Worker Group routing, set:
 external_gce_worker_enabled      = true
 external_gce_worker_group_key    = "gce-heavy"
 external_gce_worker_machine_type = "e2-standard-4"
+external_gce_worker_subnet_cidr  = "10.42.0.0/24"
 ```
 
 For a GPU host, also set a compatible machine type and accelerator values:
@@ -132,9 +133,10 @@ external_gce_worker_gpu_type  = "nvidia-tesla-t4"
 external_gce_worker_gpu_count = 1
 ```
 
-The VM startup script installs Docker, starts Cloud SQL Proxy, and runs only the Kestra worker
-component. GPU workloads still need driver/toolchain installation and quota sized for the selected
-accelerator.
+The VM uses Container-Optimized OS, has no public IP address, reads Secret Manager through the
+metadata-token API, starts Cloud SQL Proxy over private IP, and runs only the Kestra worker
+component. GPU workloads still need a compatible image, driver/toolchain installation, and quota
+sized for the selected accelerator.
 
 Register the Enterprise flow overlay after normal flow registration to route
 `build_ecommerce_customer_segments` tasks to the external worker group:

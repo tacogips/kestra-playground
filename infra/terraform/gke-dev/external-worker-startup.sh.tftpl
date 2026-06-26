@@ -1,36 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-apt-get update
-apt-get install -y ca-certificates curl gnupg docker.io
-if ! apt-get install -y docker-compose-plugin; then
-  apt-get install -y docker-compose
-fi
-systemctl enable --now docker
+mkdir -p /opt/kestra/config /tmp/kestra-wd
 
-compose() {
-  if docker compose version >/dev/null 2>&1; then
-    docker compose "$@"
-  else
-    docker-compose "$@"
-  fi
+metadata() {
+  curl -fsS -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/$1"
 }
 
-if ! command -v gcloud >/dev/null 2>&1; then
-  install -m 0755 -d /usr/share/keyrings
-  curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
-    | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
-  echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
-    >/etc/apt/sources.list.d/google-cloud-sdk.list
-  apt-get update
-  apt-get install -y google-cloud-cli
-fi
-
-mkdir -p /opt/kestra/config /tmp/kestra-wd
-gcloud auth configure-docker "${artifact_registry_host}" --quiet
+access_token() {
+  metadata "instance/service-accounts/default/token" |
+    sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
 
 read_secret() {
-  gcloud secrets versions access latest --project="${project_id}" --secret="${name_prefix}-gce-worker-$1"
+  local token
+  token="$(access_token)"
+  curl -fsS \
+    -H "Authorization: Bearer $${token}" \
+    "https://secretmanager.googleapis.com/v1/projects/${project_id}/secrets/${name_prefix}-gce-worker-$1/versions/latest:access" |
+    tr -d '\n' |
+    sed -n 's/.*"data"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+    base64 -d
 }
 
 KESTRA_DB_URL="$(read_secret kestra-db-url)"
@@ -43,6 +33,10 @@ ENV_BATCH_DB_USERNAME="$(read_secret batch-db-username)"
 ENV_BATCH_DB_PASSWORD="$(read_secret batch-db-password)"
 CLOUD_SQL_INSTANCE="$(read_secret cloud-sql-instance)"
 KESTRA_GCS_BUCKET="$(read_secret kestra-gcs-bucket)"
+TOKEN="$(access_token)"
+
+printf '%s' "$${TOKEN}" | docker login -u oauth2accesstoken --password-stdin "https://${artifact_registry_host}"
+docker network create kestra >/dev/null 2>&1 || true
 
 cat >/opt/kestra/config/application.yaml <<'YAML'
 datasources:
@@ -91,28 +85,25 @@ KESTRA_WORKER_GROUP_ARG=--worker-group=${worker_group_key}
 KESTRA_WORKER_THREADS=${worker_threads}
 EOF
 
-cat >/opt/kestra/docker-compose.yml <<'YAML'
-services:
-  cloud-sql-proxy:
-    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1
-    command:
-      - "--structured-logs"
-      - "--address=0.0.0.0"
-      - "--port=5432"
-      - "$${CLOUD_SQL_INSTANCE}"
-    restart: unless-stopped
+docker rm -f cloud-sql-proxy kestra-worker >/dev/null 2>&1 || true
+docker run -d \
+  --name cloud-sql-proxy \
+  --network kestra \
+  --restart unless-stopped \
+  gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1 \
+  --structured-logs \
+  --private-ip \
+  --address=0.0.0.0 \
+  --port=5432 \
+  "$${CLOUD_SQL_INSTANCE}"
 
-  worker:
-    image: $${KESTRA_IMAGE}
-    user: "root"
-    restart: unless-stopped
-    env_file: .env
-    volumes:
-      - /tmp/kestra-wd:/tmp/kestra-wd
-      - /opt/kestra/config/application.yaml:/etc/kestra/application.yaml:ro
-    depends_on:
-      - cloud-sql-proxy
-    command: server worker --thread=$${KESTRA_WORKER_THREADS} $${KESTRA_WORKER_GROUP_ARG} --config /etc/kestra/application.yaml
-YAML
-
-compose -f /opt/kestra/docker-compose.yml --env-file /opt/kestra/.env up -d
+docker run -d \
+  --name kestra-worker \
+  --network kestra \
+  --user root \
+  --restart unless-stopped \
+  --env-file /opt/kestra/.env \
+  -v /tmp/kestra-wd:/tmp/kestra-wd \
+  -v /opt/kestra/config/application.yaml:/etc/kestra/application.yaml:ro \
+  "$${KESTRA_IMAGE}" \
+  server worker --thread="$${KESTRA_WORKER_THREADS}" "$${KESTRA_WORKER_GROUP_ARG}" --config /etc/kestra/application.yaml
