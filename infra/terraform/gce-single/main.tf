@@ -41,6 +41,10 @@ resource "terraform_data" "kestra_image" {
   triggers_replace = [var.kestra_image]
 }
 
+resource "terraform_data" "startup_script" {
+  triggers_replace = [filesha256("${path.module}/startup.sh.tftpl")]
+}
+
 resource "google_project_iam_member" "artifact_registry_reader" {
   project = var.project_id
   role    = "roles/artifactregistry.reader"
@@ -170,6 +174,7 @@ resource "google_compute_instance" "kestra" {
   lifecycle {
     replace_triggered_by = [
       terraform_data.kestra_image,
+      terraform_data.startup_script,
     ]
   }
 

@@ -157,6 +157,20 @@ volumes:
 YAML
 
 compose -f /opt/kestra/docker-compose.yml --env-file /opt/kestra/.env up -d postgres
+for attempt in $(seq 1 60); do
+  if compose -f /opt/kestra/docker-compose.yml --env-file /opt/kestra/.env exec -T postgres \
+    pg_isready -d "$${POSTGRES_DB}" -U "$${POSTGRES_USER}"; then
+    break
+  fi
+
+  if [[ "$${attempt}" -eq 60 ]]; then
+    echo "PostgreSQL did not become ready before batch database initialization" >&2
+    compose -f /opt/kestra/docker-compose.yml --env-file /opt/kestra/.env logs postgres >&2 || true
+    exit 1
+  fi
+
+  sleep 2
+done
 compose -f /opt/kestra/docker-compose.yml --env-file /opt/kestra/.env exec -T postgres \
   /docker-entrypoint-initdb.d/20-init-batch-db.sh
 compose -f /opt/kestra/docker-compose.yml --env-file /opt/kestra/.env up -d
