@@ -127,6 +127,7 @@ Terraform roots are split by phase:
 - `infra/terraform/bootstrap-project`: creates a new GCP project and enables required APIs.
 - `infra/terraform/github-actions`: creates the GitHub OIDC provider and deploy service account
   used by the push/manual/cron workflow.
+- `infra/terraform/cloud-armor`: creates the shared Cloud Armor policy used by live HTTPS targets.
 - `infra/terraform/gce-single`: one GCE VM running Kestra and PostgreSQL through Docker Compose,
   with DB connection values loaded from Secret Manager.
 - `infra/terraform/gce-cluster`: multiple GCE VMs running separated Kestra components against shared
@@ -144,6 +145,8 @@ System shape, at a high level:
   have their own subdomain under `example.com`.
 - Terraform owns cloud infrastructure, DNS records, Secret Manager entries, load balancers, and
   managed data services. Kustomize owns Kubernetes workload shape.
+- A shared Google Cloud Armor policy protects the HTTPS backends with per-client rate limiting and
+  an optional source block list.
 - Secret values stay outside git; local env files, Secret Manager, GitHub Actions secrets, and
   `kinko` provide runtime values.
 
@@ -223,7 +226,8 @@ The normal operating path is:
 5. Verify HTTPS readiness and register the checked-in flows.
 6. Run the batch sequence for a business date: generate data, build the report, then build customer
    segments.
-7. For GKE, check the OpenTelemetry Collector when trace-level evidence is needed.
+7. Check Cloud Armor policy attachment and logs when investigating abuse or rate limiting.
+8. For GKE, check the OpenTelemetry Collector when trace-level evidence is needed.
 
 Manual operations use the same scripts as CI:
 
@@ -273,6 +277,25 @@ existing Cloud DNS zone, set `create_dns_zone=false` and `dns_zone_name=<zone-na
 After DNS record propagation, Google-managed certificates can take several minutes to become active.
 The GKE root reserves the static ingress IP and creates the Cloudflare A record; the dev Kubernetes
 overlay contains the matching `k8s.example.com` host and `kestra-dev-ingress` static IP name.
+
+## Cloud Armor DoS Mitigation
+
+`infra/terraform/cloud-armor` creates one shared Google Cloud Armor security policy for the live
+HTTPS targets. The deploy helper applies that root first, reads the policy outputs, and renders the
+ignored live tfvars so:
+
+- `gce-compose` attaches the policy to the single-VM HTTPS backend service.
+- `gce-container` attaches the same policy to the clustered web backend service.
+- `k8s` attaches the same policy through the GKE `BackendConfig`.
+
+The default policy throttles each client IP after 300 requests per 60 seconds and returns HTTP 429
+for excess requests. Tune `CLOUD_ARMOR_RATE_LIMIT_REQUESTS_PER_INTERVAL`,
+`CLOUD_ARMOR_RATE_LIMIT_INTERVAL_SEC`, and `CLOUD_ARMOR_PREVIEW` through `kinko` or CI variables
+before deploy when a different threshold or observe-only rollout is needed.
+
+Cloud Armor Standard cost is roughly one security policy plus rules and request processing. For this
+playground, expect a small fixed monthly cost for one shared policy and its rules, plus request
+volume charges.
 
 ## Kubernetes
 

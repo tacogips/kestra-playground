@@ -11,16 +11,6 @@ LIVE_GCE_SINGLE_SUBDOMAIN="${LIVE_GCE_SINGLE_SUBDOMAIN:-gce-compose}"
 LIVE_GCE_CLUSTER_SUBDOMAIN="${LIVE_GCE_CLUSTER_SUBDOMAIN:-gce-container}"
 LIVE_GKE_SUBDOMAIN="${LIVE_GKE_SUBDOMAIN:-k8s}"
 
-if [[ -z "${PROJECT_ID}" ]]; then
-  echo "Missing required environment variable: PROJECT_ID or GCP_PROJECT_ID" >&2
-  exit 1
-fi
-
-if [[ -z "${LIVE_DOMAIN_NAME}" ]]; then
-  echo "Missing required environment variable: LIVE_DOMAIN_NAME" >&2
-  exit 1
-fi
-
 # shellcheck source=scripts/lib/business-date.sh
 source "${SCRIPT_DIR}/lib/business-date.sh"
 
@@ -48,6 +38,18 @@ require_command() {
 require_command curl
 require_command gcloud
 require_command jq
+
+require_live_environment_config() {
+  if [[ -z "${PROJECT_ID}" ]]; then
+    echo "Missing required environment variable: PROJECT_ID or GCP_PROJECT_ID" >&2
+    exit 1
+  fi
+
+  if [[ -z "${LIVE_DOMAIN_NAME}" ]]; then
+    echo "Missing required environment variable: LIVE_DOMAIN_NAME" >&2
+    exit 1
+  fi
+}
 
 secret_value() {
   local secret_name="$1"
@@ -145,16 +147,19 @@ verify_environment() {
 }
 
 verify_gce_compose() {
+  require_live_environment_config
   configure_gce_auth kestra-dev
   verify_environment gce-compose "https://${LIVE_GCE_SINGLE_SUBDOMAIN}.${LIVE_DOMAIN_NAME}"
 }
 
 verify_gce_container() {
+  require_live_environment_config
   configure_gce_auth kestra-cluster-dev
   verify_environment gce-container "https://${LIVE_GCE_CLUSTER_SUBDOMAIN}.${LIVE_DOMAIN_NAME}"
 }
 
 verify_k8s() {
+  require_live_environment_config
   configure_k8s_auth
   verify_environment k8s "https://${LIVE_GKE_SUBDOMAIN}.${LIVE_DOMAIN_NAME}"
 }

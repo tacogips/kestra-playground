@@ -86,3 +86,9 @@ variable "cloudflare_dns_proxied" {
   description = "Whether Cloudflare should proxy the DNS record. Keep false for GKE-managed certificate validation."
   default     = false
 }
+
+variable "cloud_armor_security_policy_name" {
+  type        = string
+  description = "Optional Cloud Armor security policy name to attach through the GKE BackendConfig."
+  default     = ""
+}

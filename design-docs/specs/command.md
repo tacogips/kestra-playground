@@ -144,7 +144,8 @@ The normal operating flow is:
 6. Run the batch sequence for one business date:
    `generate_ecommerce_mock_data`, `build_ecommerce_daily_report`, then
    `build_ecommerce_customer_segments`.
-7. For GKE, inspect OpenTelemetry Collector logs when execution trace evidence is needed.
+7. Check Cloud Armor policy attachment and logs when investigating abusive traffic.
+8. For GKE, inspect OpenTelemetry Collector logs when execution trace evidence is needed.
 
 ### Environment Map
 
@@ -184,6 +185,11 @@ to repository files:
 kinko exec --env CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
 ```
 
+Cloud Armor configuration is rendered from ignored live config. The default rate limit is 300
+requests per 60 seconds per client IP. Tune `CLOUD_ARMOR_RATE_LIMIT_REQUESTS_PER_INTERVAL`,
+`CLOUD_ARMOR_RATE_LIMIT_INTERVAL_SEC`, or `CLOUD_ARMOR_PREVIEW` through `kinko` or CI variables when
+needed.
+
 ### Local Development Check
 
 Start the local runtime, register flows, and run the three batch flows:
@@ -219,6 +225,8 @@ container, pushes two Artifact Registry tags, then deploys the SHA-tagged image:
 ```
 
 The deploy job passes the SHA-tagged image as `KESTRA_IMAGE` to `scripts/deploy-live-environments.sh`.
+The deploy script applies `infra/terraform/cloud-armor` first, then injects the policy self link or
+name into the GCE and GKE live tfvars before applying the selected target.
 For a manual local redeploy of an existing image, set `KESTRA_IMAGE` explicitly:
 
 ```bash
@@ -261,6 +269,37 @@ TARGET_ENVIRONMENT=k8s kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kest
 
 Health verification does not consume or validate `BUSINESS_DATE`; date resolution is only part of
 batch execution.
+
+### Cloud Armor Checks
+
+Verify the shared security policy exists:
+
+```bash
+gcloud compute security-policies describe kestra-dev-cloud-armor --project="$PROJECT_ID"
+```
+
+Check GCE backend attachment:
+
+```bash
+gcloud compute backend-services describe kestra-dev-https \
+  --global \
+  --project="$PROJECT_ID" \
+  --format='value(securityPolicy)'
+
+gcloud compute backend-services describe kestra-cluster-dev-web \
+  --global \
+  --project="$PROJECT_ID" \
+  --format='value(securityPolicy)'
+```
+
+Check GKE attachment through BackendConfig:
+
+```bash
+kubectl -n kestra-dev get backendconfig kestra-webserver -o yaml | rg 'securityPolicy|name:'
+```
+
+Cloud Armor Standard pricing is based on one security policy, its rules, and request volume. This
+repo intentionally uses one shared policy to avoid per-environment policy duplication.
 
 ### Batch Verification
 
@@ -405,6 +444,10 @@ plans:
 
 ```bash
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- scripts/render-live-config.sh
+kinko exec --env CLOUDFLARE_API_TOKEN -- \
+  tofu -chdir=infra/terraform/cloud-armor init -backend-config=../../live/dev/cloud-armor.backend.hcl
+kinko exec --env CLOUDFLARE_API_TOKEN -- \
+  tofu -chdir=infra/terraform/cloud-armor plan -var-file=../../live/dev/cloud-armor.tfvars
 kinko exec --env CLOUDFLARE_API_TOKEN -- \
   tofu -chdir=infra/terraform/gce-single init -backend-config=../../live/dev/gce-single.backend.hcl
 kinko exec --env CLOUDFLARE_API_TOKEN -- \

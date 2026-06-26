@@ -249,6 +249,9 @@ resource "google_compute_backend_service" "web" {
   protocol      = "HTTP"
   port_name     = "http"
   health_checks = [google_compute_health_check.web.id]
+  security_policy = (
+    var.cloud_armor_security_policy_self_link != "" ? var.cloud_armor_security_policy_self_link : null
+  )
 
   backend {
     group = google_compute_instance_group_manager.kestra.instance_group

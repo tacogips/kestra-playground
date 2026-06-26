@@ -212,6 +212,9 @@ resource "google_compute_backend_service" "https" {
   port_name     = "http"
   timeout_sec   = 30
   health_checks = [google_compute_health_check.https[0].id]
+  security_policy = (
+    var.cloud_armor_security_policy_self_link != "" ? var.cloud_armor_security_policy_self_link : null
+  )
 
   backend {
     group = google_compute_instance_group.kestra[0].self_link

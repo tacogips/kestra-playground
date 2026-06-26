@@ -258,6 +258,10 @@ output "ingress_static_ip_address" {
   value = local.https_enabled ? google_compute_global_address.ingress[0].address : null
 }
 
+output "cloud_armor_security_policy_name" {
+  value = var.cloud_armor_security_policy_name
+}
+
 output "dns_name_servers" {
   value = local.google_dns_enabled && var.create_dns_zone ? google_dns_managed_zone.domain[0].name_servers : []
 }

@@ -33,7 +33,7 @@ The important architectural traits are:
 - The workload contract is shared: the same Kestra flow definitions, SQL fixtures, and runtime image
   are promoted through local, GCE, and GKE targets.
 - Terraform owns cloud infrastructure: GCP project bootstrap, Artifact Registry, IAM, Secret
-  Manager, Cloud SQL, GCS, GCE, GKE inputs, load balancers, and DNS records.
+  Manager, Cloud SQL, GCS, GCE, GKE inputs, load balancers, Cloud Armor, and DNS records.
 - Kustomize owns Kubernetes workload shape for GKE, with Terraform outputs bridged into the dev
   overlay by `scripts/apply-gke-dev.sh`.
 - GitHub Actions is the default release controller and uses OIDC to deploy without long-lived GCP
@@ -48,6 +48,11 @@ The live environment exposes three HTTPS targets under the same Cloudflare-backe
 | `gce-compose` | `https://gce-compose.example.com` | One GCE VM running Kestra and PostgreSQL through Docker Compose |
 | `gce-container` | `https://gce-container.example.com` | GCE instance group running split Kestra components with shared Cloud SQL and GCS |
 | `k8s` | `https://k8s.example.com` | GKE Autopilot running split Kestra components from Kustomize manifests |
+
+Cloud Armor is managed as a separate Terraform root so all live HTTPS targets can share one policy.
+The GCE roots attach the policy self link to their backend services. The GKE path passes the policy
+name through Terraform output and patches `BackendConfig.securityPolicy.name` during
+`scripts/apply-gke-dev.sh`.
 
 ### Workload
 
@@ -151,10 +156,10 @@ development infrastructure; and performs HTTPS health verification. Scheduled an
 batch runs reuse the same verification helper so operational behavior stays close to local scripts.
 
 Terraform owns cloud infrastructure, DNS records, load balancing, service accounts, Secret Manager
-containers and versions, Cloud SQL, GCS, GCE, and GKE cluster resources. Kustomize owns Kubernetes
-workloads under `k8s/`, with `scripts/apply-gke-dev.sh` bridging Terraform outputs into the dev
-overlay. Do not hand-edit live Kubernetes resources except for short-lived diagnostics; commit and
-apply manifest changes instead.
+containers and versions, Cloud SQL, GCS, GCE, GKE cluster resources, and the shared Cloud Armor
+policy. Kustomize owns Kubernetes workloads under `k8s/`, with `scripts/apply-gke-dev.sh` bridging
+Terraform outputs into the dev overlay. Do not hand-edit live Kubernetes resources except for
+short-lived diagnostics; commit and apply manifest changes instead.
 
 Secret values are intentionally outside source control. Local development uses non-production values
 from local env files. Live GCE and GKE credentials come from Secret Manager, and the Cloudflare token

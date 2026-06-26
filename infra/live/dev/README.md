@@ -11,3 +11,5 @@ kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKE
 ```
 
 The live deploy task renders these files automatically before running OpenTofu.
+After the Cloud Armor root is applied, the deploy task renders the files again
+with the policy name and self link so GCE and GKE attach the same policy.

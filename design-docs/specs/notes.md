@@ -35,6 +35,9 @@ Notable items that do not fit into architecture or client categories.
   servers before Google-managed certificates can become active.
 - The live development domain path uses Cloudflare DNS values injected from `kinko` or CI
   secrets/variables. Do not commit real project, domain, Cloudflare zone, or state bucket values.
+- Live HTTPS targets use one shared Cloud Armor policy for rate limiting. Keep one policy unless
+  environment-specific thresholds are needed, because duplicated policies add avoidable monthly
+  fixed cost.
 - Scheduled and default helper-script batch runs use the current date in `Asia/Tokyo`. Historical
   replays should pass `BUSINESS_DATE=YYYY-MM-DD` explicitly; invalid date strings fail before a
   Kestra execution is created.

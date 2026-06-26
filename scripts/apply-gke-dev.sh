@@ -37,6 +37,7 @@ project_id="$(tf_output '.project_id.value')"
 kestra_image="$(tf_output '.kestra_image.value')"
 kestra_https_url="$(tf_output '.kestra_https_url.value // empty')"
 ingress_static_ip_name="$(tf_output '.ingress_static_ip_name.value // empty')"
+cloud_armor_security_policy_name="$(tf_output '.cloud_armor_security_policy_name.value // empty')"
 kestra_hostname="${kestra_https_url#https://}"
 
 secret_value() {
@@ -67,6 +68,12 @@ if [[ -n "${kestra_hostname}" ]]; then
   KESTRA_HOSTNAME="$kestra_hostname" \
     yq -i '.spec.domains = [strenv(KESTRA_HOSTNAME)]' \
     "${work_overlay}/managed-certificate.yaml"
+fi
+
+if [[ -n "${cloud_armor_security_policy_name}" ]]; then
+  CLOUD_ARMOR_SECURITY_POLICY_NAME="$cloud_armor_security_policy_name" \
+    yq -i '.spec.securityPolicy.name = strenv(CLOUD_ARMOR_SECURITY_POLICY_NAME)' \
+    "${work_overlay}/backendconfig.yaml"
 fi
 
 cat >"${work_overlay}/configmap.yaml" <<EOF

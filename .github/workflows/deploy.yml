@@ -57,6 +57,8 @@ jobs:
           nix develop -c task scripts:check
           nix develop -c tofu fmt -check -recursive infra/terraform
           nix develop -c kubectl version --client=true
+          nix develop -c tofu -chdir=infra/terraform/cloud-armor init -backend=false -input=false
+          nix develop -c tofu -chdir=infra/terraform/cloud-armor validate
           nix develop -c tofu -chdir=infra/terraform/gce-single init -backend=false -input=false
           nix develop -c tofu -chdir=infra/terraform/gce-single validate
           nix develop -c tofu -chdir=infra/terraform/gce-cluster init -backend=false -input=false

@@ -22,4 +22,7 @@ dns_zone_name = ""
 # dns_provider           = "cloudflare"
 # cloudflare_zone_id     = "..."
 # cloudflare_dns_proxied = false
+
+# Optional shared Cloud Armor policy attachment through BackendConfig.
+cloud_armor_security_policy_name = ""
 # and set CLOUDFLARE_API_TOKEN in the environment or inject it from kinko.

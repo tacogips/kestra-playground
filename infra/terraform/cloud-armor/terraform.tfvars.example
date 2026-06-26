@@ -1,0 +1,12 @@
+project_id = "example-project-id"
+
+# 300 requests per 60 seconds per source IP is a dev-friendly starting point.
+# Tighten or relax these values from ignored live config when needed.
+rate_limit_requests_per_interval = 300
+rate_limit_interval_sec          = 60
+
+# Optional CIDR ranges to deny before rate limiting.
+blocked_source_ranges = []
+
+# Set true for observe-only policy evaluation.
+preview = false

@@ -110,3 +110,9 @@ variable "cloudflare_dns_proxied" {
   description = "Whether Cloudflare should proxy the DNS record. Keep false for Google-managed certificate validation."
   default     = false
 }
+
+variable "cloud_armor_security_policy_self_link" {
+  type        = string
+  description = "Optional Cloud Armor security policy self link to attach to the web backend service."
+  default     = ""
+}

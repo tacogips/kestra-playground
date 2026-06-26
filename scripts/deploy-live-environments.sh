@@ -27,9 +27,10 @@ apply_tofu() {
   local root="$1"
   local var_file="$2"
   local backend_config="$3"
+  local include_image="${4:-true}"
   local apply_args=(-input=false -auto-approve -var-file="${var_file}")
 
-  if [[ -n "${KESTRA_IMAGE:-}" ]]; then
+  if [[ "${include_image}" == "true" && -n "${KESTRA_IMAGE:-}" ]]; then
     apply_args+=("-var=kestra_image=${KESTRA_IMAGE}")
   fi
 
@@ -37,6 +38,15 @@ apply_tofu() {
   tofu -chdir="${root}" init -input=false -backend-config="${backend_config}"
   tofu -chdir="${root}" validate
   tofu -chdir="${root}" apply "${apply_args[@]}"
+}
+
+deploy_cloud_armor() {
+  apply_tofu "infra/terraform/cloud-armor" "../../live/dev/cloud-armor.tfvars" "../../live/dev/cloud-armor.backend.hcl" false
+  export CLOUD_ARMOR_SECURITY_POLICY_NAME
+  export CLOUD_ARMOR_SECURITY_POLICY_SELF_LINK
+  CLOUD_ARMOR_SECURITY_POLICY_NAME="$(tofu -chdir=infra/terraform/cloud-armor output -raw security_policy_name)"
+  CLOUD_ARMOR_SECURITY_POLICY_SELF_LINK="$(tofu -chdir=infra/terraform/cloud-armor output -raw security_policy_self_link)"
+  scripts/render-live-config.sh
 }
 
 deploy_gce_single() {
@@ -61,17 +71,21 @@ deploy_gke_dev() {
 
 case "${TARGET_ENVIRONMENT}" in
   all)
+    deploy_cloud_armor
     deploy_gce_single
     deploy_gce_cluster
     deploy_gke_dev
     ;;
   gce-compose | gce-single)
+    deploy_cloud_armor
     deploy_gce_single
     ;;
   gce-container | gce-cluster)
+    deploy_cloud_armor
     deploy_gce_cluster
     ;;
   k8s | gke-dev)
+    deploy_cloud_armor
     deploy_gke_dev
     ;;
   *)
