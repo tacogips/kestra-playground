@@ -151,6 +151,11 @@ tasks:
     cmds:
       - scripts/deploy-live-environments.sh "${TARGET_ENVIRONMENT:-all}"
 
+  kestra:live:deploy:federated:
+    desc: Deploy the OSS federated live topology with GCE child Kestra and GKE controller/child Kestra
+    cmds:
+      - scripts/deploy-federated-live.sh
+
   kestra:live:verify:
     desc: Register flows and verify live HTTPS endpoints without running the batch
     cmds:
@@ -160,6 +165,11 @@ tasks:
     desc: Register flows and run the ecommerce batch against live environments
     cmds:
       - scripts/verify-live-environments.sh "${TARGET_ENVIRONMENT:-all}" "${BUSINESS_DATE:-}" run-batch
+
+  kestra:live:run-federated:
+    desc: Register child/controller flows and run the OSS federated ecommerce batch
+    cmds:
+      - scripts/verify-live-federated.sh "${BUSINESS_DATE:-}"
 
   infra:fmt:
     desc: Format Terraform/OpenTofu files

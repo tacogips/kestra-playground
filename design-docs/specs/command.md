@@ -117,55 +117,29 @@ For GKE HTTPS, pass `domain_name`, `subdomain`, and the DNS provider inputs, the
 `scripts/apply-gke-dev.sh`. The helper reads Terraform outputs, renders sensitive values into a
 temporary manifest only, and waits for Kestra deployments to roll out.
 
-To add one external GCE worker for Enterprise Worker Group routing, set:
+### Federated OSS Dev-As-Prod
 
-```hcl
-external_gce_worker_enabled      = true
-external_gce_worker_group_key    = "gce-heavy"
-external_gce_worker_machine_type = "e2-standard-4"
-external_gce_worker_subnet_cidr  = "10.42.0.0/24"
-```
+Use the federated live path when dev should behave like the production split topology without
+Kestra Enterprise Worker Groups:
 
-For a GPU host, also set a compatible machine type and accelerator values:
-
-```hcl
-external_gce_worker_gpu_type  = "nvidia-tesla-t4"
-external_gce_worker_gpu_count = 1
-```
-
-The VM uses Container-Optimized OS, has no public IP address, reads Secret Manager through the
-metadata-token API, starts Cloud SQL Auth Proxy, and runs only the Kestra worker
-component. GPU workloads still need a compatible image, driver/toolchain installation, and quota
-sized for the selected accelerator.
-
-The GKE control-plane pods and external worker share one Cloud SQL PostgreSQL instance. The Kestra
-management connection points at the `kestra` database through `KESTRA_DB_*`; batch flows point at
-the `ecommerce_ops` database through `ENV_BATCH_DB_*`. Terraform creates separate Secret Manager
-entries for those two connection families and exports only the secret IDs to the apply helper.
-
-Register the Enterprise flow overlay after normal flow registration to route
-`build_ecommerce_customer_segments` tasks to the external worker group:
+- `gce-container` is the GCE child Kestra deployment;
+- `k8s` is the controller Kestra and also the GKE child Kestra deployment;
+- child flows from `kestra/flows` are registered on both deployments;
+- controller flows from `kestra/flows-federated` are registered only on `k8s`.
 
 ```bash
-scripts/register-flows.sh https://k8s.example.com kestra/flows
-scripts/register-flows.sh https://k8s.example.com kestra/flows-enterprise
-```
-
-For live verification, set `KESTRA_ADDITIONAL_FLOW_DIRS=kestra/flows-enterprise` so the helper
-updates the selected flow after registering the default flow set:
-
-```bash
-TARGET_ENVIRONMENT=k8s \
-KESTRA_ADDITIONAL_FLOW_DIRS=kestra/flows-enterprise \
-kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:federated
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-federated
 ```
 
 ### Live Operations
 
 ```bash
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:federated
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:verify
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-federated
 TARGET_ENVIRONMENT=k8s BUSINESS_DATE=2026-06-25 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
 ```
 
@@ -299,14 +273,6 @@ The GKE deploy path also refreshes local kubeconfig and applies the rendered Kus
 gcloud container clusters get-credentials kestra-dev --region asia-northeast1 --project "$PROJECT_ID"
 scripts/apply-gke-dev.sh
 ```
-
-The live config renderer forwards optional external GCE worker values from:
-
-- `LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED`
-- `LIVE_GKE_EXTERNAL_GCE_WORKER_GROUP_KEY`
-- `LIVE_GKE_EXTERNAL_GCE_WORKER_MACHINE_TYPE`
-- `LIVE_GKE_EXTERNAL_GCE_WORKER_GPU_TYPE`
-- `LIVE_GKE_EXTERNAL_GCE_WORKER_GPU_COUNT`
 
 ### Health Verification
 

@@ -49,9 +49,24 @@ gcp_secret_value() {
   gcloud secrets versions access latest --project="$project_id" --secret="$secret_name"
 }
 
+optional_gcp_secret_value() {
+  local secret_name="$1"
+  gcloud secrets versions access latest --project="$project_id" --secret="$secret_name" 2>/dev/null || true
+}
+
 runtime_secret_value() {
   gcp_secret_value "$(secret_id "$1")"
 }
+
+federated_gce_worker_url="${FEDERATED_GCE_WORKER_URL:-}"
+if [[ -z "$federated_gce_worker_url" && -n "${LIVE_DOMAIN_NAME:-}" ]]; then
+  federated_gce_worker_url="https://${LIVE_GCE_CLUSTER_SUBDOMAIN:-gce-container}.${LIVE_DOMAIN_NAME}"
+fi
+federated_gce_worker_username="${FEDERATED_GCE_WORKER_USERNAME:-$(optional_gcp_secret_value kestra-cluster-dev-kestra-basic-auth-username)}"
+federated_gce_worker_password="${FEDERATED_GCE_WORKER_PASSWORD:-$(optional_gcp_secret_value kestra-cluster-dev-kestra-basic-auth-password)}"
+federated_gke_worker_url="${FEDERATED_GKE_WORKER_URL:-http://kestra-webserver}"
+federated_gke_worker_username="${FEDERATED_GKE_WORKER_USERNAME:-$(runtime_secret_value KESTRA_BASIC_AUTH_USERNAME)}"
+federated_gke_worker_password="${FEDERATED_GKE_WORKER_PASSWORD:-$(runtime_secret_value KESTRA_BASIC_AUTH_PASSWORD)}"
 
 cp -R k8s "${tmpdir}/k8s"
 work_overlay="${tmpdir}/${OVERLAY_DIR}"
@@ -114,6 +129,12 @@ stringData:
   ENV_BATCH_DB_URL: $(runtime_secret_value ENV_BATCH_DB_URL)
   ENV_BATCH_DB_USERNAME: $(runtime_secret_value ENV_BATCH_DB_USERNAME)
   ENV_BATCH_DB_PASSWORD: $(runtime_secret_value ENV_BATCH_DB_PASSWORD)
+  ENV_FEDERATED_GCE_WORKER_URL: "${federated_gce_worker_url}"
+  ENV_FEDERATED_GCE_WORKER_USERNAME: "${federated_gce_worker_username}"
+  ENV_FEDERATED_GCE_WORKER_PASSWORD: "${federated_gce_worker_password}"
+  ENV_FEDERATED_GKE_WORKER_URL: "${federated_gke_worker_url}"
+  ENV_FEDERATED_GKE_WORKER_USERNAME: "${federated_gke_worker_username}"
+  ENV_FEDERATED_GKE_WORKER_PASSWORD: "${federated_gke_worker_password}"
 EOF
 
 rendered="${tmpdir}/rendered.yaml"

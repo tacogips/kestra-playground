@@ -152,19 +152,23 @@ GKE Basic Auth and database connection values are stored in Secret Manager and r
 Kubernetes only through the temporary manifest path in `scripts/apply-gke-dev.sh`. Terraform exports
 Secret Manager IDs, not DB secret payloads, for the apply helper.
 
-The `gke-dev` Terraform root can also model a hybrid execution plane for Kestra Enterprise:
+The production-like OSS hybrid path is federated rather than queue-shared:
 
-- the Kestra control-plane components and one default worker run in GKE;
-- one private external GCE VM runs only `kestra server worker --worker-group=gce-heavy`;
-- both worker locations use the same Cloud SQL repository/queue and GCS internal storage;
-- the external worker VPC uses Private Google Access and Cloud SQL Auth Proxy, so the VM does not
-  consume a regional external address quota slot;
-- heavy or GPU-oriented flows can be updated from `kestra/flows-enterprise/` so selected tasks carry
-  `workerGroup.key: gce-heavy` and never execute on the default GKE worker.
+- `gce-container` is a standalone GCE child Kestra deployment;
+- `k8s` is the controller Kestra and also a GKE child execution environment;
+- child flows from `kestra/flows` are registered on both child deployments;
+- controller flows from `kestra/flows-federated` are registered only on `k8s`;
+- the controller flow calls child Kestra REST APIs, waits for child execution state, and records
+  child execution IDs in controller task outputs.
 
-This is intentionally optional because `workerGroup` routing is an Enterprise-only Kestra feature.
-Without Worker Groups, ordinary workers share the same queue and Kestra load-balances tasks across
-available workers, so the repo cannot guarantee that one batch will always run on the GCE worker.
+Kestra Worker Groups remain an Enterprise Edition feature. The OSS runtime should not attach an
+external Kestra worker to a shared queue when deterministic placement is required, because ordinary
+workers load-balance tasks across all available workers. The removed DB-backed agent design remains
+documented as an alternative analysis, but it is not the active implementation because it would make
+local/staging and production workflows diverge too much.
+
+For the Enterprise routing mechanism, component communication model, and authentication boundaries,
+see `design-docs/specs/design-kestra-enterprise-worker-group-mechanism.md`.
 
 ### Operational Boundaries
 

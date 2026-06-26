@@ -52,10 +52,10 @@ Notable items that do not fit into architecture or client categories.
 - GKE OTEL currently exports to the in-cluster collector's `debug` exporter. This proves Kestra can
   emit and the cluster can receive OTLP telemetry; add a vendor-specific exporter later when a
   durable observability backend is chosen.
-- The hybrid GKE-plus-GCE worker shape depends on Kestra Enterprise Worker Groups. The GCE VM is not
-  a separate Kestra agent; it runs the normal Kestra worker component with `--worker-group`. Selected
-  tasks use `workerGroup.key` in the flow overlay. With `fallback: WAIT`, those tasks wait for a
-  matching worker instead of falling back to the default GKE worker.
-- The external worker intentionally has no public IP address to avoid regional
-  `IN_USE_ADDRESSES` quota pressure. It uses Container-Optimized OS, Private Google Access,
-  Secret Manager REST calls with the metadata service token, and Cloud SQL Auth Proxy.
+- The active OSS hybrid shape is federated Kestra, not Worker Groups and not the DB-backed external
+  agent. `gce-container` and `k8s` are separate Kestra deployments. The GKE controller flow calls
+  child Kestra APIs and waits for child execution state. This keeps local/staging and production
+  workflow contracts closer than the DB-backed agent wrapper.
+- The DB-backed external agent and Enterprise Worker Group approaches remain documented in
+  `design-docs/specs/design-kestra-enterprise-worker-group-mechanism.md` as design alternatives,
+  but their runtime source has been removed.

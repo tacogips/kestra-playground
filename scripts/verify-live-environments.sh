@@ -92,6 +92,7 @@ wait_for_execution() {
       SUCCESS)
         echo "Execution ${execution_id} succeeded."
         print_execution_task_summary "${execution_json}"
+        print_execution_outputs "${execution_json}"
         return 0
         ;;
       FAILED | KILLED | WARNING)
@@ -125,6 +126,25 @@ print_execution_task_summary() {
               (.workerId // .worker.id // .attempts[-1].workerId // "")
             ]
           | @tsv)
+      end
+  ' <<<"${execution_json}"
+}
+
+print_execution_outputs() {
+  local execution_json="$1"
+
+  jq -r '
+    (.outputs // []) as $outputs
+    | if ($outputs | length) > 0 then
+        "Execution outputs:",
+        ($outputs[]
+          | [
+              (.taskId // ""),
+              ((.value // .output // .) | tostring)
+            ]
+          | @tsv)
+      else
+        empty
       end
   ' <<<"${execution_json}"
 }

@@ -141,8 +141,8 @@ Terraform roots are split by phase:
   databases, and each JDBC connection family has its own Secret Manager entries.
 - `infra/terraform/gke-dev`: GKE Autopilot, Cloud SQL, GCS, and Workload Identity inputs for the
   Kubernetes manifests. It stores GKE runtime DB connection values in Secret Manager, renders them
-  into Kubernetes only during apply, and can optionally add one external GCE worker for Kestra
-  Enterprise Worker Group routing.
+  into Kubernetes only during apply, and can act as the federated OSS controller plus one GKE child
+  execution environment.
 
 System shape, at a high level:
 
@@ -163,16 +163,21 @@ The GCE cluster root runs Cloud SQL Proxy as a Docker Compose service, so Kestra
 `cloud-sql-proxy:5432`. The GKE manifests run Cloud SQL Proxy as a sidecar in each Pod, so those
 JDBC URLs use `127.0.0.1:5432`.
 
-For the hybrid GKE-plus-GCE execution pattern, enable `external_gce_worker_enabled` in
-`infra/terraform/gke-dev`. Terraform creates one GCE VM running only the Kestra worker component
-with `--worker-group=gce-heavy`; the GKE overlay keeps the default in-cluster worker at one replica.
-This routing model requires Kestra Enterprise Worker Groups. To make
-`build_ecommerce_customer_segments` run only on the external worker, register the default flows and
-then register the Enterprise overlay:
+For the OSS-compatible federated execution pattern, keep separate Kestra deployments instead of
+trying to attach remote workers to one OSS worker queue. In the live dev-as-prod topology:
+
+- `gce-container` is the GCE child Kestra and runs selected GCE-side flows;
+- `k8s` is both the controller Kestra and the GKE child Kestra;
+- `kestra/flows` is registered on both child deployments;
+- `kestra/flows-federated` is registered only on the GKE controller.
+
+The controller flow calls child Kestra REST APIs, waits for child execution status, and records child
+execution IDs in its own task outputs. This keeps production-like workflow shape without using
+Enterprise Worker Groups or the removed DB-backed agent implementation.
 
 ```bash
-scripts/register-flows.sh https://k8s.example.com kestra/flows
-scripts/register-flows.sh https://k8s.example.com kestra/flows-enterprise
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:federated
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-federated
 ```
 
 Example bootstrap:
