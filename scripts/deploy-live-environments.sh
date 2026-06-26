@@ -61,7 +61,29 @@ deploy_gce_cluster() {
   apply_tofu "infra/terraform/gce-cluster" "../../live/dev/gce-cluster.tfvars" "../../live/dev/gce-cluster.backend.hcl"
 }
 
+prepare_gke_external_worker_network_migration() {
+  local root="infra/terraform/gke-dev"
+  local var_file="../../live/dev/gke-dev.tfvars"
+  local backend_config="../../live/dev/gke-dev.backend.hcl"
+  local network_address='google_compute_network.external_gce_worker[0]'
+  local firewall_address='google_compute_firewall.external_gce_worker_iap_ssh[0]'
+
+  tofu -chdir="${root}" init -input=false -backend-config="${backend_config}" >/dev/null
+  if ! tofu -chdir="${root}" state show "${network_address}" 2>/dev/null |
+    grep -q 'auto_create_subnetworks[[:space:]]*=[[:space:]]*true'; then
+    return 0
+  fi
+
+  echo "Destroying legacy external-worker firewall before replacing auto-mode worker VPC"
+  tofu -chdir="${root}" destroy \
+    -input=false \
+    -auto-approve \
+    -target="${firewall_address}" \
+    -var-file="${var_file}"
+}
+
 deploy_gke_dev() {
+  prepare_gke_external_worker_network_migration
   apply_tofu "infra/terraform/gke-dev" "../../live/dev/gke-dev.tfvars" "../../live/dev/gke-dev.backend.hcl"
   gcloud container clusters get-credentials kestra-dev \
     --region "${REGION}" \
