@@ -176,3 +176,14 @@ Kestra flow tracing is enabled with `kestra.traces.root: DEFAULT`, which produce
 spans. The ecommerce batch flows are intentionally split into smaller SQL tasks so the OTEL trace
 timeline can identify purge, insert, aggregation, and fetch steps separately. Collector spans expose
 `kestra.uid`; that value maps to Kestra execution API task-run IDs for human-readable task names.
+
+### GCP Runtime Decision
+
+Use GKE Autopilot as the default production-like Kestra cluster runtime, with Cloud SQL and GCS for
+durable state, and use Cloud Run Jobs or the Kestra Cloud Run task runner only for selected
+ephemeral task execution. Do not use Cloud Run as the default host for the full Kestra control
+plane, because Kestra's scheduler, executor, webserver, indexer, and workers are long-running
+components.
+
+The detailed decision report is in
+`design-docs/specs/design-kestra-gcp-runtime-decision.md`.
