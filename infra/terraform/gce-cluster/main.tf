@@ -176,7 +176,7 @@ resource "google_compute_instance_template" "kestra" {
   disk {
     source_image = "debian-cloud/debian-12"
     disk_size_gb = 20
-    disk_type    = "pd-balanced"
+    disk_type    = "pd-standard"
     auto_delete  = true
     boot         = true
   }
