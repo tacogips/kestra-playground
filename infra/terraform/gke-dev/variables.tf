@@ -119,7 +119,7 @@ variable "external_gce_worker_group_key" {
 variable "external_gce_worker_machine_type" {
   type        = string
   description = "Machine type for the optional external GCE worker."
-  default     = "n1-standard-4"
+  default     = "e2-standard-4"
 }
 
 variable "external_gce_worker_boot_disk_size_gb" {

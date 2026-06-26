@@ -26,7 +26,7 @@ cloud_armor_security_policy_name="${CLOUD_ARMOR_SECURITY_POLICY_NAME:-}"
 cloud_armor_security_policy_self_link="${CLOUD_ARMOR_SECURITY_POLICY_SELF_LINK:-}"
 live_gke_external_gce_worker_enabled="${LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED:-false}"
 live_gke_external_gce_worker_group_key="${LIVE_GKE_EXTERNAL_GCE_WORKER_GROUP_KEY:-gce-heavy}"
-live_gke_external_gce_worker_machine_type="${LIVE_GKE_EXTERNAL_GCE_WORKER_MACHINE_TYPE:-n1-standard-4}"
+live_gke_external_gce_worker_machine_type="${LIVE_GKE_EXTERNAL_GCE_WORKER_MACHINE_TYPE:-e2-standard-4}"
 live_gke_external_gce_worker_gpu_type="${LIVE_GKE_EXTERNAL_GCE_WORKER_GPU_TYPE:-}"
 live_gke_external_gce_worker_gpu_count="${LIVE_GKE_EXTERNAL_GCE_WORKER_GPU_COUNT:-0}"
 

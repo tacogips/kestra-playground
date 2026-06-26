@@ -122,7 +122,7 @@ To add one external GCE worker for Enterprise Worker Group routing, set:
 ```hcl
 external_gce_worker_enabled      = true
 external_gce_worker_group_key    = "gce-heavy"
-external_gce_worker_machine_type = "n1-standard-4"
+external_gce_worker_machine_type = "e2-standard-4"
 ```
 
 For a GPU host, also set a compatible machine type and accelerator values:
