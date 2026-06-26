@@ -225,7 +225,7 @@ resource "google_compute_firewall" "external_gce_worker_iap_ssh" {
   count = var.external_gce_worker_enabled ? 1 : 0
 
   name    = "${var.name_prefix}-gce-worker-iap-ssh"
-  network = google_compute_network.external_gce_worker[0].name
+  network = google_compute_network.external_gce_worker[0].id
 
   allow {
     protocol = "tcp"
