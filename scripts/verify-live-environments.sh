@@ -138,6 +138,9 @@ verify_environment() {
   echo "=== ${name} (${url}) ==="
   wait_for_ui "${url}"
   scripts/register-flows.sh "${url}"
+  for flow_dir in ${KESTRA_ADDITIONAL_FLOW_DIRS:-}; do
+    scripts/register-flows.sh "${url}" "${flow_dir}"
+  done
 
   if [[ "${MODE}" == "run-batch" ]]; then
     run_flow_and_wait "${url}" generate_ecommerce_mock_data
@@ -161,7 +164,10 @@ verify_gce_container() {
 verify_k8s() {
   require_live_environment_config
   configure_k8s_auth
+  local previous_additional_flow_dirs="${KESTRA_ADDITIONAL_FLOW_DIRS:-}"
+  export KESTRA_ADDITIONAL_FLOW_DIRS="${KESTRA_K8S_ADDITIONAL_FLOW_DIRS:-${KESTRA_ADDITIONAL_FLOW_DIRS:-}}"
   verify_environment k8s "https://${LIVE_GKE_SUBDOMAIN}.${LIVE_DOMAIN_NAME}"
+  export KESTRA_ADDITIONAL_FLOW_DIRS="${previous_additional_flow_dirs}"
 }
 
 case "${TARGET_ENVIRONMENT}" in

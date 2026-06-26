@@ -148,6 +148,18 @@ Live development HTTPS currently uses Cloudflare DNS records for `example.com`:
 GKE Basic Auth credentials are stored in Secret Manager and rendered into Kubernetes only through
 the temporary manifest path in `scripts/apply-gke-dev.sh`.
 
+The `gke-dev` Terraform root can also model a hybrid execution plane for Kestra Enterprise:
+
+- the Kestra control-plane components and one default worker run in GKE;
+- one external GCE VM runs only `kestra server worker --worker-group=gce-heavy`;
+- both worker locations use the same Cloud SQL repository/queue and GCS internal storage;
+- heavy or GPU-oriented flows can be updated from `kestra/flows-enterprise/` so selected tasks carry
+  `workerGroup.key: gce-heavy` and never execute on the default GKE worker.
+
+This is intentionally optional because `workerGroup` routing is an Enterprise-only Kestra feature.
+Without Worker Groups, ordinary workers share the same queue and Kestra load-balances tasks across
+available workers, so the repo cannot guarantee that one batch will always run on the GCE worker.
+
 ### Operational Boundaries
 
 GitHub Actions is the default release controller. A push to `main` validates source, Terraform, and

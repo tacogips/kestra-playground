@@ -18,4 +18,5 @@ patches:
   - path: service.yaml
   - path: deployment-resources.yaml
   - path: worker-replicas.yaml
+  - path: worker-hpa.yaml
   - path: secret.yaml

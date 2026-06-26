@@ -117,6 +117,42 @@ For GKE HTTPS, pass `domain_name`, `subdomain`, and the DNS provider inputs, the
 `scripts/apply-gke-dev.sh`. The helper reads Terraform outputs, renders sensitive values into a
 temporary manifest only, and waits for Kestra deployments to roll out.
 
+To add one external GCE worker for Enterprise Worker Group routing, set:
+
+```hcl
+external_gce_worker_enabled      = true
+external_gce_worker_group_key    = "gce-heavy"
+external_gce_worker_machine_type = "n1-standard-4"
+```
+
+For a GPU host, also set a compatible machine type and accelerator values:
+
+```hcl
+external_gce_worker_gpu_type  = "nvidia-tesla-t4"
+external_gce_worker_gpu_count = 1
+```
+
+The VM startup script installs Docker, starts Cloud SQL Proxy, and runs only the Kestra worker
+component. GPU workloads still need driver/toolchain installation and quota sized for the selected
+accelerator.
+
+Register the Enterprise flow overlay after normal flow registration to route
+`build_ecommerce_customer_segments` tasks to the external worker group:
+
+```bash
+scripts/register-flows.sh https://k8s.example.com kestra/flows
+scripts/register-flows.sh https://k8s.example.com kestra/flows-enterprise
+```
+
+For live verification, set `KESTRA_ADDITIONAL_FLOW_DIRS=kestra/flows-enterprise` so the helper
+updates the selected flow after registering the default flow set:
+
+```bash
+TARGET_ENVIRONMENT=k8s \
+KESTRA_ADDITIONAL_FLOW_DIRS=kestra/flows-enterprise \
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
+```
+
 ### Live Operations
 
 ```bash
@@ -256,6 +292,14 @@ The GKE deploy path also refreshes local kubeconfig and applies the rendered Kus
 gcloud container clusters get-credentials kestra-dev --region asia-northeast1 --project "$PROJECT_ID"
 scripts/apply-gke-dev.sh
 ```
+
+The live config renderer forwards optional external GCE worker values from:
+
+- `LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED`
+- `LIVE_GKE_EXTERNAL_GCE_WORKER_GROUP_KEY`
+- `LIVE_GKE_EXTERNAL_GCE_WORKER_MACHINE_TYPE`
+- `LIVE_GKE_EXTERNAL_GCE_WORKER_GPU_TYPE`
+- `LIVE_GKE_EXTERNAL_GCE_WORKER_GPU_COUNT`
 
 ### Health Verification
 

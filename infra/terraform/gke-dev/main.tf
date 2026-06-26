@@ -18,10 +18,24 @@ locals {
   dns_zone_name          = var.dns_zone_name != "" ? var.dns_zone_name : "${var.name_prefix}-${replace(local.domain_name, ".", "-")}"
   google_dns_enabled     = local.https_enabled && var.dns_provider == "google"
   cloudflare_dns_enabled = local.https_enabled && var.dns_provider == "cloudflare"
+  kestra_url             = local.https_enabled ? "https://${local.hostname}" : "http://localhost:8080/"
 
   kestra_basic_auth_secret_values = {
     kestra-basic-auth-username = var.kestra_basic_auth_username
     kestra-basic-auth-password = random_password.kestra_basic_auth.result
+  }
+
+  external_gce_worker_secret_values = {
+    kestra-db-url              = "jdbc:postgresql://cloud-sql-proxy:5432/kestra"
+    kestra-db-username         = google_sql_user.kestra.name
+    kestra-db-password         = random_password.db.result
+    kestra-basic-auth-username = var.kestra_basic_auth_username
+    kestra-basic-auth-password = random_password.kestra_basic_auth.result
+    batch-db-url               = "jdbc:postgresql://cloud-sql-proxy:5432/ecommerce_ops"
+    batch-db-username          = google_sql_user.kestra.name
+    batch-db-password          = random_password.db.result
+    cloud-sql-instance         = google_sql_database_instance.postgres.connection_name
+    kestra-gcs-bucket          = google_storage_bucket.storage.name
   }
 }
 
@@ -62,6 +76,31 @@ resource "google_secret_manager_secret_version" "kestra_basic_auth" {
 
 resource "google_secret_manager_secret_iam_member" "kestra_basic_auth_reader" {
   for_each = google_secret_manager_secret.kestra_basic_auth
+
+  secret_id = each.value.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.kestra.email}"
+}
+
+resource "google_secret_manager_secret" "external_gce_worker" {
+  for_each = var.external_gce_worker_enabled ? local.external_gce_worker_secret_values : {}
+
+  secret_id = "${var.name_prefix}-gce-worker-${each.key}"
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "external_gce_worker" {
+  for_each = var.external_gce_worker_enabled ? local.external_gce_worker_secret_values : {}
+
+  secret      = google_secret_manager_secret.external_gce_worker[each.key].id
+  secret_data = each.value
+}
+
+resource "google_secret_manager_secret_iam_member" "external_gce_worker_reader" {
+  for_each = var.external_gce_worker_enabled ? google_secret_manager_secret.external_gce_worker : {}
 
   secret_id = each.value.id
   role      = "roles/secretmanager.secretAccessor"
@@ -140,6 +179,94 @@ resource "google_project_iam_member" "artifact_registry_reader" {
   project = var.project_id
   role    = "roles/artifactregistry.reader"
   member  = "serviceAccount:${google_service_account.kestra.email}"
+}
+
+resource "google_compute_network" "external_gce_worker" {
+  count = var.external_gce_worker_enabled ? 1 : 0
+
+  name                    = "${var.name_prefix}-gce-worker-network"
+  auto_create_subnetworks = true
+}
+
+resource "google_compute_firewall" "external_gce_worker_iap_ssh" {
+  count = var.external_gce_worker_enabled ? 1 : 0
+
+  name    = "${var.name_prefix}-gce-worker-iap-ssh"
+  network = google_compute_network.external_gce_worker[0].name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+
+  source_ranges = var.external_gce_worker_iap_ssh_source_ranges
+  target_tags   = ["kestra-external-worker"]
+}
+
+resource "google_compute_instance" "external_gce_worker" {
+  count = var.external_gce_worker_enabled ? 1 : 0
+
+  name         = "${var.name_prefix}-gce-worker"
+  zone         = var.zone
+  machine_type = var.external_gce_worker_machine_type
+  tags         = ["kestra-external-worker"]
+
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-12"
+      size  = var.external_gce_worker_boot_disk_size_gb
+      type  = "pd-balanced"
+    }
+  }
+
+  network_interface {
+    network = google_compute_network.external_gce_worker[0].name
+
+    access_config {}
+  }
+
+  dynamic "guest_accelerator" {
+    for_each = var.external_gce_worker_gpu_count > 0 ? [var.external_gce_worker_gpu_count] : []
+
+    content {
+      type  = var.external_gce_worker_gpu_type
+      count = guest_accelerator.value
+    }
+  }
+
+  scheduling {
+    automatic_restart   = true
+    on_host_maintenance = var.external_gce_worker_gpu_count > 0 ? "TERMINATE" : "MIGRATE"
+  }
+
+  service_account {
+    email  = google_service_account.kestra.email
+    scopes = ["cloud-platform"]
+  }
+
+  metadata_startup_script = templatefile("${path.module}/external-worker-startup.sh.tftpl", {
+    artifact_registry_host = "${var.region}-docker.pkg.dev"
+    kestra_image           = var.kestra_image
+    kestra_url             = local.kestra_url
+    project_id             = var.project_id
+    name_prefix            = var.name_prefix
+    worker_group_key       = var.external_gce_worker_group_key
+    worker_threads         = var.external_gce_worker_threads
+  })
+
+  depends_on = [
+    google_project_iam_member.artifact_registry_reader,
+    google_project_iam_member.cloudsql_client,
+    google_secret_manager_secret_iam_member.external_gce_worker_reader,
+    google_storage_bucket_iam_member.storage,
+  ]
+
+  lifecycle {
+    precondition {
+      condition     = var.external_gce_worker_gpu_count == 0 || trimspace(var.external_gce_worker_gpu_type) != ""
+      error_message = "external_gce_worker_gpu_type must be set when external_gce_worker_gpu_count is greater than zero."
+    }
+  }
 }
 
 resource "google_project_iam_member" "gke_node_artifact_registry_reader" {
@@ -260,6 +387,18 @@ output "ingress_static_ip_address" {
 
 output "cloud_armor_security_policy_name" {
   value = var.cloud_armor_security_policy_name
+}
+
+output "external_gce_worker_name" {
+  value = var.external_gce_worker_enabled ? google_compute_instance.external_gce_worker[0].name : null
+}
+
+output "external_gce_worker_zone" {
+  value = var.external_gce_worker_enabled ? google_compute_instance.external_gce_worker[0].zone : null
+}
+
+output "external_gce_worker_group_key" {
+  value = var.external_gce_worker_enabled ? var.external_gce_worker_group_key : null
 }
 
 output "dns_name_servers" {

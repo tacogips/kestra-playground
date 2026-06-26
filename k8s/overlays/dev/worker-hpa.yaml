@@ -1,0 +1,8 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kestra-worker
+  namespace: kestra
+spec:
+  minReplicas: 1
+  maxReplicas: 1

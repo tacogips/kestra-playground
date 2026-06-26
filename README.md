@@ -133,7 +133,8 @@ Terraform roots are split by phase:
 - `infra/terraform/gce-cluster`: multiple GCE VMs running separated Kestra components against shared
   Cloud SQL and GCS.
 - `infra/terraform/gke-dev`: GKE Autopilot, Cloud SQL, GCS, and Workload Identity inputs for the
-  Kubernetes manifests.
+  Kubernetes manifests. It can optionally add one external GCE worker for Kestra Enterprise Worker
+  Group routing.
 
 System shape, at a high level:
 
@@ -153,6 +154,18 @@ System shape, at a high level:
 The GCE cluster root runs Cloud SQL Proxy as a Docker Compose service, so Kestra uses
 `cloud-sql-proxy:5432`. The GKE manifests run Cloud SQL Proxy as a sidecar in each Pod, so those
 JDBC URLs use `127.0.0.1:5432`.
+
+For the hybrid GKE-plus-GCE execution pattern, enable `external_gce_worker_enabled` in
+`infra/terraform/gke-dev`. Terraform creates one GCE VM running only the Kestra worker component
+with `--worker-group=gce-heavy`; the GKE overlay keeps the default in-cluster worker at one replica.
+This routing model requires Kestra Enterprise Worker Groups. To make
+`build_ecommerce_customer_segments` run only on the external worker, register the default flows and
+then register the Enterprise overlay:
+
+```bash
+scripts/register-flows.sh https://k8s.example.com kestra/flows
+scripts/register-flows.sh https://k8s.example.com kestra/flows-enterprise
+```
 
 Example bootstrap:
 

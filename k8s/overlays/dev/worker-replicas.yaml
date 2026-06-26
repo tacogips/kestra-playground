@@ -4,4 +4,4 @@ metadata:
   name: kestra-worker
   namespace: kestra
 spec:
-  replicas: 2
+  replicas: 1

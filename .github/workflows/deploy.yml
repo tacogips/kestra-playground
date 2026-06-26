@@ -137,6 +137,9 @@ jobs:
       TOFU_STATE_BUCKET: ${{ vars.TOFU_STATE_BUCKET }}
       TARGET_ENVIRONMENT: ${{ inputs.target_environment || 'all' }}
       KESTRA_IMAGE: ${{ needs.build-image.outputs.image }}
+      LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED: "true"
+      LIVE_GKE_EXTERNAL_GCE_WORKER_GROUP_KEY: gce-heavy
+      KESTRA_K8S_ADDITIONAL_FLOW_DIRS: kestra/flows-enterprise
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -174,6 +177,7 @@ jobs:
       REGION: asia-northeast1
       LIVE_DOMAIN_NAME: ${{ vars.LIVE_DOMAIN_NAME }}
       TARGET_ENVIRONMENT: ${{ inputs.target_environment || 'all' }}
+      KESTRA_K8S_ADDITIONAL_FLOW_DIRS: kestra/flows-enterprise
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

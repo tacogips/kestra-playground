@@ -52,3 +52,7 @@ Notable items that do not fit into architecture or client categories.
 - GKE OTEL currently exports to the in-cluster collector's `debug` exporter. This proves Kestra can
   emit and the cluster can receive OTLP telemetry; add a vendor-specific exporter later when a
   durable observability backend is chosen.
+- The hybrid GKE-plus-GCE worker shape depends on Kestra Enterprise Worker Groups. The GCE VM is not
+  a separate Kestra agent; it runs the normal Kestra worker component with `--worker-group`. Selected
+  tasks use `workerGroup.key` in the flow overlay. With `fallback: WAIT`, those tasks wait for a
+  matching worker instead of falling back to the default GKE worker.
