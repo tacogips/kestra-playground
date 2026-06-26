@@ -138,6 +138,11 @@ metadata-token API, starts Cloud SQL Auth Proxy, and runs only the Kestra worker
 component. GPU workloads still need a compatible image, driver/toolchain installation, and quota
 sized for the selected accelerator.
 
+The GKE control-plane pods and external worker share one Cloud SQL PostgreSQL instance. The Kestra
+management connection points at the `kestra` database through `KESTRA_DB_*`; batch flows point at
+the `ecommerce_ops` database through `ENV_BATCH_DB_*`. Terraform creates separate Secret Manager
+entries for those two connection families and exports only the secret IDs to the apply helper.
+
 Register the Enterprise flow overlay after normal flow registration to route
 `build_ecommerce_customer_segments` tasks to the external worker group:
 
@@ -417,7 +422,8 @@ environment variables, clipboard, or a non-committed local shell.
 
 ### Secret Checks
 
-Verify Secret Manager versions are enabled without printing secret payloads:
+Verify Secret Manager versions are enabled without printing secret payloads. For GKE, the database
+and storage runtime values are under the same `kestra-dev-gke-*` prefix as Basic Auth:
 
 ```bash
 for secret in \
@@ -426,7 +432,15 @@ for secret in \
   kestra-cluster-dev-kestra-basic-auth-username \
   kestra-cluster-dev-kestra-basic-auth-password \
   kestra-dev-gke-kestra-basic-auth-username \
-  kestra-dev-gke-kestra-basic-auth-password; do
+  kestra-dev-gke-kestra-basic-auth-password \
+  kestra-dev-gke-kestra-db-url \
+  kestra-dev-gke-kestra-db-username \
+  kestra-dev-gke-kestra-db-password \
+  kestra-dev-gke-batch-db-url \
+  kestra-dev-gke-batch-db-username \
+  kestra-dev-gke-batch-db-password \
+  kestra-dev-gke-cloud-sql-instance \
+  kestra-dev-gke-kestra-gcs-bucket; do
   gcloud secrets versions list "$secret" \
     --project="$PROJECT_ID" \
     --filter='state:ENABLED' \

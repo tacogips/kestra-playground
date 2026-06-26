@@ -108,6 +108,7 @@ BEGIN
   END IF;
 END
 \$\$;
+ALTER ROLE $${BATCH_DB_USER} PASSWORD '$${BATCH_DB_PASSWORD}';
 GRANT ALL PRIVILEGES ON DATABASE $${BATCH_DB} TO $${BATCH_DB_USER};
 SQL
 
@@ -155,4 +156,7 @@ volumes:
   postgres-data:
 YAML
 
+compose -f /opt/kestra/docker-compose.yml --env-file /opt/kestra/.env up -d postgres
+compose -f /opt/kestra/docker-compose.yml --env-file /opt/kestra/.env exec -T postgres \
+  /docker-entrypoint-initdb.d/20-init-batch-db.sh
 compose -f /opt/kestra/docker-compose.yml --env-file /opt/kestra/.env up -d

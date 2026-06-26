@@ -22,6 +22,11 @@ resource "random_password" "db" {
   special = false
 }
 
+resource "random_password" "batch_db" {
+  length  = 24
+  special = false
+}
+
 resource "random_password" "kestra_basic_auth" {
   length  = 32
   special = false
@@ -53,16 +58,16 @@ locals {
     postgres-user              = "kestra"
     postgres-password          = random_password.db.result
     batch-db                   = "ecommerce_ops"
-    batch-db-user              = "kestra"
-    batch-db-password          = random_password.db.result
+    batch-db-user              = "ecommerce_batch"
+    batch-db-password          = random_password.batch_db.result
     kestra-db-url              = "jdbc:postgresql://postgres:5432/kestra"
     kestra-db-username         = "kestra"
     kestra-db-password         = random_password.db.result
     kestra-basic-auth-username = var.kestra_basic_auth_username
     kestra-basic-auth-password = random_password.kestra_basic_auth.result
     batch-db-url               = "jdbc:postgresql://postgres:5432/ecommerce_ops"
-    batch-db-username          = "kestra"
-    batch-db-password          = random_password.db.result
+    batch-db-username          = "ecommerce_batch"
+    batch-db-password          = random_password.batch_db.result
   }
 }
 

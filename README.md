@@ -59,6 +59,12 @@ All three flows use `ENV_BATCH_DB_URL`, `ENV_BATCH_DB_USERNAME`, and `ENV_BATCH_
 local and GCP database connection values can be switched by environment file, Secret Manager, or
 Kubernetes Secret.
 
+In GCP, Kestra management state and ecommerce batch data share one database instance but use
+separate logical databases: `kestra` for Kestra repository/queue tables and `ecommerce_ops` for
+batch tables. Runtime connection values are stored as separate Secret Manager entries for the
+Kestra connection and the batch connection, even when a development target temporarily uses the same
+PostgreSQL login behind both secret families.
+
 The generated ecommerce data is tracked in `kestra/fixtures/ecommerce/`. The generator flow embeds
 those SQL fixtures into PostgreSQL tasks, and the test suite checks that the deployed flow SQL stays
 in sync with the committed fixture files.
@@ -129,12 +135,14 @@ Terraform roots are split by phase:
   used by the push/manual/cron workflow.
 - `infra/terraform/cloud-armor`: creates the shared Cloud Armor policy used by live HTTPS targets.
 - `infra/terraform/gce-single`: one GCE VM running Kestra and PostgreSQL through Docker Compose,
-  with DB connection values loaded from Secret Manager.
+  with separate Kestra and batch DB connection values loaded from Secret Manager.
 - `infra/terraform/gce-cluster`: multiple GCE VMs running separated Kestra components against shared
-  Cloud SQL and GCS.
+  Cloud SQL and GCS. The Cloud SQL instance contains separate `kestra` and `ecommerce_ops`
+  databases, and each JDBC connection family has its own Secret Manager entries.
 - `infra/terraform/gke-dev`: GKE Autopilot, Cloud SQL, GCS, and Workload Identity inputs for the
-  Kubernetes manifests. It can optionally add one external GCE worker for Kestra Enterprise Worker
-  Group routing.
+  Kubernetes manifests. It stores GKE runtime DB connection values in Secret Manager, renders them
+  into Kubernetes only during apply, and can optionally add one external GCE worker for Kestra
+  Enterprise Worker Group routing.
 
 System shape, at a high level:
 
@@ -346,10 +354,10 @@ Apply the live GKE overlay with Terraform outputs without writing real secrets i
 task k8s:apply:dev
 ```
 
-For the live GKE environment, Kestra Basic Auth is stored in Secret Manager as
-`kestra-dev-gke-kestra-basic-auth-username` and
-`kestra-dev-gke-kestra-basic-auth-password`. `scripts/apply-gke-dev.sh` reads those values at apply
-time and writes them only into a temporary rendered manifest before updating the Kubernetes Secret.
+For the live GKE environment, Kestra Basic Auth and database connection values are stored in Secret
+Manager under the `kestra-dev-gke-*` prefix. `scripts/apply-gke-dev.sh` reads the secret IDs from
+Terraform outputs, accesses the latest enabled versions at apply time, and writes values only into a
+temporary rendered manifest before updating the Kubernetes Secret.
 
 ## Common Commands
 

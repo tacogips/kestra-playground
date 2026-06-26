@@ -40,17 +40,17 @@ ingress_static_ip_name="$(tf_output '.ingress_static_ip_name.value // empty')"
 cloud_armor_security_policy_name="$(tf_output '.cloud_armor_security_policy_name.value // empty')"
 kestra_hostname="${kestra_https_url#https://}"
 
-secret_value() {
-  jq -er ".kubernetes_secret_values.value.$1" "$outputs_json"
-}
-
-basic_auth_secret_id() {
-  jq -er ".kestra_basic_auth_secret_ids.value.$1" "$outputs_json"
+secret_id() {
+  jq -er ".kubernetes_secret_ids.value.$1" "$outputs_json"
 }
 
 gcp_secret_value() {
-  local secret_id="$1"
-  gcloud secrets versions access latest --project="$project_id" --secret="$secret_id"
+  local secret_name="$1"
+  gcloud secrets versions access latest --project="$project_id" --secret="$secret_name"
+}
+
+runtime_secret_value() {
+  gcp_secret_value "$(secret_id "$1")"
 }
 
 cp -R k8s "${tmpdir}/k8s"
@@ -103,17 +103,17 @@ metadata:
   name: kestra-secrets
   namespace: kestra
 stringData:
-  KESTRA_DB_URL: $(secret_value KESTRA_DB_URL)
-  KESTRA_DB_USERNAME: $(secret_value KESTRA_DB_USERNAME)
-  KESTRA_DB_PASSWORD: $(secret_value KESTRA_DB_PASSWORD)
-  KESTRA_GCS_BUCKET: $(secret_value KESTRA_GCS_BUCKET)
-  KESTRA_BASIC_AUTH_USERNAME: $(gcp_secret_value "$(basic_auth_secret_id username)")
-  KESTRA_BASIC_AUTH_PASSWORD: $(gcp_secret_value "$(basic_auth_secret_id password)")
-  KESTRA_SERVER_BASIC__AUTH_USERNAME: $(gcp_secret_value "$(basic_auth_secret_id username)")
-  KESTRA_SERVER_BASIC__AUTH_PASSWORD: $(gcp_secret_value "$(basic_auth_secret_id password)")
-  ENV_BATCH_DB_URL: $(secret_value ENV_BATCH_DB_URL)
-  ENV_BATCH_DB_USERNAME: $(secret_value ENV_BATCH_DB_USERNAME)
-  ENV_BATCH_DB_PASSWORD: $(secret_value ENV_BATCH_DB_PASSWORD)
+  KESTRA_DB_URL: $(runtime_secret_value KESTRA_DB_URL)
+  KESTRA_DB_USERNAME: $(runtime_secret_value KESTRA_DB_USERNAME)
+  KESTRA_DB_PASSWORD: $(runtime_secret_value KESTRA_DB_PASSWORD)
+  KESTRA_GCS_BUCKET: $(runtime_secret_value KESTRA_GCS_BUCKET)
+  KESTRA_BASIC_AUTH_USERNAME: $(runtime_secret_value KESTRA_BASIC_AUTH_USERNAME)
+  KESTRA_BASIC_AUTH_PASSWORD: $(runtime_secret_value KESTRA_BASIC_AUTH_PASSWORD)
+  KESTRA_SERVER_BASIC__AUTH_USERNAME: $(runtime_secret_value KESTRA_SERVER_BASIC__AUTH_USERNAME)
+  KESTRA_SERVER_BASIC__AUTH_PASSWORD: $(runtime_secret_value KESTRA_SERVER_BASIC__AUTH_PASSWORD)
+  ENV_BATCH_DB_URL: $(runtime_secret_value ENV_BATCH_DB_URL)
+  ENV_BATCH_DB_USERNAME: $(runtime_secret_value ENV_BATCH_DB_USERNAME)
+  ENV_BATCH_DB_PASSWORD: $(runtime_secret_value ENV_BATCH_DB_PASSWORD)
 EOF
 
 rendered="${tmpdir}/rendered.yaml"

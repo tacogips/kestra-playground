@@ -81,9 +81,11 @@ environment variables:
 | `ENV_BATCH_DB_USERNAME` | Batch database user |
 | `ENV_BATCH_DB_PASSWORD` | Batch database password |
 
-Local and GCP deployments switch values through environment files or platform secrets. Kestra's own
-repository and queue database is separate from the ecommerce batch database in GCP, but local
-development uses the same PostgreSQL container with separate databases.
+Local and GCP deployments switch values through environment files or platform secrets. In GCP,
+Kestra's repository/queue tables and ecommerce batch tables share the same PostgreSQL instance but
+live in separate logical databases: `kestra` for Kestra management state and `ecommerce_ops` for
+batch data. Runtime configuration treats these as two separate connection families, exposed through
+`KESTRA_DB_*` and `ENV_BATCH_DB_*` secrets.
 
 ### Local Runtime
 
@@ -118,7 +120,8 @@ services. All instances share:
 - Cloud SQL PostgreSQL for Kestra repository and queue;
 - Cloud SQL PostgreSQL for ecommerce batch data;
 - GCS for Kestra internal storage;
-- Secret Manager for database credentials.
+- Secret Manager for the Kestra DB, batch DB, Basic Auth, Cloud SQL instance, and GCS bucket runtime
+  values.
 
 The webserver component is exposed through an HTTP load balancer. This is still an infrastructure
 playground, so defaults are intentionally dev-sized and deletion protection is disabled.
@@ -145,8 +148,9 @@ Live development HTTPS currently uses Cloudflare DNS records for `example.com`:
 - `https://gce-container.example.com`
 - `https://gce-compose.example.com`
 
-GKE Basic Auth credentials are stored in Secret Manager and rendered into Kubernetes only through
-the temporary manifest path in `scripts/apply-gke-dev.sh`.
+GKE Basic Auth and database connection values are stored in Secret Manager and rendered into
+Kubernetes only through the temporary manifest path in `scripts/apply-gke-dev.sh`. Terraform exports
+Secret Manager IDs, not DB secret payloads, for the apply helper.
 
 The `gke-dev` Terraform root can also model a hybrid execution plane for Kestra Enterprise:
 
