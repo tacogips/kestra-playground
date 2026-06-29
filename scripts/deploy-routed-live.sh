@@ -4,11 +4,15 @@ set -euo pipefail
 PROJECT_ID="${PROJECT_ID:-${GCP_PROJECT_ID:-}}"
 REGION="${REGION:-asia-northeast1}"
 ZONE="${ZONE:-asia-northeast1-a}"
-KESTRA_IMAGE="${KESTRA_IMAGE:-ghcr.io/tacogips/kestra:oss-worker-routing}"
+KESTRA_IMAGE="${KESTRA_IMAGE:-}"
 
 if [[ -z "${PROJECT_ID}" ]]; then
   echo "Missing required environment variable: PROJECT_ID or GCP_PROJECT_ID" >&2
   exit 1
+fi
+
+if [[ -z "${KESTRA_IMAGE}" ]]; then
+  KESTRA_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/kestra-playground/kestra-oss-worker-routing:oss-worker-routing"
 fi
 
 require_command() {

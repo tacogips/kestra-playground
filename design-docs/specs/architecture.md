@@ -186,7 +186,9 @@ The custom OSS worker-routing image enables a second, stronger shared-backend to
 - Each GCE worker sets `kestra.worker.routing.workerGroupId` to the group it serves.
 - Flow tasks use native `workerSelector.tags` to dispatch to a queue before worker pickup, so
   non-target workers do not run skip/no-op tasks.
-- The live image is `ghcr.io/tacogips/kestra:oss-worker-routing` by default for this topology.
+- The live image is built from `tacogips/kestra@feature/oss-worker-routing` and pushed to Google
+  Artifact Registry as
+  `${REGION}-docker.pkg.dev/${PROJECT_ID}/kestra-playground/kestra-oss-worker-routing:<tag>`.
 
 This shared-backend route is the closer OSS analogue to Enterprise Worker Groups: GKE can observe,
 retry, rerun, and inspect the routed execution in one controller Kestra, while the script task JVM

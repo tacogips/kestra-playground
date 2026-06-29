@@ -208,6 +208,7 @@ Kestra runtime images are published to Artifact Registry:
 
 ```text
 <region>-docker.pkg.dev/<project-id>/kestra-playground/kestra-runtime
+<region>-docker.pkg.dev/<project-id>/kestra-playground/kestra-oss-worker-routing
 ```
 
 The runtime image extends `kestra/kestra:latest` and bakes in `kestra/flows/`,
@@ -215,6 +216,11 @@ The runtime image extends `kestra/kestra:latest` and bakes in `kestra/flows/`,
 workflow builds and pushes a commit-SHA tag plus `latest`, then passes the SHA-tagged image to
 Terraform through `KESTRA_IMAGE`. The GCE roots use that image in Docker Compose; the GKE apply
 helper applies the same image through Kustomize before `kubectl apply`.
+
+For the shared-backend routed target, the deployment workflow checks out
+`tacogips/kestra@feature/oss-worker-routing`, builds the custom Kestra executable, installs the GCS
+storage plugin, pushes `kestra-oss-worker-routing` tags to Artifact Registry, and deploys the
+commit-SHA tag.
 
 Live dev tfvars and backend config are generated under `infra/live/dev/` and ignored by git. They
 contain environment-specific project, domain, Cloudflare zone, and state bucket values. Keep those

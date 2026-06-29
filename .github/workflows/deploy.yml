@@ -115,6 +115,81 @@ jobs:
           nix develop -c docker push "$LATEST_IMAGE"
           printf 'image=%s\n' "$IMAGE" >>"$GITHUB_OUTPUT"
 
+  build-routed-image:
+    name: Build Routed Kestra Image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    needs:
+      - validate
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment == 'routed' }}
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    env:
+      IMAGE_REPOSITORY: asia-northeast1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/kestra-playground/kestra-oss-worker-routing
+    steps:
+      - name: Checkout playground
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Checkout Kestra fork
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: tacogips/kestra
+          ref: feature/oss-worker-routing
+          path: kestra-source
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Set up Java
+        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Build Kestra executable
+        working-directory: kestra-source
+        run: |
+          ./gradlew writeExecutableJar --no-daemon
+          cp build/executable/kestra-2.0.0-SNAPSHOT docker/app/kestra
+          chmod 755 docker/app/kestra
+      - name: Install runtime plugins
+        working-directory: kestra-source
+        run: |
+          mkdir -p plugins
+          docker/app/kestra plugins install io.kestra.storage:storage-gcs:1.2.0 \
+            --plugins plugins \
+            --repositories=https://central.sonatype.com/repository/maven-snapshots
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Configure Artifact Registry Docker auth
+        run: nix develop -c gcloud auth configure-docker asia-northeast1-docker.pkg.dev --quiet
+      - name: Build and push routed image
+        id: image
+        working-directory: kestra-source
+        run: |
+          KESTRA_SOURCE_SHA="$(git rev-parse HEAD)"
+          IMAGE="${IMAGE_REPOSITORY}:${GITHUB_SHA}"
+          STABLE_IMAGE="${IMAGE_REPOSITORY}:oss-worker-routing"
+          SOURCE_IMAGE="${IMAGE_REPOSITORY}:oss-worker-routing-${KESTRA_SOURCE_SHA}"
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --provenance=false \
+            --push \
+            --tag "$IMAGE" \
+            --tag "$STABLE_IMAGE" \
+            --tag "$SOURCE_IMAGE" \
+            .
+
+          printf 'image=%s\n' "$IMAGE" >>"$GITHUB_OUTPUT"
+
   deploy:
     name: Deploy
     runs-on: ubuntu-24.04
@@ -122,7 +197,8 @@ jobs:
     needs:
       - validate
       - build-image
-    if: ${{ always() && needs.validate.result == 'success' && (needs.build-image.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.target_environment == 'routed')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+      - build-routed-image
+    if: ${{ always() && needs.validate.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && ((inputs.target_environment == 'routed' && needs.build-routed-image.result == 'success') || ((inputs.target_environment || 'all') != 'routed' && needs.build-image.result == 'success')) }}
     environment:
       name: development
       url: ${{ vars.LIVE_K8S_URL }}
@@ -137,7 +213,7 @@ jobs:
       LIVE_DOMAIN_NAME: ${{ vars.LIVE_DOMAIN_NAME }}
       TOFU_STATE_BUCKET: ${{ vars.TOFU_STATE_BUCKET }}
       TARGET_ENVIRONMENT: ${{ inputs.target_environment || 'all' }}
-      KESTRA_IMAGE: ${{ inputs.target_environment == 'routed' && 'ghcr.io/tacogips/kestra:oss-worker-routing' || needs.build-image.outputs.image }}
+      KESTRA_IMAGE: ${{ inputs.target_environment == 'routed' && needs.build-routed-image.outputs.image || needs.build-image.outputs.image }}
       LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED: "true"
       LIVE_GKE_EXTERNAL_GCE_WORKER_GROUP_KEY: gce-heavy
       LIVE_GKE_EXTERNAL_GCE_WORKER_MACHINE_TYPE: e2-standard-4
