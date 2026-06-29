@@ -1,0 +1,34 @@
+id: verify_gcp_worker_routing
+namespace: playground.worker_routing
+
+description: Verify OSS static worker routing on GCP shared-backend Kestra.
+
+inputs:
+  - id: business_date
+    type: STRING
+    required: false
+
+tasks:
+  - id: run_on_gce_a
+    type: io.kestra.plugin.scripts.shell.Commands
+    workerSelector:
+      tags: [gce-a]
+      match: ALL
+      fallback: FAIL
+    commands:
+      - |
+        echo "expected_worker_group=gce-a"
+        echo "hostname=$(hostname)"
+        echo "business_date={{ inputs.business_date }}"
+
+  - id: run_on_gce_b
+    type: io.kestra.plugin.scripts.shell.Commands
+    workerSelector:
+      tags: [gce-b]
+      match: ALL
+      fallback: FAIL
+    commands:
+      - |
+        echo "expected_worker_group=gce-b"
+        echo "hostname=$(hostname)"
+        echo "business_date={{ inputs.business_date }}"

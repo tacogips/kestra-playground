@@ -42,6 +42,28 @@ data:
       tasks:
         tmp-dir:
           path: /tmp/kestra-wd/tmp
+      worker:
+        routing:
+          groups:
+            controller:
+              queues:
+                - workerQueueId: default
+                  reservedPercent: -1
+                - workerQueueId: system
+                  reservedPercent: -1
+            gce-a:
+              queues:
+                - workerQueueId: gce-a
+                  reservedPercent: -1
+            gce-b:
+              queues:
+                - workerQueueId: gce-b
+                  reservedPercent: -1
+          queues:
+            gce-a:
+              tags: [gce-a]
+            gce-b:
+              tags: [gce-b]
       traces:
         root: ${KESTRA_TRACES_ROOT:DEFAULT}
       url: http://kestra-webserver:8080/

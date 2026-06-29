@@ -16,7 +16,9 @@ This directory contains reference materials for system design and implementation
 | Kestra Kubernetes | https://kestra.io/docs/installation/kubernetes | Official Kestra Helm/Kubernetes deployment and scaling guidance |
 | Kestra GCP GKE | https://kestra.io/docs/installation/kubernetes-gcp-gke | Official GKE, Cloud SQL, and GCS deployment guidance |
 | Kestra Server Components | https://kestra.io/docs/architecture/server-components | Official description of Kestra webserver, scheduler, executor, indexer, worker, and Worker Group responsibilities |
+| Kestra Deployment Architecture | https://kestra.io/docs/architecture/deployment-architecture | Official JDBC and Kafka deployment architecture guidance, including component communication and HA dependencies |
 | Kestra Worker Groups | https://kestra.io/docs/enterprise/scalability/worker-group | Official Enterprise Worker Group routing guidance for dedicated and distant workers |
+| Kestra Enterprise Authentication | https://kestra.io/docs/enterprise/auth/authentication | Official Enterprise Basic Auth, OIDC, and JWT secret configuration guidance |
 | Kestra Cloud Run Task Runner | https://kestra.io/docs/task-runners/types/google-cloudrun-task-runner | Official Kestra guidance for running tasks as serverless containers on Cloud Run |
 | Kestra Task Runners vs Worker Groups | https://kestra.io/docs/task-runners/task-runners-vs-worker-groups | Official Kestra comparison of ephemeral task runners and always-on worker groups |
 | Kestra Process Task Runner | https://kestra.io/docs/task-runners/types/process-task-runner | Official guidance for local process execution on specific worker hosts, including GPU-oriented examples |

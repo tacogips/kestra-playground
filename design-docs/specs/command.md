@@ -117,57 +117,73 @@ For GKE HTTPS, pass `domain_name`, `subdomain`, and the DNS provider inputs, the
 `scripts/apply-gke-dev.sh`. The helper reads Terraform outputs, renders sensitive values into a
 temporary manifest only, and waits for Kestra deployments to roll out.
 
-To add one external GCE worker for Enterprise Worker Group routing, set:
+### Federated OSS Dev-As-Prod
 
-```hcl
-external_gce_worker_enabled      = true
-external_gce_worker_group_key    = "gce-heavy"
-external_gce_worker_machine_type = "e2-standard-4"
-external_gce_worker_subnet_cidr  = "10.42.0.0/24"
-```
+Use the federated live path when dev should behave like the production split topology without
+Kestra Enterprise Worker Groups:
 
-For a GPU host, also set a compatible machine type and accelerator values:
+- `gce-compose` is GCE worker A;
+- `gce-container` is GCE worker B and is deployed with `LIVE_GCE_CLUSTER_SIZE=1` by
+  `task kestra:live:deploy:federated`, giving two GCE batch hosts total;
+- `k8s` is the controller Kestra only and the GKE overlay does not release `kestra-worker`;
+- `infra/terraform/gke-dev` creates a GCE `controller-worker` VM that runs only
+  `kestra server worker` against the GKE controller backend;
+- child flows from `kestra/flows` are rendered into server-specific namespaces before registration;
+- `playground.ecommerce.server_gce_a` is registered on `gce-compose`;
+- `playground.ecommerce.server_gce_b` is registered on `gce-container`;
+- controller flows from `kestra/flows-federated` are registered only on `k8s`.
+- `task kestra:live:run-federated` removes known stale ecommerce batch flows from `k8s` before
+  asserting that GKE is controller-only for batch work.
 
-```hcl
-external_gce_worker_gpu_type  = "nvidia-tesla-t4"
-external_gce_worker_gpu_count = 1
-```
-
-The VM uses Container-Optimized OS, has no public IP address, reads Secret Manager through the
-metadata-token API, starts Cloud SQL Auth Proxy, and runs only the Kestra worker
-component. GPU workloads still need a compatible image, driver/toolchain installation, and quota
-sized for the selected accelerator.
-
-The GKE control-plane pods and external worker share one Cloud SQL PostgreSQL instance. The Kestra
-management connection points at the `kestra` database through `KESTRA_DB_*`; batch flows point at
-the `ecommerce_ops` database through `ENV_BATCH_DB_*`. Terraform creates separate Secret Manager
-entries for those two connection families and exports only the secret IDs to the apply helper.
-
-Register the Enterprise flow overlay after normal flow registration to route
-`build_ecommerce_customer_segments` tasks to the external worker group:
+Because no Kestra worker runs in GKE, controller flow execution depends on the GCE
+`controller-worker` VM attached to the controller backend. That worker claims the controller
+HTTP/poll/assert tasks while ecommerce batch work remains on the two GCE child Kestra targets.
 
 ```bash
-scripts/register-flows.sh https://k8s.example.com kestra/flows
-scripts/register-flows.sh https://k8s.example.com kestra/flows-enterprise
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:federated
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-federated
 ```
 
-For live verification, set `KESTRA_ADDITIONAL_FLOW_DIRS=kestra/flows-enterprise` so the helper
-updates the selected flow after registering the default flow set:
+### Shared-Backend OSS Worker Routing
+
+Use the routed live path to exercise the custom OSS Kestra image that implements config-backed
+worker routing in a single shared Kestra backend:
+
+- GKE runs `webserver`, `scheduler`, `executor`, and `indexer` only;
+- no `kestra-worker` Deployment or HPA is released in GKE;
+- GCE `kestra-dev-controller-worker` subscribes to the default/system queues for lightweight
+  unrouted work;
+- GCE `kestra-dev-gce-a` starts `kestra server worker` with `workerGroupId: gce-a`;
+- GCE `kestra-dev-gce-b` starts `kestra server worker` with `workerGroupId: gce-b`;
+- GCE workers dial the GKE controller gRPC endpoint through an internal LoadBalancer IP reserved by
+  Terraform;
+- all components use `ghcr.io/tacogips/kestra:oss-worker-routing` unless `KESTRA_IMAGE` is
+  explicitly overridden;
+- `kestra/flows-worker-routing/verify_gcp_worker_routing.yaml` is registered on the GKE controller
+  and uses `workerSelector.tags` to force one task onto `gce-a` and another onto `gce-b`.
 
 ```bash
-TARGET_ENVIRONMENT=k8s \
-KESTRA_ADDITIONAL_FLOW_DIRS=kestra/flows-enterprise \
-kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:routed
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-routed
 ```
+
+The verification command checks that GKE has no worker Deployment/pods, that all GCE worker
+instances are `RUNNING`, and that the two routed tasks complete with different worker IDs.
 
 ### Live Operations
 
 ```bash
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:federated
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:routed
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:verify
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
-TARGET_ENVIRONMENT=k8s BUSINESS_DATE=2026-06-25 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-federated
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-routed
 ```
+
+Direct batch execution is disabled for `TARGET_ENVIRONMENT=k8s`; use
+`task kestra:live:run-federated` for the GKE controller path.
 
 ## Kestra GCP Operations Runbook
 
@@ -300,14 +316,6 @@ gcloud container clusters get-credentials kestra-dev --region asia-northeast1 --
 scripts/apply-gke-dev.sh
 ```
 
-The live config renderer forwards optional external GCE worker values from:
-
-- `LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED`
-- `LIVE_GKE_EXTERNAL_GCE_WORKER_GROUP_KEY`
-- `LIVE_GKE_EXTERNAL_GCE_WORKER_MACHINE_TYPE`
-- `LIVE_GKE_EXTERNAL_GCE_WORKER_GPU_TYPE`
-- `LIVE_GKE_EXTERNAL_GCE_WORKER_GPU_COUNT`
-
 ### Health Verification
 
 Run health verification after every deploy. This waits for each HTTPS UI endpoint and registers the
@@ -388,17 +396,17 @@ kubectl -n kestra-dev get service otel-collector
 kubectl -n kestra-dev logs deployment/otel-collector --tail=200
 ```
 
-Run a batch after the collector is ready, then inspect collector logs for spans from the Kestra
-component services and execution IDs:
+Run the federated controller after the collector is ready, then inspect collector logs for spans from
+the GKE Kestra control component services and execution IDs:
 
 ```bash
-TARGET_ENVIRONMENT=k8s BUSINESS_DATE=2026-06-25 task kestra:live:run-batch
+BUSINESS_DATE=2026-06-25 task kestra:live:run-federated
 kubectl -n kestra-dev logs deployment/otel-collector --since=10m | \
   rg 'kestra.executionId|generate_ecommerce_mock_data|build_ecommerce_daily_report|build_ecommerce_customer_segments'
 ```
 
-Expected service names include `kestra-webserver`, `kestra-executor`, `kestra-scheduler`,
-`kestra-indexer`, and `kestra-worker`.
+Expected GKE service names include `kestra-webserver`, `kestra-executor`, `kestra-scheduler`, and
+`kestra-indexer`. `kestra-worker` should not appear as a GKE service name in this topology.
 
 Collector spans include `kestra.uid`, which maps to the task-run ID in the Kestra execution API.
 Use that mapping to audit span timing back to granular task names:

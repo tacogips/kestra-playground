@@ -48,6 +48,8 @@ spec:
           ports:
             - containerPort: 8080
               name: http
+            - containerPort: 50051
+              name: grpc
           volumeMounts:
             - name: config
               mountPath: /etc/kestra

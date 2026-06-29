@@ -26,18 +26,3 @@ dns_zone_name = ""
 # Optional shared Cloud Armor policy attachment through BackendConfig.
 cloud_armor_security_policy_name = ""
 # and set CLOUDFLARE_API_TOKEN in the environment or inject it from kinko.
-
-# Optional Kestra Enterprise hybrid worker layout:
-# - GKE keeps one default worker for ordinary tasks.
-# - One GCE VM starts `kestra server worker --worker-group=gce-heavy`.
-# - Register `kestra/flows-enterprise` after `kestra/flows` to route selected
-#   tasks to this worker group.
-external_gce_worker_enabled      = false
-external_gce_worker_group_key    = "gce-heavy"
-external_gce_worker_machine_type = "e2-standard-4"
-external_gce_worker_subnet_cidr  = "10.42.0.0/24"
-
-# Optional GPU attachment. Real GPU workloads also need compatible machine type,
-# quota, drivers, and task runtime dependencies on the VM.
-external_gce_worker_gpu_type  = ""
-external_gce_worker_gpu_count = 0

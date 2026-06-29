@@ -16,7 +16,6 @@ patches:
   - path: service-account.yaml
   - path: configmap.yaml
   - path: service.yaml
+  - path: controller-grpc-service.yaml
   - path: deployment-resources.yaml
-  - path: worker-replicas.yaml
-  - path: worker-hpa.yaml
   - path: secret.yaml

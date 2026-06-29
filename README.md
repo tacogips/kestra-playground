@@ -141,8 +141,7 @@ Terraform roots are split by phase:
   databases, and each JDBC connection family has its own Secret Manager entries.
 - `infra/terraform/gke-dev`: GKE Autopilot, Cloud SQL, GCS, and Workload Identity inputs for the
   Kubernetes manifests. It stores GKE runtime DB connection values in Secret Manager, renders them
-  into Kubernetes only during apply, and can optionally add one external GCE worker for Kestra
-  Enterprise Worker Group routing.
+  into Kubernetes only during apply, and acts as the federated OSS controller.
 
 System shape, at a high level:
 
@@ -163,16 +162,30 @@ The GCE cluster root runs Cloud SQL Proxy as a Docker Compose service, so Kestra
 `cloud-sql-proxy:5432`. The GKE manifests run Cloud SQL Proxy as a sidecar in each Pod, so those
 JDBC URLs use `127.0.0.1:5432`.
 
-For the hybrid GKE-plus-GCE execution pattern, enable `external_gce_worker_enabled` in
-`infra/terraform/gke-dev`. Terraform creates one GCE VM running only the Kestra worker component
-with `--worker-group=gce-heavy`; the GKE overlay keeps the default in-cluster worker at one replica.
-This routing model requires Kestra Enterprise Worker Groups. To make
-`build_ecommerce_customer_segments` run only on the external worker, register the default flows and
-then register the Enterprise overlay:
+For the OSS-compatible federated execution pattern, keep separate Kestra deployments instead of
+trying to attach remote workers to one OSS worker queue. In the live dev-as-prod topology:
+
+- `gce-compose` is GCE worker A and receives `playground.ecommerce.server_gce_a`;
+- `gce-container` is GCE worker B and receives `playground.ecommerce.server_gce_b`;
+- `k8s` is the controller Kestra only and does not run a `kestra-worker` Deployment;
+- the `gke-dev` Terraform root also creates a GCE `controller-worker` VM that runs only
+  `kestra server worker` against the GKE controller backend;
+- `kestra/flows` is rendered and registered only on the two GCE child deployments;
+- `kestra/flows-federated` is registered only on the GKE controller.
+
+The controller flow calls child Kestra REST APIs, waits for child execution status, and records child
+execution IDs in its own task outputs. Rerunning the controller flow reruns the GCE child
+executions. This keeps production-like workflow shape without using Enterprise Worker Groups or the
+removed DB-backed agent implementation.
+
+No Kestra worker process is allowed to run in GKE. Lightweight controller HTTP, polling, and
+assertion tasks are claimed by the GCE `controller-worker` VM because it uses the same GKE
+controller DB, queue, and GCS storage configuration. The two GCE child Kestra deployments remain the
+execution targets for ecommerce batch work; they are separate from the controller-worker process.
 
 ```bash
-scripts/register-flows.sh https://k8s.example.com kestra/flows
-scripts/register-flows.sh https://k8s.example.com kestra/flows-enterprise
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:federated
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-federated
 ```
 
 Example bootstrap:
@@ -216,9 +229,11 @@ kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
 Limit a command to one environment with `TARGET_ENVIRONMENT`:
 
 ```bash
-TARGET_ENVIRONMENT=k8s task kestra:live:run-batch
 TARGET_ENVIRONMENT=gce-container BUSINESS_DATE=2026-06-25 task kestra:live:run-batch
 ```
+
+Direct batch execution is disabled for `TARGET_ENVIRONMENT=k8s`; use
+`task kestra:live:run-federated` for the GKE controller path.
 
 GitHub Actions deploys on push to `main`, supports manual dispatch for selected environments, and
 runs the ecommerce batch on a daily cron. The workflow uses GitHub OIDC for Google Cloud auth and
@@ -332,10 +347,12 @@ The GKE dev overlay includes an in-cluster OpenTelemetry Collector at
 Kestra's Kubernetes `application.yaml` enables Micronaut OpenTelemetry and Kestra flow traces by
 default, exporting traces, metrics, and logs to `http://otel-collector:4317`.
 
-Each Kestra component sets a distinct `OTEL_SERVICE_NAME` (`kestra-webserver`, `kestra-executor`,
-`kestra-scheduler`, `kestra-indexer`, and `kestra-worker`) plus resource attributes for the
-namespace, pod, environment, and Kestra component. Batch flow tasks are split into granular SQL
-steps so OTEL traces expose auditable spans for purging, inserts, summaries, and fetches.
+Each GKE Kestra control component sets a distinct `OTEL_SERVICE_NAME` (`kestra-webserver`,
+`kestra-executor`, `kestra-scheduler`, and `kestra-indexer`) plus resource attributes for the
+namespace, pod, environment, and Kestra component. The GKE overlay intentionally does not run a
+`kestra-worker` Pod; worker telemetry for executed tasks must come from the GCE worker environment.
+Batch flow tasks are split into granular SQL steps so OTEL traces expose auditable spans for
+purging, inserts, summaries, and fetches.
 
 After applying GKE, verify telemetry is being received by checking the collector rollout and logs:
 
