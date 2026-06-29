@@ -45,6 +45,33 @@ secret_value() {
   gcloud secrets versions access latest --project="${PROJECT_ID}" --secret="${secret_name}"
 }
 
+dump_gke_diagnostics() {
+  echo "=== GKE routed diagnostics ===" >&2
+  kubectl -n "${NAMESPACE}" get pods -o wide >&2 || true
+  kubectl -n "${NAMESPACE}" get deployment kestra-webserver -o wide >&2 || true
+  kubectl -n "${NAMESPACE}" get service kestra-webserver -o wide >&2 || true
+  kubectl -n "${NAMESPACE}" get endpointslice -l kubernetes.io/service-name=kestra-webserver -o wide >&2 || true
+  kubectl -n "${NAMESPACE}" get ingress kestra-webserver -o wide >&2 || true
+  kubectl -n "${NAMESPACE}" get backendconfig kestra-webserver -o yaml >&2 || true
+  kubectl -n "${NAMESPACE}" describe ingress kestra-webserver >&2 || true
+  kubectl -n "${NAMESPACE}" describe pods \
+    -l app.kubernetes.io/name=kestra,app.kubernetes.io/component=webserver >&2 || true
+  kubectl -n "${NAMESPACE}" logs deployment/kestra-webserver -c kestra --tail=200 >&2 || true
+  # shellcheck disable=SC2016
+  kubectl -n "${NAMESPACE}" run kestra-webserver-probe \
+    --rm \
+    --quiet \
+    --attach \
+    --restart=Never \
+    --image=curlimages/curl:8.11.1 \
+    --command -- sh -ec '
+      for path in /health/readiness /health/liveness /ui/ /; do
+        echo ">>> http://kestra-webserver${path}" >&2
+        curl -sS -o /dev/null -w "%{http_code}\n" "http://kestra-webserver${path}" >&2 || true
+      done
+    ' >&2 || true
+}
+
 wait_for_ui() {
   local url="$1"
   local username="$2"
@@ -61,6 +88,7 @@ wait_for_ui() {
   done
 
   echo "Kestra UI did not become ready: ${url}" >&2
+  dump_gke_diagnostics
   return 1
 }
 
