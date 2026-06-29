@@ -11,6 +11,8 @@ inputs:
 tasks:
   - id: run_on_gce_a
     type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
     workerSelector:
       tags: [gce-a]
       match: ALL
@@ -23,6 +25,8 @@ tasks:
 
   - id: run_on_gce_b
     type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
     workerSelector:
       tags: [gce-b]
       match: ALL

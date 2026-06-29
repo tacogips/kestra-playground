@@ -160,6 +160,14 @@ def test_routed_image_build_installs_required_runtime_plugins() -> None:
     assert "io.kestra.plugin:plugin-script-shell:1.9.0" in install_step["run"]
 
 
+def test_routed_worker_verification_uses_process_task_runner() -> None:
+    flow = _yaml_load("kestra/flows-worker-routing/verify_gcp_worker_routing.yaml")
+
+    for task in flow["tasks"]:
+        assert task["workerSelector"]["fallback"] == "FAIL"
+        assert task["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
+
+
 def test_business_date_helper_resolves_default_business_date() -> None:
     result = _run_bash("source scripts/lib/business-date.sh; resolve_business_date")
 

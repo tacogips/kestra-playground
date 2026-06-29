@@ -164,7 +164,10 @@ worker routing in a single shared Kestra backend:
   installs `io.kestra.storage:storage-gcs` and `io.kestra.plugin:plugin-script-shell`, pushes it
   to Artifact Registry, and deploys the commit-SHA tag;
 - `kestra/flows-worker-routing/verify_gcp_worker_routing.yaml` is registered on the GKE controller
-  and uses `workerSelector.tags` to force one task onto `gce-a` and another onto `gce-b`.
+  and uses `workerSelector.tags` to force one task onto `gce-a` and another onto `gce-b`;
+- routed shell tasks set `taskRunner: io.kestra.plugin.core.runner.Process` so the command runs as
+  a local process on the selected GCE worker container instead of requiring Docker-in-Docker or a
+  mounted Docker socket.
 
 ```bash
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:routed
