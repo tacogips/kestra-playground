@@ -65,9 +65,14 @@ dump_gke_diagnostics() {
     --restart=Never \
     --image=curlimages/curl:8.11.1 \
     --command -- sh -ec '
-      for path in /health/readiness /health/liveness /ui/ /; do
-        echo ">>> http://kestra-webserver${path}" >&2
-        curl -sS -o /dev/null -w "%{http_code}\n" "http://kestra-webserver${path}" >&2 || true
+      for target in \
+        http://kestra-webserver/ \
+        http://kestra-webserver/ui/ \
+        http://kestra-webserver:8081/health \
+        http://kestra-webserver:8081/health/readiness \
+        http://kestra-webserver:8081/health/liveness; do
+        echo ">>> ${target}" >&2
+        curl -sS -o /dev/null -w "%{http_code}\n" "${target}" >&2 || true
       done
     ' >&2 || true
 }
@@ -80,7 +85,7 @@ wait_for_ui() {
   for _ in {1..120}; do
     if curl --fail --silent --show-error \
       -u "${username}:${password}" \
-      "${url%/}/ui/" >/dev/null; then
+      "${url%/}/" >/dev/null; then
       return 0
     fi
 

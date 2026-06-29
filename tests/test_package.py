@@ -125,6 +125,30 @@ def test_k8s_kestra_components_have_distinct_otel_service_names() -> None:
         )
 
 
+def test_k8s_webserver_health_check_uses_management_port() -> None:
+    deployment = _yaml_document(
+        "k8s/base/webserver.yaml", kind="Deployment", name="kestra-webserver"
+    )
+    service = _yaml_document("k8s/base/service.yaml", kind="Service", name="kestra-webserver")
+    backend_config = _yaml_load("k8s/overlays/dev/backendconfig.yaml")
+    kestra_container = _container_by_name(deployment, "kestra")
+
+    container_ports = {port["name"]: port["containerPort"] for port in kestra_container["ports"]}
+    service_ports = {port["name"]: port for port in service["spec"]["ports"]}
+
+    assert container_ports["http"] == 8080
+    assert container_ports["management"] == 8081
+    assert service_ports["http"]["port"] == 80
+    assert service_ports["http"]["targetPort"] == 8080
+    assert service_ports["management"]["port"] == 8081
+    assert service_ports["management"]["targetPort"] == 8081
+    assert backend_config["spec"]["healthCheck"] == {
+        "type": "HTTP",
+        "port": 8081,
+        "requestPath": "/health",
+    }
+
+
 def test_business_date_helper_resolves_default_business_date() -> None:
     result = _run_bash("source scripts/lib/business-date.sh; resolve_business_date")
 
