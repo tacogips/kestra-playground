@@ -103,6 +103,7 @@ wait_for_execution() {
   local password="$3"
   local execution_id="$4"
   local status_url="${url%/}/api/v1/main/executions/${execution_id}"
+  local logs_url="${url%/}/api/v1/main/logs/${execution_id}"
   local execution_json
   local state=""
 
@@ -121,7 +122,33 @@ wait_for_execution() {
         ;;
       FAILED | KILLED | WARNING)
         echo "Routed worker verification execution ${execution_id} ended with state ${state}." >&2
+        echo "Execution state history:" >&2
         jq -r '.state.histories // []' <<<"${execution_json}" >&2
+        echo "Task run summary:" >&2
+        jq -r '
+          (["taskId", "state", "workerId", "attempts"] | @tsv),
+          ((.taskRunList // [])[]
+            | [
+                (.taskId // ""),
+                (.state.current // ""),
+                (.workerId // .worker.id // .attempts[-1].workerId // ""),
+                ((.attempts // []) | length | tostring)
+              ]
+            | @tsv)
+        ' <<<"${execution_json}" >&2
+        echo "Execution logs:" >&2
+        curl --fail --silent --show-error \
+          -u "${username}:${password}" \
+          "${logs_url}" | jq -r '
+            (. // [])[]
+            | [
+                (.timestamp // .date // ""),
+                (.level // ""),
+                (.taskId // ""),
+                (.message // "")
+              ]
+            | @tsv
+          ' >&2 || true
         return 1
         ;;
     esac
