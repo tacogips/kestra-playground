@@ -83,7 +83,7 @@ wait_for_ui() {
   local password="$3"
 
   for _ in {1..120}; do
-    if curl --fail --silent --show-error \
+    if curl --fail --silent --show-error --max-time 20 \
       -u "${username}:${password}" \
       "${url%/}/" >/dev/null; then
       return 0
@@ -125,7 +125,7 @@ wait_for_execution() {
         | @tsv)
     ' <<<"${diagnostics_json}" >&2
     echo "Execution logs:" >&2
-    curl --fail --silent --show-error \
+    curl --fail --silent --show-error --max-time 20 \
       -u "${username}:${password}" \
       "${logs_url}" | jq -r '
         (. // [])[]
@@ -141,7 +141,7 @@ wait_for_execution() {
 
   for attempt in {1..72}; do
     execution_json="$(
-      curl --fail --silent --show-error \
+      curl --fail --silent --show-error --max-time 20 \
         -u "${username}:${password}" \
         "${status_url}"
     )"
