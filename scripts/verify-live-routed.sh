@@ -107,7 +107,39 @@ wait_for_execution() {
   local execution_json
   local state=""
 
-  for _ in {1..180}; do
+  print_execution_diagnostics() {
+    local diagnostics_json="$1"
+
+    echo "Execution state history:" >&2
+    jq -r '.state.histories // []' <<<"${diagnostics_json}" >&2
+    echo "Task run summary:" >&2
+    jq -r '
+      (["taskId", "state", "workerId", "attempts"] | @tsv),
+      ((.taskRunList // [])[]
+        | [
+            (.taskId // ""),
+            (.state.current // ""),
+            (.workerId // .worker.id // .attempts[-1].workerId // ""),
+            ((.attempts // []) | length | tostring)
+          ]
+        | @tsv)
+    ' <<<"${diagnostics_json}" >&2
+    echo "Execution logs:" >&2
+    curl --fail --silent --show-error \
+      -u "${username}:${password}" \
+      "${logs_url}" | jq -r '
+        (. // [])[]
+        | [
+            (.timestamp // .date // ""),
+            (.level // ""),
+            (.taskId // ""),
+            (.message // "")
+          ]
+        | @tsv
+      ' >&2 || true
+  }
+
+  for attempt in {1..72}; do
     execution_json="$(
       curl --fail --silent --show-error \
         -u "${username}:${password}" \
@@ -122,41 +154,31 @@ wait_for_execution() {
         ;;
       FAILED | KILLED | WARNING)
         echo "Routed worker verification execution ${execution_id} ended with state ${state}." >&2
-        echo "Execution state history:" >&2
-        jq -r '.state.histories // []' <<<"${execution_json}" >&2
-        echo "Task run summary:" >&2
-        jq -r '
-          (["taskId", "state", "workerId", "attempts"] | @tsv),
-          ((.taskRunList // [])[]
-            | [
-                (.taskId // ""),
-                (.state.current // ""),
-                (.workerId // .worker.id // .attempts[-1].workerId // ""),
-                ((.attempts // []) | length | tostring)
-              ]
-            | @tsv)
-        ' <<<"${execution_json}" >&2
-        echo "Execution logs:" >&2
-        curl --fail --silent --show-error \
-          -u "${username}:${password}" \
-          "${logs_url}" | jq -r '
-            (. // [])[]
-            | [
-                (.timestamp // .date // ""),
-                (.level // ""),
-                (.taskId // ""),
-                (.message // "")
-              ]
-            | @tsv
-          ' >&2 || true
+        print_execution_diagnostics "${execution_json}"
         return 1
         ;;
     esac
+
+    if (( attempt % 6 == 0 )); then
+      echo "Routed worker verification execution ${execution_id} still ${state:-unknown} after $((attempt * 10))s." >&2
+      jq -r '
+        (["taskId", "state", "workerId", "attempts"] | @tsv),
+        ((.taskRunList // [])[]
+          | [
+              (.taskId // ""),
+              (.state.current // ""),
+              (.workerId // .worker.id // .attempts[-1].workerId // ""),
+              ((.attempts // []) | length | tostring)
+            ]
+          | @tsv)
+      ' <<<"${execution_json}" >&2
+    fi
 
     sleep 10
   done
 
   echo "Routed worker verification execution ${execution_id} did not finish. Last state: ${state:-unknown}" >&2
+  print_execution_diagnostics "${execution_json}"
   return 1
 }
 

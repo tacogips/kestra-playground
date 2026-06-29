@@ -166,6 +166,7 @@ def test_routed_worker_verification_uses_process_task_runner() -> None:
     for task in flow["tasks"]:
         assert task["workerSelector"]["fallback"] == "FAIL"
         assert task["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
+        assert task["timeout"] == "PT2M"
 
 
 def test_business_date_helper_resolves_default_business_date() -> None:

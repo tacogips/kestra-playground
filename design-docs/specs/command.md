@@ -167,7 +167,9 @@ worker routing in a single shared Kestra backend:
   and uses `workerSelector.tags` to force one task onto `gce-a` and another onto `gce-b`;
 - routed shell tasks set `taskRunner: io.kestra.plugin.core.runner.Process` so the command runs as
   a local process on the selected GCE worker container instead of requiring Docker-in-Docker or a
-  mounted Docker socket.
+  mounted Docker socket;
+- routed verification shell tasks set `timeout: PT2M`, and the live verifier prints periodic
+  task-run summaries plus Kestra execution logs on failure or timeout.
 
 ```bash
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:routed

@@ -13,6 +13,7 @@ tasks:
     type: io.kestra.plugin.scripts.shell.Commands
     taskRunner:
       type: io.kestra.plugin.core.runner.Process
+    timeout: PT2M
     workerSelector:
       tags: [gce-a]
       match: ALL
@@ -27,6 +28,7 @@ tasks:
     type: io.kestra.plugin.scripts.shell.Commands
     taskRunner:
       type: io.kestra.plugin.core.runner.Process
+    timeout: PT2M
     workerSelector:
       tags: [gce-b]
       match: ALL
