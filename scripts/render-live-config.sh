@@ -38,6 +38,7 @@ write_tfvars() {
   local subdomain="$3"
   local policy_field="$4"
   local policy_value="$5"
+  local extra_body="${6:-}"
 
   cat >"${LIVE_CONFIG_DIR}/${file}" <<EOF
 project_id = "${project_id}"
@@ -50,6 +51,7 @@ dns_provider     = "${dns_provider}"
 cloudflare_zone_id     = "${cloudflare_zone_id}"
 cloudflare_dns_proxied = ${cloudflare_dns_proxied}
 ${policy_field} = "${policy_value}"
+${extra_body}
 EOF
 }
 
@@ -76,7 +78,8 @@ write_cloud_armor_tfvars
 write_tfvars gce-single.tfvars "${LIVE_GCE_SINGLE_ENVIRONMENT_NAME:-gce-compose}" "${LIVE_GCE_SINGLE_SUBDOMAIN:-gce-compose}" \
   "cloud_armor_security_policy_self_link" "${cloud_armor_security_policy_self_link}"
 write_tfvars gce-cluster.tfvars "${LIVE_GCE_CLUSTER_ENVIRONMENT_NAME:-gce-container}" "${LIVE_GCE_CLUSTER_SUBDOMAIN:-gce-container}" \
-  "cloud_armor_security_policy_self_link" "${cloud_armor_security_policy_self_link}"
+  "cloud_armor_security_policy_self_link" "${cloud_armor_security_policy_self_link}" \
+  "cluster_size = ${LIVE_GCE_CLUSTER_SIZE:-2}"
 write_tfvars gke-dev.tfvars "${LIVE_GKE_ENVIRONMENT_NAME:-k8s}" "${LIVE_GKE_SUBDOMAIN:-k8s}" \
   "cloud_armor_security_policy_name" "${cloud_armor_security_policy_name}"
 

@@ -146,6 +146,16 @@ tasks:
         fi
         KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_ecommerce_customer_segments "${BUSINESS_DATE:-}" "${KESTRA_URL:-http://localhost:8080}"
 
+  kestra:flows:run-federated-local:
+    desc: Register server namespaces and run the OSS federated ecommerce batch locally
+    cmds:
+      - scripts/verify-local-federated.sh "${BUSINESS_DATE:-}"
+
+  kestra:flows:audit-federated-topology:
+    desc: Audit the OSS federated topology for GKE controller-only and two sticky GCE workers
+    cmds:
+      - scripts/audit-federated-topology.sh
+
   kestra:live:deploy:
     desc: Deploy live GCP environments from kinko-backed generated tfvars
     cmds:
@@ -155,6 +165,11 @@ tasks:
     desc: Deploy the OSS federated live topology with GCE child Kestra and GKE controller/child Kestra
     cmds:
       - scripts/deploy-federated-live.sh
+
+  kestra:live:deploy:routed:
+    desc: Deploy the OSS shared-backend routed live topology with GKE control plane and GCE workers
+    cmds:
+      - scripts/deploy-routed-live.sh
 
   kestra:live:verify:
     desc: Register flows and verify live HTTPS endpoints without running the batch
@@ -170,6 +185,11 @@ tasks:
     desc: Register child/controller flows and run the OSS federated ecommerce batch
     cmds:
       - scripts/verify-live-federated.sh "${BUSINESS_DATE:-}"
+
+  kestra:live:run-routed:
+    desc: Register and run the OSS shared-backend worker routing verification flow
+    cmds:
+      - scripts/verify-live-routed.sh "${BUSINESS_DATE:-}"
 
   infra:fmt:
     desc: Format Terraform/OpenTofu files

@@ -53,9 +53,14 @@ Notable items that do not fit into architecture or client categories.
   emit and the cluster can receive OTLP telemetry; add a vendor-specific exporter later when a
   durable observability backend is chosen.
 - The active OSS hybrid shape is federated Kestra, not Worker Groups and not the DB-backed external
-  agent. `gce-container` and `k8s` are separate Kestra deployments. The GKE controller flow calls
-  child Kestra APIs and waits for child execution state. This keeps local/staging and production
-  workflow contracts closer than the DB-backed agent wrapper.
+  agent. `gce-compose` and `gce-container` are the two sticky GCE batch targets. `k8s` is the GKE
+  controller target and registers only the controller flow. The GKE controller flow calls GCE child
+  Kestra APIs and waits for child execution state. This keeps local/staging and production workflow
+  contracts closer than the DB-backed agent wrapper.
+- The shared-backend routed GCP path uses the custom image
+  `ghcr.io/tacogips/kestra:oss-worker-routing`. Do not verify that path with upstream
+  `kestra/kestra:latest`: the static `kestra.worker.routing` queue/group configuration only has
+  routing semantics in the forked image.
 - The DB-backed external agent and Enterprise Worker Group approaches remain documented in
   `design-docs/specs/design-kestra-enterprise-worker-group-mechanism.md` as design alternatives,
   but their runtime source has been removed.

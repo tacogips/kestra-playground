@@ -315,33 +315,78 @@ It uses separate Kestra deployments and API orchestration:
 ```text
 GKE controller Kestra
   run_federated_ecommerce_batch
-    -> trigger GCE child Kestra flow
-    -> poll GCE child execution state
-    -> trigger GKE child Kestra flow
-    -> poll GKE child execution state
+    -> trigger GCE worker A child Kestra flow
+    -> poll GCE worker A child execution state
+    -> trigger GCE worker B child Kestra flow
+    -> poll GCE worker B child execution state
     -> expose child execution IDs in controller output
 
-GCE child Kestra
-  native ecommerce flows
+GCE worker A child Kestra
+  native ecommerce flows in playground.ecommerce.server_gce_a
 
-GKE child Kestra
-  native ecommerce flows
+GCE worker B child Kestra
+  native ecommerce flows in playground.ecommerce.server_gce_b
 ```
 
-For local development, the same controller/child contract can be pointed at one local Kestra or at
-multiple local namespaces as a cheap functional check. For dev-as-prod verification, the controller
-uses the real live targets:
+![Diagram: OSS federated namespace and deploy design](../references/images/oss-federated-namespace-deploy-design.svg)
+
+The image above is the current Markdown snapshot of the namespace/deploy diagram.
+
+The child flows have one canonical source directory, `kestra/flows`, but they are rendered at deploy
+time into server-specific namespaces before registration:
+
+| Logical server | Rendered namespace |
+|----------------|--------------------|
+| GCE worker A | `playground.ecommerce.server_gce_a` |
+| GCE worker B | `playground.ecommerce.server_gce_b` |
+| Controller | `playground.ecommerce.controller` |
+
+This is required for local/staging/production parity. Local may still run all roles on one physical
+Kestra instance, but it must deploy the same rendered namespaces as production. Production changes
+only the target Kestra URL and credentials for each rendered namespace. In the active live topology,
+both batch child namespaces are placed on GCE targets and the GKE Kestra is controller-only for
+batch work:
 
 | Role | Live target | Flow directory |
 |------|-------------|----------------|
-| GKE controller | `k8s` | `kestra/flows-federated` |
-| GKE child worker | `k8s` | `kestra/flows` |
-| GCE child worker | `gce-container` | `kestra/flows` |
+| GKE controller | `k8s` | `kestra/flows-federated`; no `kestra-worker` Deployment is released on GKE |
+| GCE worker A | `gce-compose` | rendered `kestra/flows` as `playground.ecommerce.server_gce_a` |
+| GCE worker B | `gce-container` | rendered `kestra/flows` as `playground.ecommerce.server_gce_b` |
+
+The local verification command follows the same contract:
+
+```bash
+task kestra:flows:run-federated-local
+```
+
+It registers both rendered GCE child namespaces plus the controller namespace into the local Kestra
+endpoint, then runs `playground.ecommerce.controller.run_federated_ecommerce_batch`. The local
+physical topology is collapsed, but the namespace and request contract is the same. The live
+verification command uses the same rendered resources but registers `server_gce_a` to `gce-compose`,
+`server_gce_b` to `gce-container`, and only `controller` to the GKE Kestra:
+
+```bash
+task kestra:live:run-federated
+```
 
 This keeps server-side work as native Kestra tasks inside each child deployment. The controller UI
 can manage and rerun the high-level orchestration and can display the child execution IDs. Detailed
 native task logs and per-task reruns remain in the child Kestra deployment that actually executed
 the work.
+
+In this OSS design, "task runner split" means the controller selects a child execution target before
+the batch starts: `server_gce_a` flows are invoked only through the `gce-compose` child Kestra API,
+and `server_gce_b` flows are invoked only through the `gce-container` child Kestra API. It does not
+use a native Kestra Worker Group or a post-claim skip rule, both of which are unsuitable for OSS
+sticky placement.
+
+The GKE target does not run a Kestra worker. This is stricter than merely avoiding ecommerce batch
+flows on GKE: lightweight controller tasks are claimed by the GCE `controller-worker` VM attached to
+the GKE controller backend. The live verifier deletes known stale ecommerce batch flows from GKE
+before registration, asserts that those flows are absent, and fails if controller task runs include
+the raw batch task IDs
+`generate_ecommerce_mock_data`, `build_ecommerce_customer_segments`, or
+`build_ecommerce_daily_report`.
 
 ## References
 

@@ -210,6 +210,11 @@ verify_gce_container() {
 
 verify_k8s() {
   require_live_environment_config
+  if [[ "${MODE}" == "run-batch" ]]; then
+    echo "Direct batch execution is disabled for k8s; use task kestra:live:run-federated for the GKE controller." >&2
+    exit 1
+  fi
+
   configure_k8s_auth
   local previous_additional_flow_dirs="${KESTRA_ADDITIONAL_FLOW_DIRS:-}"
   export KESTRA_ADDITIONAL_FLOW_DIRS="${KESTRA_K8S_ADDITIONAL_FLOW_DIRS:-${KESTRA_ADDITIONAL_FLOW_DIRS:-}}"
@@ -221,7 +226,11 @@ case "${TARGET_ENVIRONMENT}" in
   all)
     verify_gce_compose
     verify_gce_container
-    verify_k8s
+    if [[ "${MODE}" == "health" ]]; then
+      verify_k8s
+    else
+      echo "Skipping k8s direct batch execution; use task kestra:live:run-federated for the GKE controller."
+    fi
     ;;
   gce-compose | gce-single)
     verify_gce_compose

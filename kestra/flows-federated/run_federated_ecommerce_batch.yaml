@@ -1,166 +1,173 @@
 id: run_federated_ecommerce_batch
 namespace: playground.ecommerce.controller
-description: Coordinate the ecommerce workload across separate OSS Kestra deployments.
+description: Coordinate the ecommerce workload across two sticky GCE OSS Kestra workers.
 
 labels:
   environment: playground
   topology: federated-oss
   controller: gke
-  worker_gce: gce-container
-  worker_gke: k8s
+  worker_gce_a: gce-compose
+  worker_gce_b: gce-container
 
 inputs:
   - id: business_date
     type: DATE
     required: true
     defaults: "2026-06-25"
-    description: Date to process in each child Kestra deployment.
+    description: Date to process in each GCE child Kestra deployment.
 
 tasks:
-  - id: start_gce_generate
+  - id: start_gce_a_generate
     type: io.kestra.plugin.core.http.Request
-    uri: "{{ envs.federated_gce_worker_url }}/api/v1/main/executions/playground.ecommerce/generate_ecommerce_mock_data"
+    uri: "{{ envs.federated_gce_a_url }}/api/v1/main/executions/playground.ecommerce.server_gce_a/generate_ecommerce_mock_data"
     method: POST
     contentType: multipart/form-data
     options:
-      basicAuthUser: "{{ envs.federated_gce_worker_username }}"
-      basicAuthPassword: "{{ envs.federated_gce_worker_password }}"
+      basicAuthUser: "{{ envs.federated_gce_a_username }}"
+      basicAuthPassword: "{{ envs.federated_gce_a_password }}"
     formData:
       business_date: "{{ inputs.business_date }}"
 
-  - id: wait_gce_generate
+  - id: wait_gce_a_generate
     type: io.kestra.plugin.core.flow.LoopUntil
-    condition: "{{ outputs.poll_gce_generate.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"WARNING\")') | first }}"
+    condition: "{{ outputs.poll_gce_a_generate.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"WARNING\")') | first }}"
     failOnMaxReached: true
     checkFrequency:
       interval: PT10S
       maxDuration: PT15M
     tasks:
-      - id: poll_gce_generate
+      - id: poll_gce_a_generate
         type: io.kestra.plugin.core.http.Request
-        uri: "{{ envs.federated_gce_worker_url }}/api/v1/main/executions/{{ json(outputs.start_gce_generate.body).id }}"
+        uri: "{{ envs.federated_gce_a_url }}/api/v1/main/executions/{{ json(outputs.start_gce_a_generate.body).id }}"
         method: GET
         options:
-          basicAuthUser: "{{ envs.federated_gce_worker_username }}"
-          basicAuthPassword: "{{ envs.federated_gce_worker_password }}"
+          basicAuthUser: "{{ envs.federated_gce_a_username }}"
+          basicAuthPassword: "{{ envs.federated_gce_a_password }}"
 
-  - id: assert_gce_generate
+  - id: assert_gce_a_generate
     type: io.kestra.plugin.core.execution.Assert
-    errorMessage: "GCE generate_ecommerce_mock_data did not finish with SUCCESS"
+    errorMessage: "GCE A generate_ecommerce_mock_data did not finish with SUCCESS"
     conditions:
-      - "{{ outputs.poll_gce_generate.body | jq('.state.current == \"SUCCESS\"') | first }}"
+      - "{{ outputs.poll_gce_a_generate.body | jq('.state.current == \"SUCCESS\"') | first }}"
 
-  - id: start_gce_segments
+  - id: start_gce_a_segments
     type: io.kestra.plugin.core.http.Request
-    uri: "{{ envs.federated_gce_worker_url }}/api/v1/main/executions/playground.ecommerce/build_ecommerce_customer_segments"
+    uri: "{{ envs.federated_gce_a_url }}/api/v1/main/executions/playground.ecommerce.server_gce_a/build_ecommerce_customer_segments"
     method: POST
     contentType: multipart/form-data
     options:
-      basicAuthUser: "{{ envs.federated_gce_worker_username }}"
-      basicAuthPassword: "{{ envs.federated_gce_worker_password }}"
+      basicAuthUser: "{{ envs.federated_gce_a_username }}"
+      basicAuthPassword: "{{ envs.federated_gce_a_password }}"
     formData:
       business_date: "{{ inputs.business_date }}"
 
-  - id: wait_gce_segments
+  - id: wait_gce_a_segments
     type: io.kestra.plugin.core.flow.LoopUntil
-    condition: "{{ outputs.poll_gce_segments.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"WARNING\")') | first }}"
+    condition: "{{ outputs.poll_gce_a_segments.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"WARNING\")') | first }}"
     failOnMaxReached: true
     checkFrequency:
       interval: PT10S
       maxDuration: PT15M
     tasks:
-      - id: poll_gce_segments
+      - id: poll_gce_a_segments
         type: io.kestra.plugin.core.http.Request
-        uri: "{{ envs.federated_gce_worker_url }}/api/v1/main/executions/{{ json(outputs.start_gce_segments.body).id }}"
+        uri: "{{ envs.federated_gce_a_url }}/api/v1/main/executions/{{ json(outputs.start_gce_a_segments.body).id }}"
         method: GET
         options:
-          basicAuthUser: "{{ envs.federated_gce_worker_username }}"
-          basicAuthPassword: "{{ envs.federated_gce_worker_password }}"
+          basicAuthUser: "{{ envs.federated_gce_a_username }}"
+          basicAuthPassword: "{{ envs.federated_gce_a_password }}"
 
-  - id: assert_gce_segments
+  - id: assert_gce_a_segments
     type: io.kestra.plugin.core.execution.Assert
-    errorMessage: "GCE build_ecommerce_customer_segments did not finish with SUCCESS"
+    errorMessage: "GCE A build_ecommerce_customer_segments did not finish with SUCCESS"
     conditions:
-      - "{{ outputs.poll_gce_segments.body | jq('.state.current == \"SUCCESS\"') | first }}"
+      - "{{ outputs.poll_gce_a_segments.body | jq('.state.current == \"SUCCESS\"') | first }}"
 
-  - id: start_gke_generate
+  - id: start_gce_b_generate
     type: io.kestra.plugin.core.http.Request
-    uri: "{{ envs.federated_gke_worker_url }}/api/v1/main/executions/playground.ecommerce/generate_ecommerce_mock_data"
+    uri: "{{ envs.federated_gce_b_url }}/api/v1/main/executions/playground.ecommerce.server_gce_b/generate_ecommerce_mock_data"
     method: POST
     contentType: multipart/form-data
     options:
-      basicAuthUser: "{{ envs.federated_gke_worker_username }}"
-      basicAuthPassword: "{{ envs.federated_gke_worker_password }}"
+      basicAuthUser: "{{ envs.federated_gce_b_username }}"
+      basicAuthPassword: "{{ envs.federated_gce_b_password }}"
     formData:
       business_date: "{{ inputs.business_date }}"
 
-  - id: wait_gke_generate
+  - id: wait_gce_b_generate
     type: io.kestra.plugin.core.flow.LoopUntil
-    condition: "{{ outputs.poll_gke_generate.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"WARNING\")') | first }}"
+    condition: "{{ outputs.poll_gce_b_generate.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"WARNING\")') | first }}"
     failOnMaxReached: true
     checkFrequency:
       interval: PT10S
       maxDuration: PT15M
     tasks:
-      - id: poll_gke_generate
+      - id: poll_gce_b_generate
         type: io.kestra.plugin.core.http.Request
-        uri: "{{ envs.federated_gke_worker_url }}/api/v1/main/executions/{{ json(outputs.start_gke_generate.body).id }}"
+        uri: "{{ envs.federated_gce_b_url }}/api/v1/main/executions/{{ json(outputs.start_gce_b_generate.body).id }}"
         method: GET
         options:
-          basicAuthUser: "{{ envs.federated_gke_worker_username }}"
-          basicAuthPassword: "{{ envs.federated_gke_worker_password }}"
+          basicAuthUser: "{{ envs.federated_gce_b_username }}"
+          basicAuthPassword: "{{ envs.federated_gce_b_password }}"
 
-  - id: assert_gke_generate
+  - id: assert_gce_b_generate
     type: io.kestra.plugin.core.execution.Assert
-    errorMessage: "GKE generate_ecommerce_mock_data did not finish with SUCCESS"
+    errorMessage: "GCE B generate_ecommerce_mock_data did not finish with SUCCESS"
     conditions:
-      - "{{ outputs.poll_gke_generate.body | jq('.state.current == \"SUCCESS\"') | first }}"
+      - "{{ outputs.poll_gce_b_generate.body | jq('.state.current == \"SUCCESS\"') | first }}"
 
-  - id: start_gke_daily_report
+  - id: start_gce_b_daily_report
     type: io.kestra.plugin.core.http.Request
-    uri: "{{ envs.federated_gke_worker_url }}/api/v1/main/executions/playground.ecommerce/build_ecommerce_daily_report"
+    uri: "{{ envs.federated_gce_b_url }}/api/v1/main/executions/playground.ecommerce.server_gce_b/build_ecommerce_daily_report"
     method: POST
     contentType: multipart/form-data
     options:
-      basicAuthUser: "{{ envs.federated_gke_worker_username }}"
-      basicAuthPassword: "{{ envs.federated_gke_worker_password }}"
+      basicAuthUser: "{{ envs.federated_gce_b_username }}"
+      basicAuthPassword: "{{ envs.federated_gce_b_password }}"
     formData:
       business_date: "{{ inputs.business_date }}"
 
-  - id: wait_gke_daily_report
+  - id: wait_gce_b_daily_report
     type: io.kestra.plugin.core.flow.LoopUntil
-    condition: "{{ outputs.poll_gke_daily_report.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"WARNING\")') | first }}"
+    condition: "{{ outputs.poll_gce_b_daily_report.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"WARNING\")') | first }}"
     failOnMaxReached: true
     checkFrequency:
       interval: PT10S
       maxDuration: PT15M
     tasks:
-      - id: poll_gke_daily_report
+      - id: poll_gce_b_daily_report
         type: io.kestra.plugin.core.http.Request
-        uri: "{{ envs.federated_gke_worker_url }}/api/v1/main/executions/{{ json(outputs.start_gke_daily_report.body).id }}"
+        uri: "{{ envs.federated_gce_b_url }}/api/v1/main/executions/{{ json(outputs.start_gce_b_daily_report.body).id }}"
         method: GET
         options:
-          basicAuthUser: "{{ envs.federated_gke_worker_username }}"
-          basicAuthPassword: "{{ envs.federated_gke_worker_password }}"
+          basicAuthUser: "{{ envs.federated_gce_b_username }}"
+          basicAuthPassword: "{{ envs.federated_gce_b_password }}"
 
-  - id: assert_gke_daily_report
+  - id: assert_gce_b_daily_report
     type: io.kestra.plugin.core.execution.Assert
-    errorMessage: "GKE build_ecommerce_daily_report did not finish with SUCCESS"
+    errorMessage: "GCE B build_ecommerce_daily_report did not finish with SUCCESS"
     conditions:
-      - "{{ outputs.poll_gke_daily_report.body | jq('.state.current == \"SUCCESS\"') | first }}"
+      - "{{ outputs.poll_gce_b_daily_report.body | jq('.state.current == \"SUCCESS\"') | first }}"
 
   - id: federated_summary
     type: io.kestra.plugin.core.debug.Return
     format: |
       {
-        "gce": {
-          "target": "{{ envs.federated_gce_worker_url }}",
-          "generate_execution_id": "{{ json(outputs.start_gce_generate.body).id }}",
-          "segments_execution_id": "{{ json(outputs.start_gce_segments.body).id }}"
+        "controller": {
+          "target": "gke",
+          "namespace": "playground.ecommerce.controller",
+          "batch_tasks_run_here": false
         },
-        "gke": {
-          "target": "{{ envs.federated_gke_worker_url }}",
-          "generate_execution_id": "{{ json(outputs.start_gke_generate.body).id }}",
-          "daily_report_execution_id": "{{ json(outputs.start_gke_daily_report.body).id }}"
+        "gce_a": {
+          "target": "{{ envs.federated_gce_a_url }}",
+          "namespace": "playground.ecommerce.server_gce_a",
+          "generate_execution_id": "{{ json(outputs.start_gce_a_generate.body).id }}",
+          "segments_execution_id": "{{ json(outputs.start_gce_a_segments.body).id }}"
+        },
+        "gce_b": {
+          "target": "{{ envs.federated_gce_b_url }}",
+          "namespace": "playground.ecommerce.server_gce_b",
+          "generate_execution_id": "{{ json(outputs.start_gce_b_generate.body).id }}",
+          "daily_report_execution_id": "{{ json(outputs.start_gce_b_daily_report.body).id }}"
         }
       }

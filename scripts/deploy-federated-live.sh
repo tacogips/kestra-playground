@@ -10,9 +10,13 @@ if [[ -z "${PROJECT_ID}" ]]; then
 fi
 
 echo "Deploying federated GCE child Kestra"
-TARGET_ENVIRONMENT=gce-container scripts/deploy-live-environments.sh
+TARGET_ENVIRONMENT=gce-compose scripts/deploy-live-environments.sh
 
-echo "Deploying federated GKE controller and GKE child Kestra"
+echo "Deploying federated second GCE child Kestra"
+LIVE_GCE_CLUSTER_SIZE="${LIVE_GCE_CLUSTER_SIZE:-1}" \
+  TARGET_ENVIRONMENT=gce-container scripts/deploy-live-environments.sh
+
+echo "Deploying federated GKE controller Kestra"
 TARGET_ENVIRONMENT=k8s scripts/deploy-live-environments.sh
 
 gcloud container clusters get-credentials kestra-dev \

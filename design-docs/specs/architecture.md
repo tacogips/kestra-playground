@@ -154,12 +154,43 @@ Secret Manager IDs, not DB secret payloads, for the apply helper.
 
 The production-like OSS hybrid path is federated rather than queue-shared:
 
-- `gce-container` is a standalone GCE child Kestra deployment;
-- `k8s` is the controller Kestra and also a GKE child execution environment;
-- child flows from `kestra/flows` are registered on both child deployments;
+- `gce-compose` is GCE worker A and receives the `playground.ecommerce.server_gce_a` namespace;
+- `gce-container` is GCE worker B and receives the `playground.ecommerce.server_gce_b` namespace;
+- `k8s` is the controller Kestra and does not release a `kestra-worker` Deployment;
+- the `gke-dev` Terraform root creates a GCE `controller-worker` VM that runs only
+  `kestra server worker` against the GKE controller backend;
+- child flows from `kestra/flows` are rendered into server-specific namespaces before registration;
 - controller flows from `kestra/flows-federated` are registered only on `k8s`;
 - the controller flow calls child Kestra REST APIs, waits for child execution state, and records
   child execution IDs in controller task outputs.
+
+The invariant is that no Kestra worker process runs in GKE. Any work executed by a Kestra worker,
+including lightweight controller HTTP and polling tasks, is picked up by the GCE controller-worker
+VM attached to the GKE controller backend. Ecommerce batch child flows are not registered or
+executed on GKE; all JDBC batch work is placed on the two GCE child Kestra targets by URL and
+namespace.
+
+This OSS topology does not rely on a native Kestra `taskRunner` or Worker Group setting for sticky
+placement. The sticky execution boundary is the child Kestra API endpoint plus the rendered
+namespace: a controller task that calls `gce-compose` can only start `server_gce_a` flows, and a
+controller task that calls `gce-container` can only start `server_gce_b` flows.
+
+The custom OSS worker-routing image enables a second, stronger shared-backend topology:
+
+- GKE still runs only control-plane roles: webserver, scheduler, executor, and indexer.
+- GCE workers connect to the same GKE Cloud SQL queue/repository and GCS internal storage.
+- GCE workers connect outbound to an internal GKE LoadBalancer for Kestra controller gRPC; no worker
+  port is exposed back to GKE.
+- The GKE controller config defines static queues `gce-a` and `gce-b` under
+  `kestra.worker.routing.queues`.
+- Each GCE worker sets `kestra.worker.routing.workerGroupId` to the group it serves.
+- Flow tasks use native `workerSelector.tags` to dispatch to a queue before worker pickup, so
+  non-target workers do not run skip/no-op tasks.
+- The live image is `ghcr.io/tacogips/kestra:oss-worker-routing` by default for this topology.
+
+This shared-backend route is the closer OSS analogue to Enterprise Worker Groups: GKE can observe,
+retry, rerun, and inspect the routed execution in one controller Kestra, while the script task JVM
+work runs only on GCE workers.
 
 Kestra Worker Groups remain an Enterprise Edition feature. The OSS runtime should not attach an
 external Kestra worker to a shared queue when deterministic placement is required, because ordinary

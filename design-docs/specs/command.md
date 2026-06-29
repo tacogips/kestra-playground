@@ -122,26 +122,68 @@ temporary manifest only, and waits for Kestra deployments to roll out.
 Use the federated live path when dev should behave like the production split topology without
 Kestra Enterprise Worker Groups:
 
-- `gce-container` is the GCE child Kestra deployment;
-- `k8s` is the controller Kestra and also the GKE child Kestra deployment;
-- child flows from `kestra/flows` are registered on both deployments;
+- `gce-compose` is GCE worker A;
+- `gce-container` is GCE worker B and is deployed with `LIVE_GCE_CLUSTER_SIZE=1` by
+  `task kestra:live:deploy:federated`, giving two GCE batch hosts total;
+- `k8s` is the controller Kestra only and the GKE overlay does not release `kestra-worker`;
+- `infra/terraform/gke-dev` creates a GCE `controller-worker` VM that runs only
+  `kestra server worker` against the GKE controller backend;
+- child flows from `kestra/flows` are rendered into server-specific namespaces before registration;
+- `playground.ecommerce.server_gce_a` is registered on `gce-compose`;
+- `playground.ecommerce.server_gce_b` is registered on `gce-container`;
 - controller flows from `kestra/flows-federated` are registered only on `k8s`.
+- `task kestra:live:run-federated` removes known stale ecommerce batch flows from `k8s` before
+  asserting that GKE is controller-only for batch work.
+
+Because no Kestra worker runs in GKE, controller flow execution depends on the GCE
+`controller-worker` VM attached to the controller backend. That worker claims the controller
+HTTP/poll/assert tasks while ecommerce batch work remains on the two GCE child Kestra targets.
 
 ```bash
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:federated
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-federated
 ```
+
+### Shared-Backend OSS Worker Routing
+
+Use the routed live path to exercise the custom OSS Kestra image that implements config-backed
+worker routing in a single shared Kestra backend:
+
+- GKE runs `webserver`, `scheduler`, `executor`, and `indexer` only;
+- no `kestra-worker` Deployment or HPA is released in GKE;
+- GCE `kestra-dev-controller-worker` subscribes to the default/system queues for lightweight
+  unrouted work;
+- GCE `kestra-dev-gce-a` starts `kestra server worker` with `workerGroupId: gce-a`;
+- GCE `kestra-dev-gce-b` starts `kestra server worker` with `workerGroupId: gce-b`;
+- GCE workers dial the GKE controller gRPC endpoint through an internal LoadBalancer IP reserved by
+  Terraform;
+- all components use `ghcr.io/tacogips/kestra:oss-worker-routing` unless `KESTRA_IMAGE` is
+  explicitly overridden;
+- `kestra/flows-worker-routing/verify_gcp_worker_routing.yaml` is registered on the GKE controller
+  and uses `workerSelector.tags` to force one task onto `gce-a` and another onto `gce-b`.
+
+```bash
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:routed
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-routed
+```
+
+The verification command checks that GKE has no worker Deployment/pods, that all GCE worker
+instances are `RUNNING`, and that the two routed tasks complete with different worker IDs.
 
 ### Live Operations
 
 ```bash
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:federated
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:routed
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:verify
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-federated
-TARGET_ENVIRONMENT=k8s BUSINESS_DATE=2026-06-25 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-routed
 ```
+
+Direct batch execution is disabled for `TARGET_ENVIRONMENT=k8s`; use
+`task kestra:live:run-federated` for the GKE controller path.
 
 ## Kestra GCP Operations Runbook
 
@@ -354,17 +396,17 @@ kubectl -n kestra-dev get service otel-collector
 kubectl -n kestra-dev logs deployment/otel-collector --tail=200
 ```
 
-Run a batch after the collector is ready, then inspect collector logs for spans from the Kestra
-component services and execution IDs:
+Run the federated controller after the collector is ready, then inspect collector logs for spans from
+the GKE Kestra control component services and execution IDs:
 
 ```bash
-TARGET_ENVIRONMENT=k8s BUSINESS_DATE=2026-06-25 task kestra:live:run-batch
+BUSINESS_DATE=2026-06-25 task kestra:live:run-federated
 kubectl -n kestra-dev logs deployment/otel-collector --since=10m | \
   rg 'kestra.executionId|generate_ecommerce_mock_data|build_ecommerce_daily_report|build_ecommerce_customer_segments'
 ```
 
-Expected service names include `kestra-webserver`, `kestra-executor`, `kestra-scheduler`,
-`kestra-indexer`, and `kestra-worker`.
+Expected GKE service names include `kestra-webserver`, `kestra-executor`, `kestra-scheduler`, and
+`kestra-indexer`. `kestra-worker` should not appear as a GKE service name in this topology.
 
 Collector spans include `kestra.uid`, which maps to the task-run ID in the Kestra execution API.
 Use that mapping to audit span timing back to granular task names:

@@ -9,6 +9,15 @@ data "google_project" "current" {
   project_id = var.project_id
 }
 
+data "google_compute_network" "default" {
+  name = "default"
+}
+
+data "google_compute_subnetwork" "default" {
+  name   = "default"
+  region = var.region
+}
+
 locals {
   https_enabled          = var.domain_name != ""
   domain_name            = trimsuffix(var.domain_name, ".")
@@ -21,7 +30,6 @@ locals {
   kestra_url             = local.https_enabled ? "https://${local.hostname}" : "http://localhost:8080/"
   kestra_database_name   = "kestra"
   batch_database_name    = "ecommerce_ops"
-
   kestra_basic_auth_secret_values = {
     kestra-basic-auth-username = var.kestra_basic_auth_username
     kestra-basic-auth-password = random_password.kestra_basic_auth.result
@@ -188,6 +196,100 @@ resource "google_project_iam_member" "gke_node_artifact_registry_reader" {
   member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
 }
 
+resource "google_compute_instance" "controller_worker" {
+  count        = var.controller_worker_enabled ? 1 : 0
+  name         = "${var.name_prefix}-controller-worker"
+  zone         = var.zone
+  machine_type = var.controller_worker_machine_type
+  tags         = ["kestra-controller-worker"]
+
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-12"
+      size  = 20
+      type  = "pd-standard"
+    }
+  }
+
+  network_interface {
+    network    = data.google_compute_network.default.id
+    subnetwork = data.google_compute_subnetwork.default.id
+    access_config {}
+  }
+
+  service_account {
+    email  = google_service_account.kestra.email
+    scopes = ["cloud-platform"]
+  }
+
+  metadata_startup_script = templatefile("${path.module}/controller-worker-startup.sh.tftpl", {
+    artifact_registry_host = "${var.region}-docker.pkg.dev"
+    controller_grpc_host   = google_compute_address.controller_grpc.address
+    kestra_image           = var.kestra_image
+    kestra_url             = local.kestra_url
+    name_prefix            = var.name_prefix
+    project_id             = var.project_id
+    worker_group_id        = "controller"
+    worker_name            = "${var.name_prefix}-controller-worker"
+    worker_threads         = var.controller_worker_threads
+  })
+
+  depends_on = [
+    google_project_iam_member.artifact_registry_reader,
+    google_project_iam_member.cloudsql_client,
+    google_secret_manager_secret_iam_member.gke_runtime_reader,
+    google_secret_manager_secret_iam_member.kestra_basic_auth_reader,
+    google_storage_bucket_iam_member.storage,
+  ]
+}
+
+resource "google_compute_instance" "routed_worker" {
+  for_each     = var.routed_workers
+  name         = "${var.name_prefix}-${each.key}"
+  zone         = var.zone
+  machine_type = each.value.machine_type
+  tags         = ["kestra-routed-worker", "kestra-${each.value.worker_group_id}"]
+
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-12"
+      size  = 20
+      type  = "pd-standard"
+    }
+  }
+
+  network_interface {
+    network    = data.google_compute_network.default.id
+    subnetwork = data.google_compute_subnetwork.default.id
+    access_config {}
+  }
+
+  service_account {
+    email  = google_service_account.kestra.email
+    scopes = ["cloud-platform"]
+  }
+
+  metadata_startup_script = templatefile("${path.module}/controller-worker-startup.sh.tftpl", {
+    artifact_registry_host = "${var.region}-docker.pkg.dev"
+    controller_grpc_host   = google_compute_address.controller_grpc.address
+    kestra_image           = var.kestra_image
+    kestra_url             = local.kestra_url
+    name_prefix            = var.name_prefix
+    project_id             = var.project_id
+    worker_group_id        = each.value.worker_group_id
+    worker_name            = "${var.name_prefix}-${each.key}"
+    worker_threads         = each.value.threads
+  })
+
+  depends_on = [
+    google_project_iam_member.artifact_registry_reader,
+    google_project_iam_member.cloudsql_client,
+    google_secret_manager_secret_iam_member.gke_runtime_reader,
+    google_secret_manager_secret_iam_member.kestra_basic_auth_reader,
+    google_storage_bucket_iam_member.storage,
+  ]
+}
+
 resource "google_service_account_iam_member" "workload_identity" {
   service_account_id = google_service_account.kestra.name
   role               = "roles/iam.workloadIdentityUser"
@@ -202,6 +304,13 @@ resource "google_compute_global_address" "ingress" {
   count = local.https_enabled ? 1 : 0
 
   name = "${var.name_prefix}-ingress"
+}
+
+resource "google_compute_address" "controller_grpc" {
+  name         = "${var.name_prefix}-controller-grpc"
+  region       = var.region
+  address_type = "INTERNAL"
+  subnetwork   = data.google_compute_subnetwork.default.id
 }
 
 resource "google_dns_managed_zone" "domain" {
@@ -293,8 +402,19 @@ output "ingress_static_ip_address" {
   value = local.https_enabled ? google_compute_global_address.ingress[0].address : null
 }
 
+output "controller_grpc_ip_address" {
+  value = google_compute_address.controller_grpc.address
+}
+
 output "cloud_armor_security_policy_name" {
   value = var.cloud_armor_security_policy_name
+}
+
+output "gce_worker_instances" {
+  value = concat(
+    google_compute_instance.controller_worker[*].name,
+    [for worker in google_compute_instance.routed_worker : worker.name]
+  )
 }
 
 output "dns_name_servers" {

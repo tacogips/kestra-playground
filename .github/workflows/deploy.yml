@@ -16,6 +16,7 @@ on:
           - gce-compose
           - gce-container
           - k8s
+          - routed
       run_batch:
         description: Execute the ecommerce batch after deployment
         required: true
@@ -75,7 +76,7 @@ jobs:
     timeout-minutes: 30
     needs:
       - validate
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.target_environment != 'routed' }}
     permissions:
       contents: read
       id-token: write
@@ -121,7 +122,7 @@ jobs:
     needs:
       - validate
       - build-image
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ always() && needs.validate.result == 'success' && (needs.build-image.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.target_environment == 'routed')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     environment:
       name: development
       url: ${{ vars.LIVE_K8S_URL }}
@@ -136,7 +137,7 @@ jobs:
       LIVE_DOMAIN_NAME: ${{ vars.LIVE_DOMAIN_NAME }}
       TOFU_STATE_BUCKET: ${{ vars.TOFU_STATE_BUCKET }}
       TARGET_ENVIRONMENT: ${{ inputs.target_environment || 'all' }}
-      KESTRA_IMAGE: ${{ needs.build-image.outputs.image }}
+      KESTRA_IMAGE: ${{ inputs.target_environment == 'routed' && 'ghcr.io/tacogips/kestra:oss-worker-routing' || needs.build-image.outputs.image }}
       LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED: "true"
       LIVE_GKE_EXTERNAL_GCE_WORKER_GROUP_KEY: gce-heavy
       LIVE_GKE_EXTERNAL_GCE_WORKER_MACHINE_TYPE: e2-standard-4
@@ -154,12 +155,22 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Apply live environments
-        run: nix develop -c scripts/deploy-live-environments.sh "$TARGET_ENVIRONMENT"
+        run: |
+          if [ "$TARGET_ENVIRONMENT" = "routed" ]; then
+            nix develop -c scripts/deploy-routed-live.sh
+          else
+            nix develop -c scripts/deploy-live-environments.sh "$TARGET_ENVIRONMENT"
+          fi
       - name: Register flows and check HTTPS
         env:
           BUSINESS_DATE: ${{ inputs.business_date || '' }}
           MODE: health
-        run: nix develop -c scripts/verify-live-environments.sh "$TARGET_ENVIRONMENT" "$BUSINESS_DATE" "$MODE"
+        run: |
+          if [ "$TARGET_ENVIRONMENT" = "routed" ]; then
+            nix develop -c scripts/verify-live-routed.sh "$BUSINESS_DATE"
+          else
+            nix develop -c scripts/verify-live-environments.sh "$TARGET_ENVIRONMENT" "$BUSINESS_DATE" "$MODE"
+          fi
 
   run-batch:
     name: Run Batch

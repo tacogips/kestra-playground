@@ -12,7 +12,46 @@ variable "region" {
 variable "zone" {
   type        = string
   default     = "asia-northeast1-a"
-  description = "GCP zone used by the optional external GCE worker."
+  description = "GCP zone used by the GCE controller worker."
+}
+
+variable "controller_worker_enabled" {
+  type        = bool
+  default     = true
+  description = "Create a GCE VM that runs Kestra worker against the GKE controller backend."
+}
+
+variable "controller_worker_machine_type" {
+  type        = string
+  default     = "e2-small"
+  description = "Machine type for the GCE controller worker VM."
+}
+
+variable "controller_worker_threads" {
+  type        = number
+  default     = 4
+  description = "Kestra worker thread count for the GCE controller worker VM."
+}
+
+variable "routed_workers" {
+  type = map(object({
+    worker_group_id = string
+    machine_type    = string
+    threads         = number
+  }))
+  default = {
+    gce-a = {
+      worker_group_id = "gce-a"
+      machine_type    = "e2-small"
+      threads         = 2
+    }
+    gce-b = {
+      worker_group_id = "gce-b"
+      machine_type    = "e2-small"
+      threads         = 2
+    }
+  }
+  description = "GCE worker VMs that attach to the GKE Kestra backend with static OSS worker group IDs."
 }
 
 variable "name_prefix" {

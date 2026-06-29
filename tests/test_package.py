@@ -101,13 +101,16 @@ def test_k8s_otel_collector_receives_and_exports_all_signals() -> None:
 
 
 def test_k8s_kestra_components_have_distinct_otel_service_names() -> None:
+    kustomization = _yaml_load("k8s/base/kustomization.yaml")
     expected = {
         "k8s/base/webserver.yaml": ("kestra-webserver", "kestra-webserver"),
         "k8s/base/executor.yaml": ("kestra-executor", "kestra-executor"),
         "k8s/base/scheduler.yaml": ("kestra-scheduler", "kestra-scheduler"),
         "k8s/base/indexer.yaml": ("kestra-indexer", "kestra-indexer"),
-        "k8s/base/worker.yaml": ("kestra-worker", "kestra-worker"),
     }
+
+    assert "worker.yaml" not in kustomization["resources"]
+    assert not Path("k8s/base/worker.yaml").exists()
 
     for path, (deployment_name, service_name) in expected.items():
         deployment = _yaml_document(path, kind="Deployment", name=deployment_name)
