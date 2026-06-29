@@ -161,8 +161,8 @@ worker routing in a single shared Kestra backend:
   `${REGION}-docker.pkg.dev/${PROJECT_ID}/kestra-playground/kestra-oss-worker-routing:<tag>`
   unless `KESTRA_IMAGE` is explicitly overridden;
 - GitHub Actions builds this routed image from `tacogips/kestra@feature/oss-worker-routing`,
-  installs `io.kestra.storage:storage-gcs`, pushes it to Artifact Registry, and deploys the
-  commit-SHA tag;
+  installs `io.kestra.storage:storage-gcs` and `io.kestra.plugin:plugin-script-shell`, pushes it
+  to Artifact Registry, and deploys the commit-SHA tag;
 - `kestra/flows-worker-routing/verify_gcp_worker_routing.yaml` is registered on the GKE controller
   and uses `workerSelector.tags` to force one task onto `gce-a` and another onto `gce-b`.
 

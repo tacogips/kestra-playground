@@ -149,6 +149,17 @@ def test_k8s_webserver_health_check_uses_management_port() -> None:
     }
 
 
+def test_routed_image_build_installs_required_runtime_plugins() -> None:
+    workflow = _yaml_load(".github/workflows/deploy.yml")
+    build_routed_image = workflow["jobs"]["build-routed-image"]
+    install_step = next(
+        step for step in build_routed_image["steps"] if step["name"] == "Install runtime plugins"
+    )
+
+    assert "io.kestra.storage:storage-gcs:1.2.0" in install_step["run"]
+    assert "io.kestra.plugin:plugin-script-shell:1.9.0" in install_step["run"]
+
+
 def test_business_date_helper_resolves_default_business_date() -> None:
     result = _run_bash("source scripts/lib/business-date.sh; resolve_business_date")
 

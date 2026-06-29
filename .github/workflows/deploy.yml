@@ -161,6 +161,9 @@ jobs:
           docker/app/kestra plugins install io.kestra.storage:storage-gcs:1.2.0 \
             --plugins plugins \
             --repositories=https://central.sonatype.com/repository/maven-snapshots
+          docker/app/kestra plugins install io.kestra.plugin:plugin-script-shell:1.9.0 \
+            --plugins plugins \
+            --repositories=https://central.sonatype.com/repository/maven-snapshots
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
       - name: Authenticate to Google Cloud
