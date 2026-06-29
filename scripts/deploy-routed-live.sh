@@ -23,6 +23,7 @@ require_command jq
 require_command tofu
 
 export KESTRA_IMAGE
+export GKE_WEBSERVER_SINGLE_REPLICA_ROLLOUT=true
 
 echo "Deploying shared-backend OSS routed Kestra on GKE with GCE workers"
 TARGET_ENVIRONMENT=k8s scripts/deploy-live-environments.sh
