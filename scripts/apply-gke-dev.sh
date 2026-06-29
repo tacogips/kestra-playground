@@ -154,6 +154,7 @@ kustomize build "$work_overlay" >"$rendered"
 kubectl apply -f "$rendered"
 kubectl -n "$NAMESPACE" delete deployment kestra-worker --ignore-not-found
 kubectl -n "$NAMESPACE" delete hpa kestra-worker --ignore-not-found
+kubectl -n "$NAMESPACE" scale deployment/kestra-webserver --replicas=1
 kubectl -n "$NAMESPACE" rollout status deployment/otel-collector --timeout=10m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-webserver --timeout=15m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-executor --timeout=15m
