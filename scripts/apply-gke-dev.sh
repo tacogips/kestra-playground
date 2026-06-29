@@ -182,6 +182,19 @@ for values_file in "${helm_values[@]}"; do
 done
 helm_args+=(--values "$helm_runtime_values")
 
+if ! helm status "$HELM_RELEASE" --namespace "$NAMESPACE" >/dev/null 2>&1; then
+  kubectl -n "$NAMESPACE" delete configmap kestra-config --ignore-not-found
+  kubectl -n "$NAMESPACE" delete service kestra --ignore-not-found
+  kubectl -n "$NAMESPACE" delete deployment \
+    kestra-webserver \
+    kestra-executor \
+    kestra-scheduler \
+    kestra-indexer \
+    kestra-worker \
+    --ignore-not-found
+  kubectl -n "$NAMESPACE" delete hpa kestra-worker --ignore-not-found
+fi
+
 helm repo add kestra https://helm.kestra.io/ >/dev/null 2>&1 || true
 helm repo update kestra
 helm upgrade --install "$HELM_RELEASE" "$HELM_CHART" \

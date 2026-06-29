@@ -183,6 +183,21 @@ def test_routed_image_build_installs_required_runtime_plugins() -> None:
     assert "io.kestra.plugin:plugin-script-shell:1.9.0" in install_step["run"]
 
 
+def test_gke_apply_cleans_legacy_kustomize_resources_before_helm_install() -> None:
+    script = _read_text("scripts/apply-gke-dev.sh")
+    cleanup_block_start = script.index('if ! helm status "$HELM_RELEASE"')
+    helm_install_start = script.index('helm upgrade --install "$HELM_RELEASE"')
+    cleanup_block = script[cleanup_block_start:helm_install_start]
+
+    assert "delete configmap kestra-config --ignore-not-found" in cleanup_block
+    assert "delete service kestra --ignore-not-found" in cleanup_block
+    assert "kestra-webserver" in cleanup_block
+    assert "kestra-executor" in cleanup_block
+    assert "kestra-scheduler" in cleanup_block
+    assert "kestra-indexer" in cleanup_block
+    assert "delete hpa kestra-worker --ignore-not-found" in cleanup_block
+
+
 def test_routed_worker_verification_uses_process_task_runner() -> None:
     flow = _yaml_load("kestra/flows-worker-routing/verify_gcp_worker_routing.yaml")
 
