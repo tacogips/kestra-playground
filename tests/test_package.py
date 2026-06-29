@@ -198,6 +198,18 @@ def test_gke_apply_cleans_legacy_kustomize_resources_before_helm_install() -> No
     assert "delete hpa kestra-worker --ignore-not-found" in cleanup_block
 
 
+def test_live_external_gce_worker_mode_disables_gke_worker() -> None:
+    workflow = _yaml_load(".github/workflows/deploy.yml")
+    deploy_env = workflow["jobs"]["deploy"]["env"]
+    script = _read_text("scripts/apply-gke-dev.sh")
+
+    assert deploy_env["LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED"] == "true"
+    assert deploy_env["GKE_WORKER_ENABLED"] == "false"
+    assert 'LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED:-false}" == "true"' in script
+    assert "GKE_WORKER_ENABLED=false" in script
+    assert 'GKE_WORKER_ENABLED="${GKE_WORKER_ENABLED:-true}"' in script
+
+
 def test_routed_worker_verification_uses_process_task_runner() -> None:
     flow = _yaml_load("kestra/flows-worker-routing/verify_gcp_worker_routing.yaml")
 
