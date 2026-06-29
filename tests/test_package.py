@@ -72,7 +72,9 @@ def test_batch_flows_are_split_into_granular_otel_audit_tasks() -> None:
 
 
 def test_k8s_kestra_config_exports_otel_to_collector() -> None:
-    configmap = _yaml_document("k8s/base/configmap.yaml", kind="ConfigMap", name="kestra-config")
+    configmap = _yaml_document(
+        "k8s/base/configmap.yaml", kind="ConfigMap", name="kestra-runtime-config"
+    )
     app_config = yaml.safe_load(configmap["data"]["application.yaml"])
 
     assert app_config["micronaut"]["otel"]["enabled"] == "${OTEL_ENABLED:true}"
@@ -100,44 +102,65 @@ def test_k8s_otel_collector_receives_and_exports_all_signals() -> None:
     assert {port["port"] for port in service["spec"]["ports"]} == {4317, 4318, 13133}
 
 
-def test_k8s_kestra_components_have_distinct_otel_service_names() -> None:
+def test_k8s_helm_values_define_split_components_and_worker_hpa() -> None:
     kustomization = _yaml_load("k8s/base/kustomization.yaml")
-    expected = {
-        "k8s/base/webserver.yaml": ("kestra-webserver", "kestra-webserver"),
-        "k8s/base/executor.yaml": ("kestra-executor", "kestra-executor"),
-        "k8s/base/scheduler.yaml": ("kestra-scheduler", "kestra-scheduler"),
-        "k8s/base/indexer.yaml": ("kestra-indexer", "kestra-indexer"),
+    helm_values = _yaml_load("k8s/helm/kestra-values.yaml")
+    controller_only_values = _yaml_load("k8s/helm/kestra-controller-only-values.yaml")
+    deployments = helm_values["deployments"]
+    common_env = {
+        item["name"]: item["value"] for item in helm_values["common"]["extraEnv"] if "value" in item
     }
 
+    assert "webserver.yaml" not in kustomization["resources"]
+    assert "executor.yaml" not in kustomization["resources"]
+    assert "scheduler.yaml" not in kustomization["resources"]
+    assert "indexer.yaml" not in kustomization["resources"]
     assert "worker.yaml" not in kustomization["resources"]
-    assert not Path("k8s/base/worker.yaml").exists()
+    assert "hpa.yaml" not in kustomization["resources"]
 
-    for path, (deployment_name, service_name) in expected.items():
-        deployment = _yaml_document(path, kind="Deployment", name=deployment_name)
-        kestra_container = _container_by_name(deployment, "kestra")
-        env = {item["name"]: item["value"] for item in kestra_container["env"] if "value" in item}
+    for component in ("webserver", "executor", "scheduler", "indexer", "worker"):
+        deployment = deployments[component]
+        env = {item["name"]: item["value"] for item in deployment["extraEnv"]}
 
-        assert env["OTEL_SERVICE_NAME"] == service_name
-        assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://otel-collector:4317"
-        assert (
-            f"kestra.component={service_name.removeprefix('kestra-')}"
-            in env["OTEL_RESOURCE_ATTRIBUTES"]
-        )
+        assert deployment["enabled"] is True
+        assert env["OTEL_SERVICE_NAME"] == f"kestra-{component}"
+        assert f"kestra.component={component}" in env["OTEL_RESOURCE_ATTRIBUTES"]
+
+    assert common_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://otel-collector:4317"
+    assert helm_values["configurations"]["configmaps"] == [
+        {"name": "kestra-runtime-config", "key": "application.yaml"}
+    ]
+    assert {"secretRef": {"name": "kestra-secrets"}} in helm_values["common"]["extraEnvFrom"]
+    assert deployments["standalone"]["enabled"] is False
+    assert deployments["worker"]["autoscaler"] == {
+        "enabled": True,
+        "minReplicas": 1,
+        "maxReplicas": 5,
+        "metrics": [
+            {
+                "type": "Resource",
+                "resource": {
+                    "name": "cpu",
+                    "target": {"type": "Utilization", "averageUtilization": 70},
+                },
+            }
+        ],
+    }
+    assert controller_only_values["deployments"]["worker"]["enabled"] is False
+    assert controller_only_values["deployments"]["worker"]["autoscaler"]["enabled"] is False
 
 
 def test_k8s_webserver_health_check_uses_management_port() -> None:
-    deployment = _yaml_document(
-        "k8s/base/webserver.yaml", kind="Deployment", name="kestra-webserver"
-    )
+    helm_values = _yaml_load("k8s/helm/kestra-values.yaml")
     service = _yaml_document("k8s/base/service.yaml", kind="Service", name="kestra-webserver")
     backend_config = _yaml_load("k8s/overlays/dev/backendconfig.yaml")
-    kestra_container = _container_by_name(deployment, "kestra")
 
-    container_ports = {port["name"]: port["containerPort"] for port in kestra_container["ports"]}
+    chart_ports = helm_values["service"]["ports"]
     service_ports = {port["name"]: port for port in service["spec"]["ports"]}
 
-    assert container_ports["http"] == 8080
-    assert container_ports["management"] == 8081
+    assert chart_ports["http"]["containerPort"] == 8080
+    assert chart_ports["management"]["containerPort"] == 8081
+    assert chart_ports["grpc"]["containerPort"] == 50051
     assert service_ports["http"]["port"] == 80
     assert service_ports["http"]["targetPort"] == 8080
     assert service_ports["management"]["port"] == 8081

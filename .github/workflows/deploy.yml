@@ -68,7 +68,11 @@ jobs:
           nix develop -c tofu -chdir=infra/terraform/gke-dev validate
           nix develop -c tofu -chdir=infra/terraform/github-actions init -backend=false -input=false
           nix develop -c tofu -chdir=infra/terraform/github-actions validate
-          nix develop -c kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev.yaml
+          nix develop -c bash -lc 'kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev-support.yaml'
+          nix develop -c bash -lc 'helm repo add kestra https://helm.kestra.io/ >/dev/null 2>&1 || true'
+          nix develop -c bash -lc 'helm repo update kestra'
+          nix develop -c bash -lc 'helm template kestra kestra/kestra --version 1.0.54 --namespace kestra-dev --values k8s/helm/kestra-values.yaml >/tmp/kestra-gke-dev-helm.yaml'
+          nix develop -c bash -lc 'helm template kestra kestra/kestra --version 1.0.54 --namespace kestra-dev --values k8s/helm/kestra-values.yaml --values k8s/helm/kestra-controller-only-values.yaml >/tmp/kestra-gke-controller-only-helm.yaml'
 
   build-image:
     name: Build Runtime Image

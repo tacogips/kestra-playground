@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: kestra-config
+  name: kestra-runtime-config
   namespace: kestra
 data:
   CLOUD_SQL_INSTANCE: "replace-with-cloud-sql-connection-name"

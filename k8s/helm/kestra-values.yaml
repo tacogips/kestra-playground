@@ -1,0 +1,167 @@
+fullnameOverride: kestra
+
+image:
+  repository: kestra/kestra
+  pullPolicy: Always
+  tag: latest
+
+serviceAccount:
+  create: false
+  name: kestra
+
+dind:
+  enabled: false
+
+configurations:
+  configmaps:
+    - name: kestra-runtime-config
+      key: application.yaml
+
+common:
+  replicas: 1
+  extraEnvFrom:
+    - secretRef:
+        name: kestra-secrets
+  extraEnv:
+    - name: POD_NAMESPACE
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.namespace
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.name
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: http://otel-collector:4317
+  extraVolumeMounts:
+    - name: tmp
+      mountPath: /tmp/kestra-wd
+  extraVolumes:
+    - name: tmp
+      emptyDir: {}
+  extraContainers:
+    - name: cloud-sql-proxy
+      image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1
+      args:
+        - --structured-logs
+        - --port=5432
+        - $(CLOUD_SQL_INSTANCE)
+      env:
+        - name: CLOUD_SQL_INSTANCE
+          valueFrom:
+            configMapKeyRef:
+              name: kestra-runtime-config
+              key: CLOUD_SQL_INSTANCE
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 250m
+          memory: 256Mi
+
+deployments:
+  standalone:
+    enabled: false
+    dind:
+      enabled: false
+  webserver:
+    enabled: true
+    resources:
+      requests:
+        cpu: 250m
+        memory: 768Mi
+      limits:
+        cpu: "1"
+        memory: 1536Mi
+    extraEnv:
+      - name: OTEL_SERVICE_NAME
+        value: kestra-webserver
+      - name: OTEL_RESOURCE_ATTRIBUTES
+        value: service.namespace=kestra-playground,deployment.environment=dev,k8s.namespace.name=$(POD_NAMESPACE),k8s.pod.name=$(POD_NAME),kestra.component=webserver
+  executor:
+    enabled: true
+    resources:
+      requests:
+        cpu: 250m
+        memory: 768Mi
+      limits:
+        cpu: "1"
+        memory: 1536Mi
+    extraEnv:
+      - name: OTEL_SERVICE_NAME
+        value: kestra-executor
+      - name: OTEL_RESOURCE_ATTRIBUTES
+        value: service.namespace=kestra-playground,deployment.environment=dev,k8s.namespace.name=$(POD_NAMESPACE),k8s.pod.name=$(POD_NAME),kestra.component=executor
+  scheduler:
+    enabled: true
+    resources:
+      requests:
+        cpu: 250m
+        memory: 768Mi
+      limits:
+        cpu: "1"
+        memory: 1536Mi
+    extraEnv:
+      - name: OTEL_SERVICE_NAME
+        value: kestra-scheduler
+      - name: OTEL_RESOURCE_ATTRIBUTES
+        value: service.namespace=kestra-playground,deployment.environment=dev,k8s.namespace.name=$(POD_NAMESPACE),k8s.pod.name=$(POD_NAME),kestra.component=scheduler
+  indexer:
+    enabled: true
+    resources:
+      requests:
+        cpu: 250m
+        memory: 768Mi
+      limits:
+        cpu: "1"
+        memory: 1536Mi
+    extraEnv:
+      - name: OTEL_SERVICE_NAME
+        value: kestra-indexer
+      - name: OTEL_RESOURCE_ATTRIBUTES
+        value: service.namespace=kestra-playground,deployment.environment=dev,k8s.namespace.name=$(POD_NAMESPACE),k8s.pod.name=$(POD_NAME),kestra.component=indexer
+  worker:
+    enabled: true
+    workerThreads: 0
+    resources:
+      requests:
+        cpu: 250m
+        memory: 768Mi
+      limits:
+        cpu: "1"
+        memory: 1536Mi
+    autoscaler:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 5
+      metrics:
+        - type: Resource
+          resource:
+            name: cpu
+            target:
+              type: Utilization
+              averageUtilization: 70
+    extraEnv:
+      - name: OTEL_SERVICE_NAME
+        value: kestra-worker
+      - name: OTEL_RESOURCE_ATTRIBUTES
+        value: service.namespace=kestra-playground,deployment.environment=dev,k8s.namespace.name=$(POD_NAMESPACE),k8s.pod.name=$(POD_NAME),kestra.component=worker
+
+service:
+  ports:
+    http:
+      port: 8080
+      containerPort: 8080
+      targetPort: http
+      protocol: TCP
+    management:
+      port: 8081
+      containerPort: 8081
+      targetPort: management
+      protocol: TCP
+    grpc:
+      port: 50051
+      containerPort: 50051
+      targetPort: grpc
+      protocol: TCP

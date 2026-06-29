@@ -56,7 +56,7 @@ dump_gke_diagnostics() {
   kubectl -n "${NAMESPACE}" describe ingress kestra-webserver >&2 || true
   kubectl -n "${NAMESPACE}" describe pods \
     -l app.kubernetes.io/name=kestra,app.kubernetes.io/component=webserver >&2 || true
-  kubectl -n "${NAMESPACE}" logs deployment/kestra-webserver -c kestra --tail=200 >&2 || true
+  kubectl -n "${NAMESPACE}" logs deployment/kestra-webserver -c kestra-webserver --tail=200 >&2 || true
   # shellcheck disable=SC2016
   kubectl -n "${NAMESPACE}" run kestra-webserver-probe \
     --rm \

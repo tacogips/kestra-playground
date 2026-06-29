@@ -17,5 +17,4 @@ patches:
   - path: configmap.yaml
   - path: service.yaml
   - path: controller-grpc-service.yaml
-  - path: deployment-resources.yaml
   - path: secret.yaml

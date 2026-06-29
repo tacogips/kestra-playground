@@ -26,6 +26,10 @@ reject_pattern() {
   local pattern="$1"
   local file="$2"
 
+  if [[ ! -e "$file" ]]; then
+    return 0
+  fi
+
   if grep -qE "$pattern" "$file"; then
     echo "Unexpected pattern found in ${file}: ${pattern}" >&2
     exit 1
@@ -57,14 +61,17 @@ require_pattern 'TARGET_ENVIRONMENT=gce-compose' scripts/deploy-federated-live.s
 require_pattern 'LIVE_GCE_CLUSTER_SIZE="\$\{LIVE_GCE_CLUSTER_SIZE:-1\}"' scripts/deploy-federated-live.sh
 require_pattern 'TARGET_ENVIRONMENT=gce-container' scripts/deploy-federated-live.sh
 require_pattern 'TARGET_ENVIRONMENT=k8s' scripts/deploy-federated-live.sh
+require_pattern 'GKE_WORKER_ENABLED=false TARGET_ENVIRONMENT=k8s' scripts/deploy-federated-live.sh
+require_pattern 'export GKE_WORKER_ENABLED=false' scripts/deploy-routed-live.sh
 
 require_pattern 'ENV_FEDERATED_GCE_A_URL' scripts/apply-gke-dev.sh
 require_pattern 'ENV_FEDERATED_GCE_B_URL' scripts/apply-gke-dev.sh
 reject_pattern 'ENV_FEDERATED_GKE_WORKER' scripts/apply-gke-dev.sh
 reject_pattern 'ENV_FEDERATED_GCE_WORKER' scripts/apply-gke-dev.sh
+require_pattern 'helm upgrade --install' scripts/apply-gke-dev.sh
+require_pattern 'kestra-controller-only-values.yaml' scripts/apply-gke-dev.sh
 require_pattern 'delete deployment kestra-worker --ignore-not-found' scripts/apply-gke-dev.sh
 require_pattern 'delete hpa kestra-worker --ignore-not-found' scripts/apply-gke-dev.sh
-reject_pattern 'rollout status deployment/kestra-worker' scripts/apply-gke-dev.sh
 require_pattern 'Direct batch execution is disabled for k8s' scripts/verify-live-environments.sh
 require_pattern 'Skipping k8s direct batch execution' scripts/verify-live-environments.sh
 require_pattern 'controller_worker_enabled' infra/terraform/gke-dev/variables.tf
@@ -80,6 +87,14 @@ reject_pattern 'kestra-worker' k8s/base/hpa.yaml
 reject_pattern 'worker-replicas\.yaml' k8s/overlays/dev/kustomization.yaml
 reject_pattern 'worker-hpa\.yaml' k8s/overlays/dev/kustomization.yaml
 reject_pattern 'kestra-worker' k8s/overlays/dev/deployment-resources.yaml
+ruby -ryaml -e '
+  values = YAML.load_file(ARGV.fetch(0))
+  controller = YAML.load_file(ARGV.fetch(1))
+  abort("base Helm values must enable the normal GKE worker") unless values.dig("deployments", "worker", "enabled") == true
+  abort("base Helm values must enable worker HPA") unless values.dig("deployments", "worker", "autoscaler", "enabled") == true
+  abort("controller-only Helm values must disable worker") unless controller.dig("deployments", "worker", "enabled") == false
+  abort("controller-only Helm values must disable worker HPA") unless controller.dig("deployments", "worker", "autoscaler", "enabled") == false
+' k8s/helm/kestra-values.yaml k8s/helm/kestra-controller-only-values.yaml
 
 require_pattern 'render-federated-child-flows\.sh" gce_a' scripts/verify-live-federated.sh
 require_pattern 'render-federated-child-flows\.sh" gce_b' scripts/verify-live-federated.sh

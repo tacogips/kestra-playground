@@ -31,9 +31,9 @@ Use this default runtime model:
 ## Rationale
 
 Kestra's own Kubernetes guidance recommends separate component pods for production deployments to
-improve scalability and resource isolation. This matches the repository's existing GKE shape, where
-Kustomize manages separate Kestra components and Terraform manages GKE, Cloud SQL, GCS, IAM, load
-balancing, DNS, and Cloud Armor.
+improve scalability and resource isolation. This matches the repository's GKE shape: the official
+Kestra Helm chart manages separate Kestra server roles, Kustomize manages supporting Kubernetes
+resources, and Terraform manages GKE, Cloud SQL, GCS, IAM, load balancing, DNS, and Cloud Armor.
 
 GKE Autopilot minimizes idle node cost better than GKE Standard because Google manages node
 provisioning and bills general-purpose Autopilot workloads primarily by requested pod resources.

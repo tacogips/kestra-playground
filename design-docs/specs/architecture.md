@@ -131,12 +131,17 @@ the requested environment subdomain.
 
 ### GKE Development Manifests
 
-`k8s/base` contains raw Kubernetes manifests for separate Kestra components, a Cloud SQL Auth Proxy
-sidecar, a webserver Service, and worker/webserver autoscaling. `k8s/overlays/dev` adds development
-namespace, labels, replica counts, resource bounds, and Workload Identity annotations.
+GKE uses the official Kestra Helm chart for Kestra server components. `k8s/helm/kestra-values.yaml`
+disables standalone mode and enables separate `webserver`, `executor`, `scheduler`, `indexer`, and
+`worker` Deployments. The same values attach the Cloud SQL Auth Proxy sidecar, shared Secret and
+ConfigMap environment, OTEL environment, GCS/Postgres application configuration, and a
+`kestra-worker` HorizontalPodAutoscaler.
 
-The overlay model is Kustomize-based so later environments can override the base without copying the
-entire manifest tree.
+Kustomize still owns support resources that are not part of the chart contract:
+`k8s/base` contains Namespace, ServiceAccount, Secret, ConfigMap, webserver LoadBalancer Service,
+controller gRPC internal LoadBalancer Service, and the OTEL collector. `k8s/overlays/dev` adds
+development namespace, labels, Workload Identity annotations, Ingress, ManagedCertificate,
+BackendConfig, and runtime patches rendered from Terraform outputs.
 
 For HTTPS, `infra/terraform/gke-dev` can reserve a global static IP and create the Cloud DNS record.
 The dev overlay includes a GKE `ManagedCertificate` and Ingress placeholder that are patched with
@@ -156,7 +161,8 @@ The production-like OSS hybrid path is federated rather than queue-shared:
 
 - `gce-compose` is GCE worker A and receives the `playground.ecommerce.server_gce_a` namespace;
 - `gce-container` is GCE worker B and receives the `playground.ecommerce.server_gce_b` namespace;
-- `k8s` is the controller Kestra and does not release a `kestra-worker` Deployment;
+- `k8s` is the controller Kestra and deploys the Helm controller-only override so no
+  `kestra-worker` Deployment or HPA is released;
 - the `gke-dev` Terraform root creates a GCE `controller-worker` VM that runs only
   `kestra server worker` against the GKE controller backend;
 - child flows from `kestra/flows` are rendered into server-specific namespaces before registration;
@@ -177,7 +183,8 @@ controller task that calls `gce-container` can only start `server_gce_b` flows.
 
 The custom OSS worker-routing image enables a second, stronger shared-backend topology:
 
-- GKE still runs only control-plane roles: webserver, scheduler, executor, and indexer.
+- GKE deploys the official Kestra Helm chart with `k8s/helm/kestra-controller-only-values.yaml`, so
+  only the webserver, scheduler, executor, and indexer roles run there.
 - GCE workers connect to the same GKE Cloud SQL queue/repository and GCS internal storage.
 - GCE workers connect outbound to an internal GKE LoadBalancer for Kestra controller gRPC; no worker
   port is exposed back to GKE.

@@ -115,7 +115,13 @@ scripts/apply-gke-dev.sh
 
 For GKE HTTPS, pass `domain_name`, `subdomain`, and the DNS provider inputs, then run
 `scripts/apply-gke-dev.sh`. The helper reads Terraform outputs, renders sensitive values into a
-temporary manifest only, and waits for Kestra deployments to roll out.
+temporary manifest only, applies non-Kestra support resources with Kustomize, installs Kestra server
+roles with the official Helm chart, and waits for the rendered Deployments to roll out.
+
+By default the GKE Helm install enables split `webserver`, `scheduler`, `executor`, `indexer`, and
+`worker` Deployments with a worker-only HPA. Set `GKE_WORKER_ENABLED=false` when GKE should be a
+controller-only Kestra that observes and reruns executions while external GCE/on-prem workers claim
+the actual work through the shared backend or federated API pattern.
 
 ### Federated OSS Dev-As-Prod
 
@@ -125,7 +131,8 @@ Kestra Enterprise Worker Groups:
 - `gce-compose` is GCE worker A;
 - `gce-container` is GCE worker B and is deployed with `LIVE_GCE_CLUSTER_SIZE=1` by
   `task kestra:live:deploy:federated`, giving two GCE batch hosts total;
-- `k8s` is the controller Kestra only and the GKE overlay does not release `kestra-worker`;
+- `k8s` is the controller Kestra only and the GKE Helm controller-only override does not release
+  `kestra-worker`;
 - `infra/terraform/gke-dev` creates a GCE `controller-worker` VM that runs only
   `kestra server worker` against the GKE controller backend;
 - child flows from `kestra/flows` are rendered into server-specific namespaces before registration;
@@ -149,8 +156,9 @@ kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-federated
 Use the routed live path to exercise the custom OSS Kestra image that implements config-backed
 worker routing in a single shared Kestra backend:
 
-- GKE runs `webserver`, `scheduler`, `executor`, and `indexer` only;
-- no `kestra-worker` Deployment or HPA is released in GKE;
+- GKE runs the Helm-rendered `webserver`, `scheduler`, `executor`, and `indexer` roles only;
+- `GKE_WORKER_ENABLED=false` adds `k8s/helm/kestra-controller-only-values.yaml`, so no
+  `kestra-worker` Deployment or HPA is released in GKE;
 - GCE `kestra-dev-controller-worker` subscribes to the default/system queues for lightweight
   unrouted work;
 - GCE `kestra-dev-gce-a` starts `kestra server worker` with `workerGroupId: gce-a`;
@@ -415,7 +423,8 @@ kubectl -n kestra-dev logs deployment/otel-collector --since=10m | \
 ```
 
 Expected GKE service names include `kestra-webserver`, `kestra-executor`, `kestra-scheduler`, and
-`kestra-indexer`. `kestra-worker` should not appear as a GKE service name in this topology.
+`kestra-indexer`. `kestra-worker` should not appear as a GKE Deployment, HPA, or service name in
+this topology.
 
 Collector spans include `kestra.uid`, which maps to the task-run ID in the Kestra execution API.
 Use that mapping to audit span timing back to granular task names:

@@ -3,6 +3,11 @@ set -euo pipefail
 
 TERRAFORM_DIR="${TERRAFORM_DIR:-infra/terraform/gke-dev}"
 OVERLAY_DIR="${OVERLAY_DIR:-k8s/overlays/dev}"
+HELM_RELEASE="${HELM_RELEASE:-kestra}"
+HELM_CHART="${HELM_CHART:-kestra/kestra}"
+HELM_CHART_VERSION="${HELM_CHART_VERSION:-1.0.54}"
+HELM_VALUES_DIR="${HELM_VALUES_DIR:-k8s/helm}"
+GKE_WORKER_ENABLED="${GKE_WORKER_ENABLED:-true}"
 NAMESPACE="${NAMESPACE:-kestra-dev}"
 
 require_command() {
@@ -14,6 +19,7 @@ require_command() {
 
 require_command jq
 require_command gcloud
+require_command helm
 require_command kubectl
 require_command kustomize
 require_command tofu
@@ -76,11 +82,6 @@ federated_gce_b_password="${FEDERATED_GCE_B_PASSWORD:-$(optional_gcp_secret_valu
 cp -R k8s "${tmpdir}/k8s"
 work_overlay="${tmpdir}/${OVERLAY_DIR}"
 
-(
-  cd "$work_overlay"
-  kustomize edit set image "kestra/kestra:latest=${kestra_image}"
-)
-
 if [[ -n "${kestra_hostname}" ]]; then
   KESTRA_HOSTNAME="$kestra_hostname" INGRESS_STATIC_IP_NAME="$ingress_static_ip_name" \
     yq -i '.spec.rules[0].host = strenv(KESTRA_HOSTNAME) | .metadata.annotations."kubernetes.io/ingress.global-static-ip-name" = strenv(INGRESS_STATIC_IP_NAME)' \
@@ -104,7 +105,7 @@ cat >"${work_overlay}/configmap.yaml" <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: kestra-config
+  name: kestra-runtime-config
   namespace: kestra
 data:
   CLOUD_SQL_INSTANCE: ${cloud_sql_instance}
@@ -152,17 +153,56 @@ chmod 600 "$rendered"
 kustomize build "$work_overlay" >"$rendered"
 
 kubectl apply -f "$rendered"
-kubectl -n "$NAMESPACE" delete deployment kestra-worker --ignore-not-found
-kubectl -n "$NAMESPACE" delete hpa kestra-worker --ignore-not-found
-if [[ "${GKE_WEBSERVER_SINGLE_REPLICA_ROLLOUT:-false}" == "true" ]]; then
-  kubectl -n "$NAMESPACE" delete hpa kestra-webserver --ignore-not-found
-  kubectl -n "$NAMESPACE" scale deployment/kestra-webserver --replicas=1
+
+image_repository="${kestra_image%:*}"
+image_tag="${kestra_image##*:}"
+if [[ -z "$image_repository" || -z "$image_tag" || "$image_repository" == "$image_tag" ]]; then
+  echo "KESTRA image must be a tagged image reference for the Helm chart: ${kestra_image}" >&2
+  exit 1
 fi
+
+helm_runtime_values="${tmpdir}/kestra-runtime-values.yaml"
+cat >"$helm_runtime_values" <<EOF
+image:
+  repository: ${image_repository}
+  tag: ${image_tag}
+EOF
+
+helm_values=(
+  "${HELM_VALUES_DIR}/kestra-values.yaml"
+)
+
+if [[ "$GKE_WORKER_ENABLED" != "true" ]]; then
+  helm_values+=("${HELM_VALUES_DIR}/kestra-controller-only-values.yaml")
+fi
+
+helm_args=()
+for values_file in "${helm_values[@]}"; do
+  helm_args+=(--values "$values_file")
+done
+helm_args+=(--values "$helm_runtime_values")
+
+helm repo add kestra https://helm.kestra.io/ >/dev/null 2>&1 || true
+helm repo update kestra
+helm upgrade --install "$HELM_RELEASE" "$HELM_CHART" \
+  --version "$HELM_CHART_VERSION" \
+  --namespace "$NAMESPACE" \
+  --create-namespace \
+  "${helm_args[@]}"
+
+if [[ "$GKE_WORKER_ENABLED" != "true" ]]; then
+  kubectl -n "$NAMESPACE" delete deployment kestra-worker --ignore-not-found
+  kubectl -n "$NAMESPACE" delete hpa kestra-worker --ignore-not-found
+fi
+
 kubectl -n "$NAMESPACE" rollout status deployment/otel-collector --timeout=10m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-webserver --timeout=15m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-executor --timeout=15m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-scheduler --timeout=15m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-indexer --timeout=15m
+if [[ "$GKE_WORKER_ENABLED" == "true" ]]; then
+  kubectl -n "$NAMESPACE" rollout status deployment/kestra-worker --timeout=15m
+fi
 kubectl -n "$NAMESPACE" get ingress kestra-webserver
 kubectl -n "$NAMESPACE" get service kestra-controller-grpc
 

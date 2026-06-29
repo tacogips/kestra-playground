@@ -17,7 +17,7 @@ LIVE_GCE_CLUSTER_SIZE="${LIVE_GCE_CLUSTER_SIZE:-1}" \
   TARGET_ENVIRONMENT=gce-container scripts/deploy-live-environments.sh
 
 echo "Deploying federated GKE controller Kestra"
-TARGET_ENVIRONMENT=k8s scripts/deploy-live-environments.sh
+GKE_WORKER_ENABLED=false TARGET_ENVIRONMENT=k8s scripts/deploy-live-environments.sh
 
 gcloud container clusters get-credentials kestra-dev \
   --region "${REGION}" \
