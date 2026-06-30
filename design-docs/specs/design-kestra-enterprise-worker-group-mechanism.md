@@ -332,6 +332,24 @@ GCE worker B child Kestra
 
 The image above is the current Markdown snapshot of the namespace/deploy diagram.
 
+## Latest Verified OSS GKE Topologies
+
+[![Miro diagram: Kestra OSS latest verified GKE topologies](../references/images/oss-latest-gke-worker-routing-topology.svg)](https://miro.com/app/board/uXjVHBHF2p8=/)
+
+The image above is the latest Markdown snapshot of the Miro topology section. The editable source
+board is: <https://miro.com/app/board/uXjVHBHF2p8=/>.
+
+It captures the current verified guidance:
+
+- For deterministic native task placement in the custom OSS fork, use `workerSelector.tags` with
+  dedicated routed worker Deployments such as `gke-small` and `gke-large`.
+- For per-batch CPU and memory only, use the OSS Kubernetes `PodCreate` topology and let Kubernetes
+  schedule child pods from each task's resource requests.
+- On GKE Autopilot, raw `spec.nodeName` is diagnostic-only because it bypasses scheduling and does
+  not trigger scale-up. Production worker-class placement should use scheduler-visible labels,
+  taints, and tolerations, preferably on GKE Standard node pools when exact class placement is
+  required.
+
 The child flows have one canonical source directory, `kestra/flows`, but they are rendered at deploy
 time into server-specific namespaces before registration:
 

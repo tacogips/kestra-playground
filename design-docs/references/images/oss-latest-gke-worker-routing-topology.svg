@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1180" viewBox="0 0 1500 1180" role="img" aria-labelledby="title desc">
+  <title id="title">Kestra OSS latest verified GKE topologies</title>
+  <desc id="desc">Diagram showing the latest verified OSS Kestra GKE topologies: custom routed worker pods by worker group, PodCreate per-batch resource pods, and the Autopilot node pinning caveat.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#374151"/>
+    </marker>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; fill: #111827; }
+      .title { font-size: 32px; font-weight: 700; }
+      .subtitle { font-size: 17px; fill: #374151; }
+      .lane { font-size: 20px; font-weight: 700; fill: #111827; }
+      .box-title { font-size: 17px; font-weight: 700; }
+      .body { font-size: 13px; fill: #1f2937; }
+      .small { font-size: 12px; fill: #374151; }
+      .caption { font-size: 12px; font-weight: 700; fill: #374151; }
+    </style>
+  </defs>
+
+  <rect width="1500" height="1180" fill="#ffffff"/>
+  <text x="750" y="48" text-anchor="middle" class="title">Kestra OSS latest verified GKE topologies</text>
+  <text x="750" y="78" text-anchor="middle" class="subtitle">Shared controller visibility with either routed worker pods or per-batch Kubernetes pods</text>
+  <text x="750" y="105" text-anchor="middle" class="small">Verified 2026-06-30: execution 1jgUlKhFTZZPIhYYu4n663 succeeded; the Kestra UI showed Success and 2/2 tasks.</text>
+
+  <text x="80" y="155" class="lane">1. Custom OSS routed worker pods</text>
+  <g id="routed-controller">
+    <rect x="60" y="185" width="350" height="230" rx="10" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+    <text x="235" y="215" text-anchor="middle" class="box-title">GKE Kestra controller</text>
+    <text x="235" y="245" text-anchor="middle" class="body">Webserver / Scheduler / Executor / Indexer</text>
+    <text x="235" y="272" text-anchor="middle" class="body">No generic GKE worker in routed mode</text>
+    <text x="235" y="307" text-anchor="middle" class="body">Central UI/API:</text>
+    <text x="235" y="331" text-anchor="middle" class="body">progress, logs, rerun, replay</text>
+  </g>
+  <g id="routed-backend">
+    <rect x="500" y="185" width="360" height="220" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="2"/>
+    <text x="680" y="215" text-anchor="middle" class="box-title">Shared Kestra backend</text>
+    <text x="680" y="245" text-anchor="middle" class="body">Cloud SQL / queue / storage</text>
+    <text x="680" y="272" text-anchor="middle" class="body">Custom static routing config</text>
+    <text x="680" y="307" text-anchor="middle" class="body">queues: gke-small, gke-large</text>
+    <text x="680" y="331" text-anchor="middle" class="body">workerSelector.tags chooses queue</text>
+  </g>
+  <g id="routed-small">
+    <rect x="950" y="145" width="370" height="190" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+    <text x="1135" y="175" text-anchor="middle" class="box-title">Routed worker pod: gke-small</text>
+    <text x="1135" y="205" text-anchor="middle" class="body">workerGroupId: gke-small</text>
+    <text x="1135" y="229" text-anchor="middle" class="body">Process runner executes in worker pod</text>
+    <text x="1135" y="264" text-anchor="middle" class="body">requests: 250m CPU / 768Mi</text>
+    <text x="1135" y="288" text-anchor="middle" class="body">task tag: gke-small</text>
+  </g>
+  <g id="routed-large">
+    <rect x="950" y="375" width="370" height="200" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-width="2"/>
+    <text x="1135" y="405" text-anchor="middle" class="box-title">Routed worker pod: gke-large</text>
+    <text x="1135" y="435" text-anchor="middle" class="body">workerGroupId: gke-large</text>
+    <text x="1135" y="459" text-anchor="middle" class="body">Process runner executes in worker pod</text>
+    <text x="1135" y="494" text-anchor="middle" class="body">requests: 2 CPU / 4Gi</text>
+    <text x="1135" y="518" text-anchor="middle" class="body">task tag: gke-large</text>
+  </g>
+  <g id="routed-result">
+    <rect x="60" y="455" width="800" height="120" rx="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="2"/>
+    <text x="460" y="485" text-anchor="middle" class="box-title">Verified result</text>
+    <text x="460" y="515" text-anchor="middle" class="body">run_on_gke_small ran on the gke-small worker pod; run_on_gke_large ran on the gke-large worker pod.</text>
+    <text x="460" y="543" text-anchor="middle" class="body">Task logs include POD_NAME and K8S_NODE_NAME; worker IDs are visible in the Kestra execution API/UI.</text>
+  </g>
+
+  <line x1="410" y1="295" x2="495" y2="295" stroke="#374151" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="452" y="283" text-anchor="middle" class="caption">submits routed tasks</text>
+  <path d="M860 265 C890 210,910 195,945 215" fill="none" stroke="#374151" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="905" y="195" text-anchor="middle" class="caption">gke-small queue</text>
+  <path d="M860 330 C900 395,912 430,945 455" fill="none" stroke="#374151" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="905" y="425" text-anchor="middle" class="caption">gke-large queue</text>
+  <path d="M1135 335 C1120 610,780 630,520 575" fill="none" stroke="#0284c7" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M1135 575 C1000 645,720 640,560 575" fill="none" stroke="#0284c7" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <text x="80" y="650" class="lane">2. OSS PodCreate per-batch pod resources</text>
+  <g id="podcreate-worker">
+    <rect x="60" y="680" width="350" height="215" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="235" y="710" text-anchor="middle" class="box-title">OSS PodCreate resource mode</text>
+    <text x="235" y="740" text-anchor="middle" class="body">Use when the requirement is CPU/memory</text>
+    <text x="235" y="764" text-anchor="middle" class="body">per batch, not sticky worker placement</text>
+    <text x="235" y="799" text-anchor="middle" class="body">A normal Kestra worker claims</text>
+    <text x="235" y="823" text-anchor="middle" class="body">PodCreate control tasks</text>
+  </g>
+  <g id="kube-api">
+    <rect x="500" y="680" width="360" height="215" rx="10" fill="#e8f0fe" stroke="#2563eb" stroke-width="2"/>
+    <text x="680" y="710" text-anchor="middle" class="box-title">Kubernetes API</text>
+    <text x="680" y="740" text-anchor="middle" class="body">PodCreate creates child pods</text>
+    <text x="680" y="764" text-anchor="middle" class="body">No nodeSelector required</text>
+    <text x="680" y="799" text-anchor="middle" class="body">GKE scheduler and autoscaler</text>
+    <text x="680" y="823" text-anchor="middle" class="body">choose nodes from resource requests</text>
+  </g>
+  <g id="small-pod">
+    <rect x="950" y="640" width="370" height="170" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+    <text x="1135" y="670" text-anchor="middle" class="box-title">batch_1_small_pod</text>
+    <text x="1135" y="700" text-anchor="middle" class="body">requests: 500m CPU / 512Mi</text>
+    <text x="1135" y="724" text-anchor="middle" class="body">limits: 1 CPU / 1Gi</text>
+    <text x="1135" y="759" text-anchor="middle" class="body">labeled by Kestra execution ID</text>
+  </g>
+  <g id="large-pod">
+    <rect x="950" y="855" width="370" height="170" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-width="2"/>
+    <text x="1135" y="885" text-anchor="middle" class="box-title">batch_2_large_pod</text>
+    <text x="1135" y="915" text-anchor="middle" class="body">requests: 2 CPU / 4Gi</text>
+    <text x="1135" y="939" text-anchor="middle" class="body">limits: 4 CPU / 8Gi</text>
+    <text x="1135" y="974" text-anchor="middle" class="body">labeled by Kestra execution ID</text>
+  </g>
+  <g id="verifier">
+    <rect x="60" y="930" width="800" height="95" rx="10" fill="#fce7f3" stroke="#db2777" stroke-width="2"/>
+    <text x="460" y="960" text-anchor="middle" class="box-title">Verifier behavior</text>
+    <text x="460" y="990" text-anchor="middle" class="body">Registers flow, runs execution, reads pod specs with kubectl, checks requested resources, then deletes verification pods.</text>
+  </g>
+
+  <line x1="410" y1="787" x2="495" y2="787" stroke="#374151" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="452" y="775" text-anchor="middle" class="caption">PodCreate task</text>
+  <path d="M860 745 C900 700,910 690,945 700" fill="none" stroke="#374151" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="908" y="684" text-anchor="middle" class="caption">small resources</text>
+  <path d="M860 830 C900 885,912 925,945 940" fill="none" stroke="#374151" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="908" y="918" text-anchor="middle" class="caption">large resources</text>
+  <path d="M1135 810 C1040 1035,720 1065,560 1025" fill="none" stroke="#db2777" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M1135 1025 C980 1090,720 1080,560 1025" fill="none" stroke="#db2777" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <text x="80" y="1095" class="lane">3. Placement caveat and production guidance</text>
+  <g id="guidance">
+    <rect x="60" y="1120" width="420" height="45" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+    <text x="270" y="1149" text-anchor="middle" class="body">Autopilot: raw spec.nodeName is diagnostic-only; use scheduler-visible placement.</text>
+    <rect x="535" y="1120" width="420" height="45" rx="8" fill="#ecfccb" stroke="#65a30d" stroke-width="2"/>
+    <text x="745" y="1149" text-anchor="middle" class="body">Exact class placement: use GKE Standard labeled and tainted node pools.</text>
+    <rect x="1010" y="1120" width="420" height="45" rx="8" fill="#f8fafc" stroke="#475569" stroke-width="2"/>
+    <text x="1220" y="1149" text-anchor="middle" class="body">Scale-down: remove routed workers; worker-only capacity can drain.</text>
+  </g>
+</svg>
