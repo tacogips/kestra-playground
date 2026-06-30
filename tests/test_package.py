@@ -258,6 +258,22 @@ def test_live_config_enables_routed_gke_workers_for_routed_deploy(tmp_path: Path
     assert "routed_workers                 = {}" not in gke_tfvars
 
 
+def test_normal_gke_deploy_destroys_routed_workers_before_apply() -> None:
+    script = _read_text("scripts/deploy-live-environments.sh")
+    destroy_start = script.index("destroy_gke_routed_workers_if_disabled()")
+    deploy_start = script.index("deploy_gke_dev()")
+    destroy_block = script[destroy_start:deploy_start]
+    deploy_block = script[deploy_start : script.index("case ", deploy_start)]
+
+    assert '[[ "${LIVE_GKE_ROUTED_WORKERS_ENABLED:-false}" == "true" ]]' in destroy_block
+    assert 'tofu -chdir="infra/terraform/gke-dev" apply' in destroy_block
+    assert "-destroy \\" in destroy_block
+    assert '-target="google_compute_instance.routed_worker"' in destroy_block
+    assert deploy_block.index("destroy_gke_routed_workers_if_disabled") < deploy_block.index(
+        'apply_tofu "infra/terraform/gke-dev"'
+    )
+
+
 def test_routed_worker_verification_uses_process_task_runner() -> None:
     flow = _yaml_load("kestra/flows-worker-routing/verify_gcp_worker_routing.yaml")
 

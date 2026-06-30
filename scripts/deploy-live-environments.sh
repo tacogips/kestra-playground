@@ -61,7 +61,23 @@ deploy_gce_cluster() {
   apply_tofu "infra/terraform/gce-cluster" "../../live/dev/gce-cluster.tfvars" "../../live/dev/gce-cluster.backend.hcl"
 }
 
+destroy_gke_routed_workers_if_disabled() {
+  if [[ "${LIVE_GKE_ROUTED_WORKERS_ENABLED:-false}" == "true" ]]; then
+    return
+  fi
+
+  echo "Destroying routed GKE workers before normal GKE deploy"
+  tofu -chdir="infra/terraform/gke-dev" init -input=false -backend-config="../../live/dev/gke-dev.backend.hcl"
+  tofu -chdir="infra/terraform/gke-dev" apply \
+    -destroy \
+    -target="google_compute_instance.routed_worker" \
+    -input=false \
+    -auto-approve \
+    -var-file="../../live/dev/gke-dev.tfvars"
+}
+
 deploy_gke_dev() {
+  destroy_gke_routed_workers_if_disabled
   apply_tofu "infra/terraform/gke-dev" "../../live/dev/gke-dev.tfvars" "../../live/dev/gke-dev.backend.hcl"
   gcloud container clusters get-credentials kestra-dev \
     --region "${REGION}" \
