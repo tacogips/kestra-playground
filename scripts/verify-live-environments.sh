@@ -181,11 +181,18 @@ wait_for_ui() {
 verify_environment() {
   local name="$1"
   local url="$2"
+  local register_default_flows="${3:-true}"
 
   echo "=== ${name} (${url}) ==="
   wait_for_ui "${url}"
-  scripts/register-flows.sh "${url}"
+  if [[ "${register_default_flows}" == "true" ]]; then
+    scripts/register-flows.sh "${url}"
+  fi
   for flow_dir in ${KESTRA_ADDITIONAL_FLOW_DIRS:-}; do
+    if [[ ! -d "${flow_dir}" ]]; then
+      echo "Skipping missing additional flow directory: ${flow_dir}" >&2
+      continue
+    fi
     scripts/register-flows.sh "${url}" "${flow_dir}"
   done
 
@@ -218,7 +225,7 @@ verify_k8s() {
   configure_k8s_auth
   local previous_additional_flow_dirs="${KESTRA_ADDITIONAL_FLOW_DIRS:-}"
   export KESTRA_ADDITIONAL_FLOW_DIRS="${KESTRA_K8S_ADDITIONAL_FLOW_DIRS:-${KESTRA_ADDITIONAL_FLOW_DIRS:-}}"
-  verify_environment k8s "https://${LIVE_GKE_SUBDOMAIN}.${LIVE_DOMAIN_NAME}"
+  verify_environment k8s "https://${LIVE_GKE_SUBDOMAIN}.${LIVE_DOMAIN_NAME}" false
   export KESTRA_ADDITIONAL_FLOW_DIRS="${previous_additional_flow_dirs}"
 }
 

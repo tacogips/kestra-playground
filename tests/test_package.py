@@ -202,12 +202,30 @@ def test_live_external_gce_worker_mode_disables_gke_worker() -> None:
     workflow = _yaml_load(".github/workflows/deploy.yml")
     deploy_env = workflow["jobs"]["deploy"]["env"]
     script = _read_text("scripts/apply-gke-dev.sh")
+    verify_script = _read_text("scripts/verify-live-environments.sh")
 
     assert deploy_env["LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED"] == "true"
     assert deploy_env["GKE_WORKER_ENABLED"] == "false"
+    assert deploy_env["KESTRA_K8S_ADDITIONAL_FLOW_DIRS"] == "kestra/flows-federated"
+    assert Path(deploy_env["KESTRA_K8S_ADDITIONAL_FLOW_DIRS"]).is_dir()
     assert 'LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED:-false}" == "true"' in script
     assert "GKE_WORKER_ENABLED=false" in script
     assert 'GKE_WORKER_ENABLED="${GKE_WORKER_ENABLED:-true}"' in script
+    assert 'verify_environment k8s "https://${LIVE_GKE_SUBDOMAIN}.${LIVE_DOMAIN_NAME}" false' in (
+        verify_script
+    )
+
+
+def test_flow_registration_retries_transient_api_failures() -> None:
+    script = _read_text("scripts/register-flows.sh")
+
+    assert 'REGISTER_FLOW_ATTEMPTS="${REGISTER_FLOW_ATTEMPTS:-6}"' in script
+    assert "retryable_status" in script
+    assert '[[ "${status}" == "000"' in script
+    assert '"${status}" =~ ^5' in script
+    assert "Flow registration for ${flow} returned HTTP ${status}; retrying" in script
+    assert "shopt -s nullglob" in script
+    assert "No flow YAML files found in ${FLOW_DIR}" in script
 
 
 def test_routed_worker_verification_uses_process_task_runner() -> None:
