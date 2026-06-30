@@ -290,6 +290,33 @@ final GET timeout after the child pod succeeds on the current 2.0 snapshot image
 pods alive briefly with `SLEEP_SECONDS=45`, lets PodCreate clean them up, and inspects the pod specs
 while they are still present.
 
+### Promotion And Release Design Principles
+
+The Kestra operation is designed around a narrow promotion contract:
+
+- local development proves source behavior and flow inputs quickly;
+- staging or live dev proves the runtime topology that production will depend on;
+- production release should consume a pinned image tag, not rebuild or reinterpret source at deploy
+  time;
+- CI and manual operations call the same scripts so emergency redeploys do not use a second path.
+
+This repository deliberately separates business code from execution wrappers. A local Process task,
+a GKE PodCreate task, and a routed GCE worker task can be different Kestra resources, but they
+should call the same checked-in command or package code with the same input contract. That keeps
+local iteration fast while still allowing staging to verify the real production substrate:
+Kubernetes pod resources, federated GCE child Kestra deployments, or custom routed workers.
+
+The release artifact boundary is the runtime image. GitHub Actions builds it after validation,
+pushes a commit-SHA tag plus `latest`, and deploys the SHA-tagged image through `KESTRA_IMAGE`.
+Terraform owns infrastructure and generated runtime wiring; Kubernetes manifests and Helm values
+own GKE workload shape; Secret Manager, local env files, GitHub Actions secrets, and `kinko` provide
+secret values without committing payloads.
+
+For a production-like release gate, pick the verification that matches the risk being released. Use
+the normal ecommerce batch verifier for flow/data changes, GKE PodCreate operation-demo verification
+for per-batch CPU/memory changes, routed-worker verification for placement-sensitive GCE/on-prem
+changes, and federated verification for controller/child orchestration changes.
+
 Kestra Worker Groups remain an Enterprise Edition feature. The OSS runtime should not attach an
 external Kestra worker to a shared queue when deterministic placement is required, because ordinary
 workers load-balance tasks across all available workers. The removed DB-backed agent design remains

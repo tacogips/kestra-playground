@@ -306,6 +306,14 @@ kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:verify
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch
 ```
 
+The promotion contract is intentionally narrow: keep business logic in one checked-in source
+location, build one runtime image, deploy the commit-SHA tag, and use environment-specific Kestra
+wrappers only for substrate differences such as local Process tasks, GKE PodCreate resources, or
+routed GCE workers. For production-like confidence, run the verifier that matches the release risk:
+normal batch verification for data/flow changes, operation-demo GKE PodCreate verification for
+per-batch resources, routed-worker verification for placement-sensitive work, and federated
+verification for GKE-controller-to-GCE-child orchestration.
+
 ## HTTPS Domains
 
 The GCE single-VM, GCE cluster, and GKE dev Terraform roots support HTTPS domain configuration.

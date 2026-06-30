@@ -431,6 +431,39 @@ The normal operating flow is:
 7. Check Cloud Armor policy attachment and logs when investigating abusive traffic.
 8. For GKE, inspect OpenTelemetry Collector logs when execution trace evidence is needed.
 
+### Local To Staging/Production Promotion Checklist
+
+Use this checklist when the goal is smooth movement from local development to staging or
+production-like release:
+
+1. Keep business logic in one source boundary. Put reusable batch implementation under
+   `batches/<batch-name>/`, `src/`, or checked-in SQL fixtures instead of copying logic into
+   environment-specific flow files.
+2. Keep Kestra YAML changes environment-scoped. Local wrappers may use a Process task, GKE
+   resource-sizing wrappers may use PodCreate, and routed-worker wrappers may add
+   `workerSelector.tags`; the business command and inputs should remain the same.
+3. Prove local behavior first with `task ci` plus the relevant local flow verifier, such as
+   `task kestra:flows:run-operation-demo-local` for operation-demo work.
+4. Promote through one image artifact. GitHub Actions publishes a commit-SHA tag and `latest`, but
+   deploys should use the SHA-tagged image through `KESTRA_IMAGE` so rollback and audit are
+   deterministic.
+5. Use the same deploy and verify scripts locally and in CI. Manual live operations should call the
+   `task kestra:live:*` commands through `kinko`; GitHub Actions calls the same underlying scripts.
+6. Verify the topology that matches the release question:
+   - use `task kestra:live:run-operation-demo-gke-pod-resources` when staging must prove per-batch
+     Kubernetes CPU/memory requests and limits;
+   - use `task kestra:live:run-operation-demo-routed` when staging must prove selected
+     GCE/on-prem-style worker placement;
+   - use `task kestra:live:run-federated` when production-like control-plane orchestration should
+     stay on GKE while batch execution stays on GCE child Kestra targets.
+7. Treat GKE-only staging as a contract test unless it runs the same execution topology as
+   production. If production depends on GCE or on-prem-style routed workers, staging must exercise
+   that routed or federated path before release.
+
+The important invariant is not identical YAML in every environment. The invariant is one business
+source, one released runtime image, the same inputs and business date behavior, and explicit
+environment wrappers only where the runtime substrate requires them.
+
 ### Environment Map
 
 | Target | Alias | Public URL | Terraform root | Runtime shape |
