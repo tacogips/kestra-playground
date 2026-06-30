@@ -219,8 +219,35 @@ helper applies the same image through Kustomize before `kubectl apply`.
 
 For the shared-backend routed target, the deployment workflow checks out
 `tacogips/kestra@feature/oss-worker-routing`, builds the custom Kestra executable, installs the GCS
-storage plugin, pushes `kestra-oss-worker-routing` tags to Artifact Registry, and deploys the
-commit-SHA tag.
+storage, shell, and Kubernetes plugins, pushes `kestra-oss-worker-routing` tags to Artifact
+Registry, and deploys the commit-SHA tag.
+
+The same routed image can be tested with Kubernetes-hosted routed workers by setting
+`LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true` before `scripts/apply-gke-dev.sh`. This renders
+`kestra-gke-worker-small` and `kestra-gke-worker-large`, each with its own `workerGroupId` and
+`workerSelector.tags` queue. The verification flow logs the worker pod and Kubernetes node name for
+each task. For exact live-node verification, set `LIVE_GKE_ROUTED_K8S_WORKER_*_NODE_NAME`; for a
+durable placement-domain test, use selector variables such as
+`LIVE_GKE_ROUTED_K8S_WORKER_*_NODE_SELECTOR_KEY=topology.kubernetes.io/zone`. In the current GKE
+Autopilot shape, `nodeSelector: kubernetes.io/hostname` is rejected. Direct `spec.nodeName` is
+accepted by the API, but it bypasses normal scheduling, does not trigger Autopilot scale-up, and
+can fail if the chosen node lacks local free CPU or memory.
+
+For exact worker-class placement with autoscale, set `gke_autopilot_enabled=false` in the GKE
+Terraform root. That creates GKE Standard autoscaled node pools labeled by worker group, so routed
+worker Deployments can select `kestra.tacogips.io/worker-group=gke-small` or `gke-large` and the
+cluster autoscaler can remove unused node-pool capacity. The Standard worker pools are also tainted
+with the same worker-group value, and the rendered routed workers tolerate that taint, so ordinary
+GKE add-on pods are less likely to occupy an otherwise unused worker-only node.
+
+For the OSS Kubernetes pod-resource topology, use `kestra/flows-k8s-pod-resources`. This keeps a
+normal Kestra worker in GKE, but the batch work itself is launched as Kubernetes pods with
+per-batch `resources.requests` and `resources.limits`. The flow does not set `nodeSelector`; GKE
+schedules the pods and the cluster autoscaler chooses or creates nodes from the requested resources.
+This is the OSS path when the requirement is "Batch 1 gets a small pod, Batch 2 gets a large pod",
+not "Batch 1 must run on worker A". The verifier labels the created pods by execution/resource
+class, checks their actual CPU and memory requests/limits through `kubectl`, and deletes the test
+pods after inspection.
 
 Live dev tfvars and backend config are generated under `infra/live/dev/` and ignored by git. They
 contain environment-specific project, domain, Cloudflare zone, and state bucket values. Keep those

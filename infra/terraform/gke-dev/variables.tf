@@ -15,6 +15,62 @@ variable "zone" {
   description = "GCP zone used by the GCE controller worker."
 }
 
+variable "gke_autopilot_enabled" {
+  type        = bool
+  default     = true
+  description = "Use GKE Autopilot for the cluster. Set false to create a GKE Standard cluster with autoscaled node pools."
+}
+
+variable "gke_standard_node_pools" {
+  type = map(object({
+    machine_type = string
+    min_count    = number
+    max_count    = number
+    disk_size_gb = number
+    labels       = map(string)
+    taints = optional(list(object({
+      key    = string
+      value  = string
+      effect = string
+    })), [])
+  }))
+  default = {
+    small = {
+      machine_type = "e2-standard-2"
+      min_count    = 0
+      max_count    = 3
+      disk_size_gb = 30
+      labels = {
+        "kestra.tacogips.io/worker-group" = "gke-small"
+      }
+      taints = [
+        {
+          key    = "kestra.tacogips.io/worker-group"
+          value  = "gke-small"
+          effect = "NO_SCHEDULE"
+        }
+      ]
+    }
+    large = {
+      machine_type = "e2-standard-8"
+      min_count    = 0
+      max_count    = 3
+      disk_size_gb = 50
+      labels = {
+        "kestra.tacogips.io/worker-group" = "gke-large"
+      }
+      taints = [
+        {
+          key    = "kestra.tacogips.io/worker-group"
+          value  = "gke-large"
+          effect = "NO_SCHEDULE"
+        }
+      ]
+    }
+  }
+  description = "Autoscaled GKE Standard node pools used for exact worker-class placement when gke_autopilot_enabled is false."
+}
+
 variable "controller_worker_enabled" {
   type        = bool
   default     = true

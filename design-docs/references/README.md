@@ -23,6 +23,8 @@ This directory contains reference materials for system design and implementation
 | Kestra Task Runners vs Worker Groups | https://kestra.io/docs/task-runners/task-runners-vs-worker-groups | Official Kestra comparison of ephemeral task runners and always-on worker groups |
 | Kestra Process Task Runner | https://kestra.io/docs/task-runners/types/process-task-runner | Official guidance for local process execution on specific worker hosts, including GPU-oriented examples |
 | GKE Pricing | https://cloud.google.com/kubernetes-engine/pricing | Official GKE cluster management, free tier, and compute billing model |
+| GKE Cluster Autoscaler | https://cloud.google.com/kubernetes-engine/docs/concepts/cluster-autoscaler | Official GKE Standard cluster autoscaler behavior and node pool scaling guidance |
+| GKE Autopilot Workload Separation | https://cloud.google.com/kubernetes-engine/docs/how-to/workload-separation | Official node selection, node affinity, and workload separation guidance for GKE Autopilot and Standard clusters |
 | GKE Autopilot Troubleshooting | https://docs.cloud.google.com/kubernetes-engine/docs/troubleshooting/autopilot-clusters | Official Autopilot scale-to-zero and empty-cluster behavior notes |
 | Cloud Run Pricing | https://cloud.google.com/run/pricing | Official Cloud Run service and job billing examples |
 | Cloud SQL Start and Stop | https://docs.cloud.google.com/sql/docs/postgres/start-stop-restart-instance | Official Cloud SQL PostgreSQL start, stop, and restart guidance |

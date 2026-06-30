@@ -11,6 +11,7 @@ if [[ -z "${GKE_WORKER_ENABLED+x}" && "${LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED:-f
   GKE_WORKER_ENABLED=false
 fi
 GKE_WORKER_ENABLED="${GKE_WORKER_ENABLED:-true}"
+LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED="${LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED:-false}"
 NAMESPACE="${NAMESPACE:-kestra-dev}"
 
 require_command() {
@@ -43,7 +44,7 @@ tf_output() {
 cloud_sql_instance="$(tf_output '.cloud_sql_instance.value')"
 gcp_service_account="$(tf_output '.gcp_service_account.value')"
 project_id="$(tf_output '.project_id.value')"
-kestra_image="$(tf_output '.kestra_image.value')"
+kestra_image="${KESTRA_IMAGE:-$(tf_output '.kestra_image.value')}"
 kestra_https_url="$(tf_output '.kestra_https_url.value // empty')"
 ingress_static_ip_name="$(tf_output '.ingress_static_ip_name.value // empty')"
 controller_grpc_ip_address="$(tf_output '.controller_grpc_ip_address.value')"
@@ -211,6 +212,217 @@ if [[ "$GKE_WORKER_ENABLED" != "true" ]]; then
   kubectl -n "$NAMESPACE" delete hpa kestra-worker --ignore-not-found
 fi
 
+render_routed_k8s_worker() {
+  local group_id="$1"
+  local cpu_request="$2"
+  local memory_request="$3"
+  local cpu_limit="$4"
+  local memory_limit="$5"
+  local threads="$6"
+  local selector_key="$7"
+  local selector_value="$8"
+  local node_name="$9"
+
+  local placement=""
+  if [[ -n "$node_name" ]]; then
+    placement="      nodeName: ${node_name}
+"
+  elif [[ -n "$selector_key" && -n "$selector_value" ]]; then
+    placement="      nodeSelector:
+        ${selector_key}: ${selector_value}
+      tolerations:
+        - key: ${selector_key}
+          operator: Equal
+          value: ${selector_value}
+          effect: NoSchedule
+"
+  fi
+
+  cat <<EOF
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kestra-worker-routing-${group_id}
+  namespace: ${NAMESPACE}
+data:
+  worker-routing.yaml: |
+    kestra:
+      worker:
+        controllers:
+          type: STATIC
+          static:
+            endpoints:
+              - host: kestra-controller-grpc
+                port: 50051
+        routing:
+          workerGroupId: ${group_id}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kestra-gke-worker-${group_id#gke-}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: kestra-gke-routed-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/instance: kestra
+    kestra.worker/group: ${group_id}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kestra-gke-routed-worker
+      app.kubernetes.io/component: worker
+      app.kubernetes.io/instance: kestra
+      kestra.worker/group: ${group_id}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kestra-gke-routed-worker
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/instance: kestra
+        kestra.worker/group: ${group_id}
+    spec:
+      serviceAccountName: kestra
+      terminationGracePeriodSeconds: 360
+${placement}      containers:
+        - name: kestra-worker
+          image: ${kestra_image}
+          imagePullPolicy: Always
+          command:
+            - sh
+            - -c
+            - exec /app/kestra server worker --thread=${threads}
+          envFrom:
+            - secretRef:
+                name: kestra-secrets
+          env:
+            - name: MICRONAUT_CONFIG_FILES
+              value: /app/confs/_default.yml,/app/confs/application.yaml,/app/confs/worker-routing.yaml
+            - name: _JAVA_OPTIONS
+              value: ""
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4317
+            - name: OTEL_SERVICE_NAME
+              value: kestra-gke-worker-${group_id#gke-}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.namespace=kestra-playground,deployment.environment=dev,k8s.namespace.name=\$(POD_NAMESPACE),k8s.pod.name=\$(POD_NAME),k8s.node.name=\$(K8S_NODE_NAME),kestra.component=worker,kestra.worker.group=${group_id}
+          ports:
+            - name: management
+              containerPort: 8081
+              protocol: TCP
+          resources:
+            requests:
+              cpu: ${cpu_request}
+              memory: ${memory_request}
+            limits:
+              cpu: ${cpu_limit}
+              memory: ${memory_limit}
+          volumeMounts:
+            - name: kestra-config
+              mountPath: /app/confs/_default.yml
+              subPath: _default.yml
+            - name: kestra-runtime-config-application-yaml
+              mountPath: /app/confs/application.yaml
+              subPath: application.yaml
+            - name: kestra-worker-routing
+              mountPath: /app/confs/worker-routing.yaml
+              subPath: worker-routing.yaml
+            - name: tmp
+              mountPath: /tmp/kestra-wd
+        - name: cloud-sql-proxy
+          image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1
+          args:
+            - --structured-logs
+            - --port=5432
+            - \$(CLOUD_SQL_INSTANCE)
+          env:
+            - name: CLOUD_SQL_INSTANCE
+              valueFrom:
+                configMapKeyRef:
+                  name: kestra-runtime-config
+                  key: CLOUD_SQL_INSTANCE
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+      volumes:
+        - name: kestra-config
+          configMap:
+            name: kestra-config
+            items:
+              - key: _default.yml
+                path: _default.yml
+        - name: kestra-runtime-config-application-yaml
+          configMap:
+            name: kestra-runtime-config
+            items:
+              - key: application.yaml
+                path: application.yaml
+        - name: kestra-worker-routing
+          configMap:
+            name: kestra-worker-routing-${group_id}
+            items:
+              - key: worker-routing.yaml
+                path: worker-routing.yaml
+        - name: tmp
+          emptyDir: {}
+EOF
+}
+
+if [[ "$LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED" == "true" ]]; then
+  routed_k8s_workers="${tmpdir}/routed-k8s-workers.yaml"
+  : >"$routed_k8s_workers"
+  render_routed_k8s_worker \
+    gke-small \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_SMALL_CPU_REQUEST:-250m}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_SMALL_MEMORY_REQUEST:-768Mi}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_SMALL_CPU_LIMIT:-1}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_SMALL_MEMORY_LIMIT:-1536Mi}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_SMALL_THREADS:-1}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_SMALL_NODE_SELECTOR_KEY:-}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_SMALL_NODE_SELECTOR_VALUE:-}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_SMALL_NODE_NAME:-}" \
+    >>"$routed_k8s_workers"
+  render_routed_k8s_worker \
+    gke-large \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_LARGE_CPU_REQUEST:-2}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_LARGE_MEMORY_REQUEST:-4Gi}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_LARGE_CPU_LIMIT:-4}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_LARGE_MEMORY_LIMIT:-8Gi}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_LARGE_THREADS:-2}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_LARGE_NODE_SELECTOR_KEY:-}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_LARGE_NODE_SELECTOR_VALUE:-}" \
+    "${LIVE_GKE_ROUTED_K8S_WORKER_LARGE_NODE_NAME:-}" \
+    >>"$routed_k8s_workers"
+  kubectl apply -f "$routed_k8s_workers"
+else
+  kubectl -n "$NAMESPACE" delete deployment \
+    kestra-gke-worker-small \
+    kestra-gke-worker-large \
+    --ignore-not-found
+  kubectl -n "$NAMESPACE" delete configmap \
+    kestra-worker-routing-gke-small \
+    kestra-worker-routing-gke-large \
+    --ignore-not-found
+fi
+
 kubectl -n "$NAMESPACE" rollout status deployment/otel-collector --timeout=10m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-webserver --timeout=15m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-executor --timeout=15m
@@ -218,6 +430,10 @@ kubectl -n "$NAMESPACE" rollout status deployment/kestra-scheduler --timeout=15m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-indexer --timeout=15m
 if [[ "$GKE_WORKER_ENABLED" == "true" ]]; then
   kubectl -n "$NAMESPACE" rollout status deployment/kestra-worker --timeout=15m
+fi
+if [[ "$LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED" == "true" ]]; then
+  kubectl -n "$NAMESPACE" rollout status deployment/kestra-gke-worker-small --timeout=15m
+  kubectl -n "$NAMESPACE" rollout status deployment/kestra-gke-worker-large --timeout=15m
 fi
 kubectl -n "$NAMESPACE" get ingress kestra-webserver
 kubectl -n "$NAMESPACE" get service kestra-controller-grpc

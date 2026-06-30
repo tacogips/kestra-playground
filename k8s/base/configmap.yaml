@@ -59,11 +59,23 @@ data:
               queues:
                 - workerQueueId: gce-b
                   reservedPercent: -1
+            gke-small:
+              queues:
+                - workerQueueId: gke-small
+                  reservedPercent: -1
+            gke-large:
+              queues:
+                - workerQueueId: gke-large
+                  reservedPercent: -1
           queues:
             gce-a:
               tags: [gce-a]
             gce-b:
               tags: [gce-b]
+            gke-small:
+              tags: [gke-small]
+            gke-large:
+              tags: [gke-large]
       traces:
         root: ${KESTRA_TRACES_ROOT:DEFAULT}
       url: http://kestra-webserver:8080/

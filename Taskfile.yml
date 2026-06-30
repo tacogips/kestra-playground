@@ -191,6 +191,16 @@ tasks:
     cmds:
       - scripts/verify-live-routed.sh "${BUSINESS_DATE:-}"
 
+  kestra:live:run-gke-node-routing:
+    desc: Register and run the OSS GKE placement-constrained worker routing verification flow
+    cmds:
+      - scripts/verify-live-gke-node-routing.sh "${BUSINESS_DATE:-}"
+
+  kestra:live:run-k8s-pod-resources:
+    desc: Register and run the OSS K8s per-batch pod resource verification flow
+    cmds:
+      - scripts/verify-live-k8s-pod-resources.sh
+
   infra:fmt:
     desc: Format Terraform/OpenTofu files
     cmds:

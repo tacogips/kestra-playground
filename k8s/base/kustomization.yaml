@@ -6,3 +6,4 @@ resources:
   - service.yaml
   - controller-grpc-service.yaml
   - otel-collector.yaml
+  - kestra-podcreate-rbac.yaml

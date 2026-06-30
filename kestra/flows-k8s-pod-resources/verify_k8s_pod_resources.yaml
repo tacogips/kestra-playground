@@ -1,0 +1,79 @@
+id: verify_k8s_pod_resources
+namespace: playground.k8s_pod_resources
+
+description: Verify OSS Kubernetes pod-per-batch execution with per-batch CPU and memory.
+
+inputs:
+  - id: kubernetes_namespace
+    type: STRING
+    required: false
+    defaults: kestra-dev
+
+tasks:
+  - id: batch_1_small_pod
+    type: io.kestra.plugin.kubernetes.core.PodCreate
+    namespace: "{{ inputs.kubernetes_namespace }}"
+    delete: false
+    metadata:
+      labels:
+        app.kubernetes.io/name: kestra-pod-resource-verify
+        kestra-playground.tacogips.io/execution: "{{ execution.id }}"
+        kestra-playground.tacogips.io/resource-class: small
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: main
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              echo "batch=batch_1"
+              echo "resource_class=small"
+              echo "cpu_request=500m"
+              echo "cpu_limit=1"
+              echo "memory_request=512Mi"
+              echo "memory_limit=1Gi"
+              sleep 5
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+
+  - id: batch_2_large_pod
+    type: io.kestra.plugin.kubernetes.core.PodCreate
+    namespace: "{{ inputs.kubernetes_namespace }}"
+    delete: false
+    metadata:
+      labels:
+        app.kubernetes.io/name: kestra-pod-resource-verify
+        kestra-playground.tacogips.io/execution: "{{ execution.id }}"
+        kestra-playground.tacogips.io/resource-class: large
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: main
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              echo "batch=batch_2"
+              echo "resource_class=large"
+              echo "cpu_request=2"
+              echo "cpu_limit=4"
+              echo "memory_request=4Gi"
+              echo "memory_limit=8Gi"
+              sleep 5
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi

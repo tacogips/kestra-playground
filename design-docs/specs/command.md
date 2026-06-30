@@ -187,6 +187,124 @@ kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-routed
 The verification command checks that GKE has no worker Deployment/pods, that all GCE worker
 instances are `RUNNING`, and that the two routed tasks complete with different worker IDs.
 
+### Shared-Backend OSS GKE Routed Workers
+
+Use this path when testing the custom OSS routing fork inside Kubernetes while still letting the GKE
+controller observe the whole execution in one Kestra UI/API.
+
+- `LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true` renders two extra worker Deployments:
+  `kestra-gke-worker-small` and `kestra-gke-worker-large`.
+- Each worker gets a separate `workerGroupId` and queue tag: `gke-small` or `gke-large`.
+- `kestra/flows-worker-routing/verify_gke_node_worker_routing.yaml` uses
+  `workerSelector.tags` so each task is claimed only by its matching worker.
+- The verification tasks use the Process task runner and log `POD_NAME` plus `K8S_NODE_NAME`, so
+  the execution log proves where the script ran.
+- For exact live-node pinning, set `LIVE_GKE_ROUTED_K8S_WORKER_*_NODE_NAME` to a current Kubernetes
+  node name. This renders `spec.nodeName` on the worker pod template.
+- On GKE Autopilot, `nodeSelector: kubernetes.io/hostname` is rejected by admission policy. Use
+  allowed selector keys such as `topology.kubernetes.io/zone` for the autoscaling
+  placement-domain test.
+- `spec.nodeName` is accepted by the API, but it bypasses normal scheduling and does not trigger
+  Autopilot scale-up. Live verification showed node-local `OutOfmemory`/`OutOfcpu` failures when
+  the selected node did not already have free capacity. Treat `NODE_NAME` as a short-lived
+  diagnostic option, not the autoscaling topology.
+
+Example placement-domain verification that can use GKE autoscaling:
+
+```bash
+LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true \
+LIVE_GKE_ROUTED_K8S_WORKER_SMALL_NODE_SELECTOR_KEY=topology.kubernetes.io/zone \
+LIVE_GKE_ROUTED_K8S_WORKER_SMALL_NODE_SELECTOR_VALUE=asia-northeast1-c \
+LIVE_GKE_ROUTED_K8S_WORKER_LARGE_NODE_SELECTOR_KEY=topology.kubernetes.io/zone \
+LIVE_GKE_ROUTED_K8S_WORKER_LARGE_NODE_SELECTOR_VALUE=asia-northeast1-b \
+scripts/apply-gke-dev.sh
+
+task kestra:live:run-gke-node-routing
+```
+
+For exact worker-class placement with autoscaling, use a GKE Standard cluster instead of the live
+Autopilot cluster. Set `gke_autopilot_enabled=false` in the `gke-dev` Terraform root so Terraform
+creates autoscaled node pools labeled by worker class. Then select those node-pool labels from the
+routed worker Deployments:
+
+```bash
+cd infra/terraform/gke-dev
+tofu apply \
+  -var='project_id=<project-id>' \
+  -var='gke_autopilot_enabled=false'
+
+LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true \
+LIVE_GKE_ROUTED_K8S_WORKER_SMALL_NODE_SELECTOR_KEY=kestra.tacogips.io/worker-group \
+LIVE_GKE_ROUTED_K8S_WORKER_SMALL_NODE_SELECTOR_VALUE=gke-small \
+LIVE_GKE_ROUTED_K8S_WORKER_LARGE_NODE_SELECTOR_KEY=kestra.tacogips.io/worker-group \
+LIVE_GKE_ROUTED_K8S_WORKER_LARGE_NODE_SELECTOR_VALUE=gke-large \
+scripts/apply-gke-dev.sh
+
+task kestra:live:run-gke-node-routing
+```
+
+The default Standard node-pool definitions also add a `NoSchedule` taint matching
+`kestra.tacogips.io/worker-group`, and `scripts/apply-gke-dev.sh` renders a matching toleration
+when a routed worker selector is configured. This matters for scale-down: an untainted worker pool
+can be kept alive by GKE/GMP system pods even after the Kestra worker Deployment is deleted.
+
+After deleting `kestra-gke-worker-small` and `kestra-gke-worker-large`, verify scale-down with:
+
+```bash
+kubectl get nodes -L kestra.tacogips.io/worker-group,cloud.google.com/gke-nodepool
+```
+
+The expected signal is the worker-class node becoming `SchedulingDisabled` and then disappearing
+after the cluster autoscaler removes unused node-pool capacity.
+
+### OSS K8s Per-Batch Pod Resources
+
+Use `kestra/flows-k8s-pod-resources/verify_k8s_pod_resources.yaml` when the goal is different
+resource sizes per batch, not deterministic worker placement.
+
+- Kestra runs on GKE with a normal worker enabled.
+- Each batch task is `io.kestra.plugin.kubernetes.core.PodCreate`.
+- Each task defines its own Kubernetes pod `resources.requests` and `resources.limits`.
+- The flow does not set `nodeSelector`, so GKE schedules pods and autoscaling responds to resource
+  requests.
+- Verification pods are labeled with the Kestra execution ID and resource class; the verifier reads
+  the created pod specs with `kubectl`, checks CPU/memory values, then deletes the verification
+  pods.
+- `k8s/base/kestra-podcreate-rbac.yaml` grants the Kestra service account pod create/delete/watch
+  and pod log read permissions in the namespace.
+- The routed custom image build also installs `io.kestra.plugin:plugin-kubernetes:1.9.5` so this
+  topology can be tested on the same runtime family when needed.
+
+Example resource split:
+
+```yaml
+tasks:
+  - id: batch_1_small_pod
+    type: io.kestra.plugin.kubernetes.core.PodCreate
+    spec:
+      containers:
+        - name: main
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+  - id: batch_2_large_pod
+    type: io.kestra.plugin.kubernetes.core.PodCreate
+    spec:
+      containers:
+        - name: main
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+```
+
 ### Live Operations
 
 ```bash

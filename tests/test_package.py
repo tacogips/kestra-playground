@@ -181,6 +181,31 @@ def test_routed_image_build_installs_required_runtime_plugins() -> None:
 
     assert "io.kestra.storage:storage-gcs:1.2.0" in install_step["run"]
     assert "io.kestra.plugin:plugin-script-shell:1.9.0" in install_step["run"]
+    assert "io.kestra.plugin:plugin-kubernetes:1.9.5" in install_step["run"]
+
+
+def test_k8s_podcreate_rbac_allows_batch_pod_lifecycle() -> None:
+    kustomization = _yaml_load("k8s/base/kustomization.yaml")
+    role = _yaml_document(
+        "k8s/base/kestra-podcreate-rbac.yaml", kind="Role", name="kestra-podcreate"
+    )
+    binding = _yaml_document(
+        "k8s/base/kestra-podcreate-rbac.yaml", kind="RoleBinding", name="kestra-podcreate"
+    )
+
+    assert "kestra-podcreate-rbac.yaml" in kustomization["resources"]
+    assert role["rules"] == [
+        {
+            "apiGroups": [""],
+            "resources": ["pods"],
+            "verbs": ["create", "delete", "get", "list", "watch"],
+        },
+        {"apiGroups": [""], "resources": ["pods/log"], "verbs": ["get", "list", "watch"]},
+    ]
+    assert binding["subjects"] == [
+        {"kind": "ServiceAccount", "name": "kestra", "namespace": "kestra"}
+    ]
+    assert binding["roleRef"]["name"] == "kestra-podcreate"
 
 
 def test_gke_apply_cleans_legacy_kustomize_resources_before_helm_install() -> None:
@@ -301,6 +326,136 @@ def test_routed_worker_verification_uses_process_task_runner() -> None:
         assert task["workerSelector"]["fallback"] == "FAIL"
         assert task["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
         assert task["timeout"] == "PT2M"
+
+
+def test_gke_routed_worker_queues_are_declared() -> None:
+    configmap = _yaml_document(
+        "k8s/base/configmap.yaml", kind="ConfigMap", name="kestra-runtime-config"
+    )
+    app_config = yaml.safe_load(configmap["data"]["application.yaml"])
+    routing = app_config["kestra"]["worker"]["routing"]
+
+    assert routing["groups"]["gke-small"]["queues"] == [
+        {"workerQueueId": "gke-small", "reservedPercent": -1}
+    ]
+    assert routing["groups"]["gke-large"]["queues"] == [
+        {"workerQueueId": "gke-large", "reservedPercent": -1}
+    ]
+    assert routing["queues"]["gke-small"]["tags"] == ["gke-small"]
+    assert routing["queues"]["gke-large"]["tags"] == ["gke-large"]
+
+
+def test_gke_node_worker_routing_flow_uses_worker_selectors() -> None:
+    flow = _yaml_load("kestra/flows-worker-routing/verify_gke_node_worker_routing.yaml")
+
+    assert [task["id"] for task in flow["tasks"]] == [
+        "run_on_gke_small",
+        "run_on_gke_large",
+    ]
+    assert [task["workerSelector"]["tags"] for task in flow["tasks"]] == [
+        ["gke-small"],
+        ["gke-large"],
+    ]
+    for task in flow["tasks"]:
+        assert task["workerSelector"]["fallback"] == "FAIL"
+        assert task["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
+        assert task["timeout"] == "PT2M"
+
+
+def test_gke_apply_script_supports_optional_placement_constrained_routed_workers() -> None:
+    script = _read_text("scripts/apply-gke-dev.sh")
+
+    assert "LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED" in script
+    assert "kestra-gke-worker-small" in script
+    assert "kestra-gke-worker-large" in script
+    assert "workerGroupId: ${group_id}" in script
+    assert "nodeName: ${node_name}" in script
+    assert "${selector_key}: ${selector_value}" in script
+    assert "tolerations:" in script
+    assert "effect: NoSchedule" in script
+    assert "LIVE_GKE_ROUTED_K8S_WORKER_SMALL_NODE_NAME" in script
+    assert "LIVE_GKE_ROUTED_K8S_WORKER_LARGE_NODE_NAME" in script
+    assert "LIVE_GKE_ROUTED_K8S_WORKER_SMALL_NODE_SELECTOR_KEY" in script
+    assert "exec /app/kestra server worker --thread=${threads}" in script
+
+
+def test_gke_terraform_supports_standard_autoscaled_worker_node_pools() -> None:
+    main_tf = _read_text("infra/terraform/gke-dev/main.tf")
+    variables_tf = _read_text("infra/terraform/gke-dev/variables.tf")
+
+    assert 'variable "gke_autopilot_enabled"' in variables_tf
+    assert "default     = true" in variables_tf
+    assert 'variable "gke_standard_node_pools"' in variables_tf
+    assert '"kestra.tacogips.io/worker-group" = "gke-small"' in variables_tf
+    assert '"kestra.tacogips.io/worker-group" = "gke-large"' in variables_tf
+    assert 'effect = "NO_SCHEDULE"' in variables_tf
+    assert "enable_autopilot         = var.gke_autopilot_enabled" in main_tf
+    assert 'resource "google_container_node_pool" "standard_worker"' in main_tf
+    assert "for_each = var.gke_autopilot_enabled ? {} : var.gke_standard_node_pools" in main_tf
+    assert "min_node_count = each.value.min_count" in main_tf
+    assert "max_node_count = each.value.max_count" in main_tf
+    assert '"kestra.tacogips.io/node-pool" = each.key' in main_tf
+    assert 'dynamic "taint"' in main_tf
+
+
+def test_gke_node_routing_verifier_registers_and_checks_flow() -> None:
+    taskfile = _yaml_load("Taskfile.yml")
+    script = _read_text("scripts/verify-live-gke-node-routing.sh")
+
+    assert "kestra:live:run-gke-node-routing" in taskfile["tasks"]
+    assert "verify_gke_node_worker_routing" in script
+    assert "kestra/flows-worker-routing" in script
+    assert "app.kubernetes.io/name=kestra-gke-routed-worker" in script
+    assert "logs deployment/kestra-gke-worker-small -c kestra-worker --tail=80" in script
+
+
+def test_k8s_pod_resource_flow_uses_distinct_pod_resources_without_node_pin() -> None:
+    flow = _yaml_load("kestra/flows-k8s-pod-resources/verify_k8s_pod_resources.yaml")
+    tasks = {task["id"]: task for task in flow["tasks"]}
+
+    small = tasks["batch_1_small_pod"]["spec"]["containers"][0]["resources"]
+    large = tasks["batch_2_large_pod"]["spec"]["containers"][0]["resources"]
+
+    assert tasks["batch_1_small_pod"]["type"] == "io.kestra.plugin.kubernetes.core.PodCreate"
+    assert tasks["batch_2_large_pod"]["type"] == "io.kestra.plugin.kubernetes.core.PodCreate"
+    assert tasks["batch_1_small_pod"]["delete"] is False
+    assert tasks["batch_2_large_pod"]["delete"] is False
+    assert tasks["batch_1_small_pod"]["metadata"]["labels"] == {
+        "app.kubernetes.io/name": "kestra-pod-resource-verify",
+        "kestra-playground.tacogips.io/execution": "{{ execution.id }}",
+        "kestra-playground.tacogips.io/resource-class": "small",
+    }
+    assert tasks["batch_2_large_pod"]["metadata"]["labels"] == {
+        "app.kubernetes.io/name": "kestra-pod-resource-verify",
+        "kestra-playground.tacogips.io/execution": "{{ execution.id }}",
+        "kestra-playground.tacogips.io/resource-class": "large",
+    }
+    assert small == {
+        "requests": {"cpu": "500m", "memory": "512Mi"},
+        "limits": {"cpu": "1", "memory": "1Gi"},
+    }
+    assert large == {
+        "requests": {"cpu": "2", "memory": "4Gi"},
+        "limits": {"cpu": "4", "memory": "8Gi"},
+    }
+    for task in flow["tasks"]:
+        assert "nodeSelector" not in task["spec"]
+
+
+def test_k8s_pod_resource_verifier_registers_resource_flow() -> None:
+    taskfile = _yaml_load("Taskfile.yml")
+    script = _read_text("scripts/verify-live-k8s-pod-resources.sh")
+
+    assert "kestra:live:run-k8s-pod-resources" in taskfile["tasks"]
+    assert "kestra/flows-k8s-pod-resources" in script
+    assert 'FLOW_NAMESPACE="playground.k8s_pod_resources"' in script
+    assert '-F "kubernetes_namespace=${NAMESPACE}"' in script
+    assert "require_command kubectl" in script
+    assert "pod_resources_json" in script
+    assert "assert_pod_resources" in script
+    assert 'assert_pod_resources "${pods_json}" small 500m 512Mi 1 1Gi' in script
+    assert 'assert_pod_resources "${pods_json}" large 2 4Gi 4 8Gi' in script
+    assert "cleanup_resource_pods" in script
 
 
 def test_business_date_helper_resolves_default_business_date() -> None:

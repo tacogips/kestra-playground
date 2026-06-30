@@ -205,6 +205,49 @@ This shared-backend route is the closer OSS analogue to Enterprise Worker Groups
 retry, rerun, and inspect the routed execution in one controller Kestra, while the script task JVM
 work runs only on GCE workers.
 
+The same static routing mechanism can also be exercised inside GKE with explicit routed worker
+Deployments. `LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true` makes `scripts/apply-gke-dev.sh` render
+dedicated `kestra-gke-worker-small` and `kestra-gke-worker-large` Deployments. Each worker uses a
+different `workerGroupId`, exposes its own queue tag (`gke-small` or `gke-large`), and injects its
+pod name and node name into task logs. The verification flow
+`playground.worker_routing.verify_gke_node_worker_routing` proves that tasks selected with
+`workerSelector.tags` are claimed by the expected worker Deployment and therefore run in the worker
+pod's placement domain.
+
+The renderer supports two Kubernetes placement modes for those routed workers. The normal
+Autopilot-compatible mode uses `LIVE_GKE_ROUTED_K8S_WORKER_*_NODE_SELECTOR_*` with an allowed label
+such as `topology.kubernetes.io/zone`; this lets GKE schedule the pod and scale capacity. A
+diagnostic exact-node mode uses `LIVE_GKE_ROUTED_K8S_WORKER_*_NODE_NAME` to render `spec.nodeName`.
+Live testing showed that Autopilot accepts `spec.nodeName`, but because it bypasses normal
+scheduling it does not trigger scale-up and can fail with node-local `OutOfmemory` or `OutOfcpu`.
+Autopilot also rejects `nodeSelector: kubernetes.io/hostname`. Therefore, on the current live
+Autopilot cluster, the verified production-like invariant is placement-domain routing plus
+autoscaler cleanup, not durable exact hostname pinning. Exact hostname pinning with autoscaling
+belongs on a GKE Standard design with node pools sized for the worker classes.
+
+The `gke-dev` Terraform root now keeps Autopilot as the default but can create that Standard design
+when `gke_autopilot_enabled=false`. In Standard mode, Terraform creates autoscaled node pools from
+`gke_standard_node_pools`; the default pools are labeled
+`kestra.tacogips.io/worker-group=gke-small` and
+`kestra.tacogips.io/worker-group=gke-large` and tainted with the same worker-group values. Routed
+worker Deployments should select those labels and tolerate the matching taints, not pin ephemeral
+node names. This lets the scheduler place each worker class on the intended node pool, and gives the
+GKE cluster autoscaler a cleaner worker-only node to drain after the routed workers are deleted.
+
+The OSS Kubernetes pod-resource topology solves a different problem: per-batch CPU and memory
+without sticky worker placement. In that topology, a regular GKE Kestra worker claims the
+`PodCreate` task, then asks the Kubernetes API to create one pod per batch. Each task carries its
+own pod spec, including `resources.requests` and `resources.limits`, and intentionally does not set
+`nodeSelector`. Kubernetes schedules the pods and GKE autoscaling reacts to the requested resources.
+Kestra still owns the execution graph, task state, rerun button, and task logs, but the heavy batch
+process runs in the child Kubernetes pod rather than inside the Kestra worker pod. The verification
+flow leaves labeled test pods in place long enough for the verifier to inspect their actual
+CPU/memory requests and limits, then removes those pods.
+
+This is a better OSS fit than worker routing when the requirement is only "different batches need
+different vCPU/memory". It does not provide "run this batch on this specific machine" semantics.
+For that, use Enterprise Worker Groups or the custom static worker-routing fork.
+
 Kestra Worker Groups remain an Enterprise Edition feature. The OSS runtime should not attach an
 external Kestra worker to a shared queue when deterministic placement is required, because ordinary
 workers load-balance tasks across all available workers. The removed DB-backed agent design remains

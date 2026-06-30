@@ -117,15 +117,55 @@ resource "google_secret_manager_secret_iam_member" "gke_runtime_reader" {
 }
 
 resource "google_container_cluster" "kestra" {
-  name             = var.name_prefix
-  location         = var.region
-  enable_autopilot = true
+  name                     = var.name_prefix
+  location                 = var.region
+  enable_autopilot         = var.gke_autopilot_enabled
+  initial_node_count       = var.gke_autopilot_enabled ? null : 1
+  remove_default_node_pool = var.gke_autopilot_enabled ? null : true
 
   workload_identity_config {
     workload_pool = "${var.project_id}.svc.id.goog"
   }
 
   deletion_protection = false
+}
+
+resource "google_container_node_pool" "standard_worker" {
+  for_each = var.gke_autopilot_enabled ? {} : var.gke_standard_node_pools
+
+  name     = "${var.name_prefix}-${each.key}"
+  location = var.region
+  cluster  = google_container_cluster.kestra.name
+
+  autoscaling {
+    min_node_count = each.value.min_count
+    max_node_count = each.value.max_count
+  }
+
+  node_config {
+    disk_size_gb = each.value.disk_size_gb
+    machine_type = each.value.machine_type
+    oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+    labels = merge(
+      each.value.labels,
+      {
+        "kestra.tacogips.io/node-pool" = each.key
+      },
+    )
+
+    dynamic "taint" {
+      for_each = each.value.taints
+      content {
+        key    = taint.value.key
+        value  = taint.value.value
+        effect = taint.value.effect
+      }
+    }
+
+    workload_metadata_config {
+      mode = "GKE_METADATA"
+    }
+  }
 }
 
 resource "google_storage_bucket" "storage" {

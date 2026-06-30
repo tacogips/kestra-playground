@@ -62,6 +62,42 @@ Notable items that do not fit into architecture or client categories.
   `kestra-playground/kestra-oss-worker-routing`. Do not verify that path with upstream
   `kestra/kestra:latest`: the static `kestra.worker.routing` queue/group configuration only has
   routing semantics in the forked image.
+- The GKE routed-worker verification has two separate placement facts:
+  - `workerSelector.tags` plus the custom routing fork correctly routes tasks to the matching
+    always-on worker Deployment. Live execution `7ZIs6V4XlUZWS1ztUAQzlT` proved `gke-small` and
+    `gke-large` tasks were claimed by different worker pods and logged their Kubernetes node names.
+  - On the current GKE Autopilot cluster, exact hostname placement is not the autoscaling design.
+    `nodeSelector: kubernetes.io/hostname` is rejected by Autopilot admission. `spec.nodeName` is
+    accepted by the API, but it bypasses the scheduler, does not trigger Autopilot scale-up, and
+    live tests failed with node-local `OutOfmemory` or `OutOfcpu` when the chosen node lacked free
+    capacity. Use allowed placement labels such as `topology.kubernetes.io/zone` for the
+    Autopilot-compatible routed-worker test.
+- Autoscale cleanup was observed after deleting temporary routed workers: the former large-worker
+  node changed to `Ready,SchedulingDisabled`, and later unused nodes disappeared from
+  `kubectl get nodes`. This proves cleanup of unused Autopilot capacity for the placement-domain
+  worker test, not exact node-name autoscaling.
+- Exact worker-to-node-style routing with autoscaling should be modeled as a GKE Standard topology:
+  create labeled node pools per worker class, let the cluster autoscaler manage node count, and
+  render routed worker Deployments with node selectors or required affinity for the node pool/class
+  labels. Worker pools should also be tainted and routed workers should tolerate the matching taint;
+  otherwise GKE/GMP system pods can occupy an otherwise unused worker node and delay autoscaler
+  cleanup. Avoid `spec.nodeName` for autoscaled workloads because it pins to an ephemeral node object
+  that may disappear after scale-down.
+- The GKE Terraform root has a variable-gated implementation of that Standard topology:
+  `gke_autopilot_enabled=false` creates autoscaled `gke_standard_node_pools` with worker-class
+  labels and worker-group taints.
+- A temporary GKE Standard cluster (`kestra-std-route-vfy`, later deleted) verified the Standard
+  topology end to end. The `gke-small` task ran in
+  `kestra-gke-worker-small-f8bc4f74f-9rgdk` on node
+  `gke-kestra-std-route-vfy-kestra-small-ea37409c-4hq4`, and the `gke-large` task ran in
+  `kestra-gke-worker-large-544f45f877-gh6cl` on node
+  `gke-kestra-std-route-vfy-default-pool-fc568772-r49n`. The execution
+  `5wLyIdzUikEaUWtNKycWQx` finished `SUCCESS`.
+- The same temporary cluster showed why worker-pool taints matter. An untainted worker pool stayed
+  alive because GKE/GMP system pods occupied the node. After recreating the small worker pool with a
+  worker-group `NoSchedule` taint and a matching worker toleration, the worker pod triggered
+  scale-up from 0 to 1 and, after deleting the worker Deployment, the node was marked
+  `Ready,SchedulingDisabled` with the `DeletionCandidateOfClusterAutoscaler` taint.
 - The DB-backed external agent and Enterprise Worker Group approaches remain documented in
   `design-docs/specs/design-kestra-enterprise-worker-group-mechanism.md` as design alternatives,
   but their runtime source has been removed.

@@ -1,0 +1,44 @@
+id: verify_gke_node_worker_routing
+namespace: playground.worker_routing
+
+description: Verify OSS static worker routing across placement-constrained GKE worker pods.
+
+inputs:
+  - id: business_date
+    type: STRING
+    required: false
+
+tasks:
+  - id: run_on_gke_small
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    timeout: PT2M
+    workerSelector:
+      tags: [gke-small]
+      match: ALL
+      fallback: FAIL
+    commands:
+      - |
+        echo "expected_worker_group=gke-small"
+        echo "hostname=$(hostname)"
+        echo "k8s_node_name=${K8S_NODE_NAME:-unknown}"
+        echo "k8s_pod_name=${POD_NAME:-unknown}"
+        echo "business_date={{ inputs.business_date }}"
+
+  - id: run_on_gke_large
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    timeout: PT2M
+    workerSelector:
+      tags: [gke-large]
+      match: ALL
+      fallback: FAIL
+    commands:
+      - |
+        echo "expected_worker_group=gke-large"
+        echo "hostname=$(hostname)"
+        echo "k8s_node_name=${K8S_NODE_NAME:-unknown}"
+        echo "k8s_pod_name=${POD_NAME:-unknown}"
+        echo "business_date={{ inputs.business_date }}"
