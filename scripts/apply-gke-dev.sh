@@ -12,6 +12,7 @@ if [[ -z "${GKE_WORKER_ENABLED+x}" && "${LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED:-f
 fi
 GKE_WORKER_ENABLED="${GKE_WORKER_ENABLED:-true}"
 LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED="${LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED:-false}"
+GKE_MIN_COST_ENABLED="${GKE_MIN_COST_ENABLED:-false}"
 NAMESPACE="${NAMESPACE:-kestra-dev}"
 
 require_command() {
@@ -175,6 +176,9 @@ EOF
 
 helm_args=()
 helm_args+=(--values "${HELM_VALUES_DIR}/kestra-values.yaml")
+if [[ "$GKE_MIN_COST_ENABLED" == "true" ]]; then
+  helm_args+=(--values "${HELM_VALUES_DIR}/kestra-min-cost-values.yaml")
+fi
 helm_args+=(--values "$helm_runtime_values")
 if [[ "$GKE_WORKER_ENABLED" != "true" ]]; then
   helm_args+=(--values "${HELM_VALUES_DIR}/kestra-controller-only-values.yaml")
