@@ -238,6 +238,17 @@ def test_routed_live_deploy_enables_controller_and_routed_workers() -> None:
     assert "export LIVE_GKE_ROUTED_WORKERS_ENABLED=true" in script
 
 
+def test_live_health_check_accepts_root_when_ui_route_is_absent() -> None:
+    script = _read_text("scripts/verify-live-environments.sh")
+    wait_start = script.index("wait_for_ui()")
+    verify_start = script.index("verify_environment()", wait_start)
+    wait_block = script[wait_start:verify_start]
+
+    assert '"${url%/}/ui/"' in wait_block
+    assert '"${url%/}/"' in wait_block
+    assert "|| \\" in wait_block
+
+
 def test_live_config_disables_routed_gke_workers_by_default(tmp_path: Path) -> None:
     result = _run_bash("scripts/render-live-config.sh", env=_live_config_env(tmp_path))
     gke_tfvars = (tmp_path / "gke-dev.tfvars").read_text(encoding="utf-8")

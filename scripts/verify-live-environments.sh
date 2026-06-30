@@ -167,7 +167,10 @@ wait_for_ui() {
   for _ in {1..120}; do
     if curl --fail --silent --show-error \
       -u "${KESTRA_BASIC_AUTH_USERNAME}:${KESTRA_BASIC_AUTH_PASSWORD}" \
-      "${url%/}/ui/" >/dev/null; then
+      "${url%/}/ui/" >/dev/null || \
+      curl --fail --silent --show-error \
+        -u "${KESTRA_BASIC_AUTH_USERNAME}:${KESTRA_BASIC_AUTH_PASSWORD}" \
+        "${url%/}/" >/dev/null; then
       return 0
     fi
 
