@@ -205,6 +205,9 @@ This shared-backend route is the closer OSS analogue to Enterprise Worker Groups
 retry, rerun, and inspect the routed execution in one controller Kestra, while the script task JVM
 work runs only on GCE workers.
 
+The sequence-level mechanism is documented in
+`design-docs/specs/design-oss-worker-routing-sequence.md`.
+
 The same static routing mechanism can also be exercised inside GKE with explicit routed worker
 Deployments. `LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true` makes `scripts/apply-gke-dev.sh` render
 dedicated `kestra-gke-worker-small` and `kestra-gke-worker-large` Deployments. Each worker uses a
