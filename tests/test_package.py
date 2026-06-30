@@ -206,6 +206,7 @@ def test_live_external_gce_worker_mode_disables_gke_worker() -> None:
 
     assert deploy_env["LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED"] == "true"
     assert deploy_env["GKE_WORKER_ENABLED"] == "false"
+    assert deploy_env["LIVE_GKE_CONTROLLER_WORKER_ENABLED"] == "false"
     assert deploy_env["LIVE_GKE_ROUTED_WORKERS_ENABLED"] == "false"
     assert deploy_env["KESTRA_K8S_ADDITIONAL_FLOW_DIRS"] == "kestra/flows-federated"
     assert Path(deploy_env["KESTRA_K8S_ADDITIONAL_FLOW_DIRS"]).is_dir()
@@ -227,6 +228,14 @@ def test_flow_registration_retries_transient_api_failures() -> None:
     assert "Flow registration for ${flow} returned HTTP ${status}; retrying" in script
     assert "shopt -s nullglob" in script
     assert "No flow YAML files found in ${FLOW_DIR}" in script
+
+
+def test_routed_live_deploy_enables_controller_and_routed_workers() -> None:
+    script = _read_text("scripts/deploy-routed-live.sh")
+
+    assert "export GKE_WORKER_ENABLED=false" in script
+    assert "export LIVE_GKE_CONTROLLER_WORKER_ENABLED=true" in script
+    assert "export LIVE_GKE_ROUTED_WORKERS_ENABLED=true" in script
 
 
 def test_live_config_disables_routed_gke_workers_by_default(tmp_path: Path) -> None:

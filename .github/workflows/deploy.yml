@@ -223,6 +223,7 @@ jobs:
       KESTRA_IMAGE: ${{ inputs.target_environment == 'routed' && needs.build-routed-image.outputs.image || needs.build-image.outputs.image }}
       LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED: "true"
       GKE_WORKER_ENABLED: "false"
+      LIVE_GKE_CONTROLLER_WORKER_ENABLED: "false"
       LIVE_GKE_ROUTED_WORKERS_ENABLED: "false"
       KESTRA_K8S_ADDITIONAL_FLOW_DIRS: kestra/flows-federated
     steps:
