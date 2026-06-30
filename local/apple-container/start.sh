@@ -67,6 +67,7 @@ container run -d \
   -v kestra-data:/app/storage \
   -v /tmp/kestra-wd:/tmp/kestra-wd \
   -v "${ROOT_DIR}/kestra/config/application.yaml:/etc/kestra/application.yaml" \
+  -v "${ROOT_DIR}/batches:/app/kestra-playground/batches" \
   --env-file "${ENV_FILE}" \
   kestra/kestra:latest server standalone --worker-thread=64 --config /etc/kestra/application.yaml
 

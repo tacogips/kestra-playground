@@ -305,6 +305,96 @@ tasks:
               memory: 8Gi
 ```
 
+### Operation Demo: Same Batch Source Across Local, GKE, And Routed Workers
+
+Use this path to model the requested development operation for a newly added batch:
+
+1. Add the batch implementation once under `batches/<batch-name>/`.
+2. Unit-check that source locally.
+3. Register and run a local Kestra wrapper from `kestra/flows-operation-demo/local`.
+4. Promote the same source to staging by registering either:
+   - `kestra/flows-operation-demo/gke-pod-resources` for OSS GKE PodCreate with per-batch
+     vCPU/memory; or
+   - `kestra/flows-operation-demo/routed-worker` for the custom OSS GCE/on-prem-style routed
+     worker topology.
+
+The current concrete example is:
+
+```text
+batches/resource_probe/run.sh
+kestra/flows-operation-demo/local/resource_probe_local.yaml
+kestra/flows-operation-demo/gke-pod-resources/resource_probe_gke_pod_resources.yaml
+kestra/flows-operation-demo/routed-worker/resource_probe_routed_workers.yaml
+```
+
+Local verification:
+
+```bash
+task kestra:local:docker:start
+task kestra:flows:run-operation-demo-local
+task kestra:local:docker:stop
+```
+
+GKE PodCreate staging verification, after deploying the normal GKE Kestra worker:
+
+```bash
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-operation-demo-gke-pod-resources
+```
+
+This verifier starts the Kestra execution, waits for both labeled child pods to be created, checks
+their Kubernetes `resources.requests` and `resources.limits` directly with `kubectl`, then waits for
+Kestra execution state and prints task/log diagnostics. The flow runs both PodCreate tasks through a
+`Parallel` wrapper and sets `SLEEP_SECONDS=45` so both resource-class pods are inspectable before
+PodCreate cleanup.
+
+This topology requires a normal GKE Kestra worker. A controller-only GKE deployment is suitable for
+the federated GCE/on-prem controller pattern, but it cannot reliably execute OSS `PodCreate` control
+tasks because no worker is present to claim and finalize those tasks.
+
+Routed GCE/on-prem-style staging verification, after deploying the custom routed topology:
+
+```bash
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-operation-demo-routed
+```
+
+For the live dev quota shape, the routed operation demo can be deployed with only the two routed
+workers because both demo tasks are explicitly tagged `gce-a` or `gce-b`:
+
+```bash
+GOOGLE_OAUTH_ACCESS_TOKEN="$(gcloud auth print-access-token)" \
+LIVE_GKE_CONTROLLER_WORKER_ENABLED=false \
+KESTRA_IMAGE="<artifact-registry>/kestra-oss-worker-routing:<operation-demo-tag>" \
+task kestra:live:deploy:routed
+```
+
+This keeps GKE controller-only: `webserver`, `scheduler`, `executor`, and `indexer` run in GKE, and
+the script tasks run on GCE workers. The live 2026-06-30 verification used execution
+`6zPZucUaVSEizIGE0dnv7N` and asserted `hostname=kestra-dev-gce-a` / `worker_group=gce-a` for the
+first task and `hostname=kestra-dev-gce-b` / `worker_group=gce-b` for the second task.
+
+GitHub Actions can run the same operation demo after deployment through `workflow_dispatch` by
+setting `operation_demo` to `gke-pod-resources` or `routed-workers`.
+
+The file-level config delta is intentionally small:
+
+| Promotion path | Batch source change | Kestra wrapper change |
+|----------------|---------------------|------------------------|
+| Local to GKE PodCreate | None | Process command becomes PodCreate; pod image and resources are added. |
+| Local to GCE/on-prem routed worker | None | Process command stays; `workerSelector.tags` chooses the worker group. |
+| Local to local/staging split | None | Register a different flow directory for the environment. |
+
+Operational caveat: live testing on the current GKE/Kestra 2.0 snapshot image observed a Fabric8
+Kubernetes client final GET timeout after a child pod had already reached `Succeeded` when
+`delete: false` was used. The operation-demo GKE flow therefore lets PodCreate clean up pods and the
+verifier captures pod resource evidence before final task cleanup.
+
+Live GKE image caveat: the current shared-backend GKE deployment uses the custom
+`kestra-oss-worker-routing` image and database schema. Do not replace the GKE webserver, scheduler,
+executor, indexer, or worker Deployments with upstream `kestra/kestra:v1.3.x` against the existing
+database; live testing found the upstream queue migration expects a `queue_type` enum while the
+custom fork schema stores queue event names as text. The PodCreate child batch image is separate and
+may still use the operation-demo runtime image through `ENV_RUNTIME_IMAGE`.
+
 ### Live Operations
 
 ```bash

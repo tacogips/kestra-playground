@@ -34,7 +34,7 @@ common:
     - name: OTEL_EXPORTER_OTLP_ENDPOINT
       value: http://otel-collector:4317
     - name: KESTRA_DB_MAX_POOL_SIZE
-      value: "8"
+      value: "4"
   extraVolumeMounts:
     - name: tmp
       mountPath: /tmp/kestra-wd

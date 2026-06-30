@@ -32,6 +32,12 @@ retryable_status() {
   [[ "${status}" == "000" || "${status}" == "408" || "${status}" == "409" || "${status}" == "429" || "${status}" =~ ^5 ]]
 }
 
+html_response() {
+  local response_file="$1"
+
+  grep -Eiq '<!doctype html|<html' "${response_file}"
+}
+
 post_flow() {
   local flow="$1"
   local response_file="$2"
@@ -46,6 +52,10 @@ post_flow() {
       --data-binary @"${flow}" \
       "${KESTRA_URL%/}/api/v1/main/flows"
   )" || status="000"
+
+  if [[ "${status}" =~ ^2 ]] && html_response "${response_file}"; then
+    status="599"
+  fi
 
   printf '%s' "${status}"
 }
@@ -66,6 +76,10 @@ put_flow() {
       --data-binary @"${flow}" \
       "${KESTRA_URL%/}/api/v1/main/flows/${namespace}/${flow_id}"
   )" || status="000"
+
+  if [[ "${status}" =~ ^2 ]] && html_response "${response_file}"; then
+    status="599"
+  fi
 
   printf '%s' "${status}"
 }

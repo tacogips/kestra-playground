@@ -334,10 +334,10 @@ The image above is the current Markdown snapshot of the namespace/deploy diagram
 
 ## Latest Verified OSS GKE Topologies
 
-[![Miro diagram: Kestra OSS latest verified GKE topologies](../references/images/oss-latest-gke-worker-routing-topology.svg)](https://miro.com/app/board/uXjVHBHF2p8=/)
+[![Miro diagram: Kestra OSS latest verified GKE topologies](../references/images/oss-latest-gke-worker-routing-topology.svg)](https://miro.com/app/board/uXjVHAvjbo8=/)
 
 The image above is the latest Markdown snapshot of the Miro topology section. The editable source
-board is: <https://miro.com/app/board/uXjVHBHF2p8=/>.
+board is: <https://miro.com/app/board/uXjVHAvjbo8=/>.
 
 It captures the current verified guidance:
 

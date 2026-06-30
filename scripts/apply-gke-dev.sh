@@ -143,6 +143,7 @@ stringData:
   ENV_BATCH_DB_URL: $(runtime_secret_value ENV_BATCH_DB_URL)
   ENV_BATCH_DB_USERNAME: $(runtime_secret_value ENV_BATCH_DB_USERNAME)
   ENV_BATCH_DB_PASSWORD: $(runtime_secret_value ENV_BATCH_DB_PASSWORD)
+  ENV_RUNTIME_IMAGE: "${kestra_image}"
   ENV_FEDERATED_GCE_A_URL: "${federated_gce_a_url}"
   ENV_FEDERATED_GCE_A_USERNAME: "${federated_gce_a_username}"
   ENV_FEDERATED_GCE_A_PASSWORD: "${federated_gce_a_password}"
@@ -172,19 +173,12 @@ image:
   tag: ${image_tag}
 EOF
 
-helm_values=(
-  "${HELM_VALUES_DIR}/kestra-values.yaml"
-)
-
-if [[ "$GKE_WORKER_ENABLED" != "true" ]]; then
-  helm_values+=("${HELM_VALUES_DIR}/kestra-controller-only-values.yaml")
-fi
-
 helm_args=()
-for values_file in "${helm_values[@]}"; do
-  helm_args+=(--values "$values_file")
-done
+helm_args+=(--values "${HELM_VALUES_DIR}/kestra-values.yaml")
 helm_args+=(--values "$helm_runtime_values")
+if [[ "$GKE_WORKER_ENABLED" != "true" ]]; then
+  helm_args+=(--values "${HELM_VALUES_DIR}/kestra-controller-only-values.yaml")
+fi
 
 if ! helm status "$HELM_RELEASE" --namespace "$NAMESPACE" >/dev/null 2>&1; then
   kubectl -n "$NAMESPACE" delete configmap kestra-config --ignore-not-found

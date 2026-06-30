@@ -27,6 +27,15 @@ on:
         required: false
         default: ""
         type: string
+      operation_demo:
+        description: Optional operation demo verification after deployment.
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - gke-pod-resources
+          - routed-workers
   schedule:
     - cron: "15 18 * * *"
 
@@ -109,6 +118,7 @@ jobs:
           LATEST_IMAGE="${IMAGE_REPOSITORY}:latest"
 
           nix develop -c docker build \
+            --build-arg "KESTRA_BASE_IMAGE=kestra/kestra:v1.3.15" \
             --build-arg "REVISION=${GITHUB_SHA}" \
             --build-arg "SOURCE_REPOSITORY=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
             --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -175,6 +185,11 @@ jobs:
           docker/app/kestra plugins install io.kestra.plugin:plugin-kubernetes:1.9.5 \
             --plugins plugins \
             --repositories=https://central.sonatype.com/repository/maven-snapshots
+      - name: Copy operation demo batch source
+        run: |
+          mkdir -p kestra-source/docker/app/kestra-playground
+          cp -R batches kestra-source/docker/app/kestra-playground/batches
+          chmod +x kestra-source/docker/app/kestra-playground/batches/resource_probe/run.sh
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
       - name: Authenticate to Google Cloud
@@ -228,11 +243,12 @@ jobs:
       TOFU_STATE_BUCKET: ${{ vars.TOFU_STATE_BUCKET }}
       TARGET_ENVIRONMENT: ${{ inputs.target_environment || 'all' }}
       KESTRA_IMAGE: ${{ inputs.target_environment == 'routed' && needs.build-routed-image.outputs.image || needs.build-image.outputs.image }}
-      LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED: "true"
-      GKE_WORKER_ENABLED: "false"
+      LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED: ${{ (inputs.operation_demo || 'none') == 'gke-pod-resources' && 'false' || 'true' }}
+      GKE_WORKER_ENABLED: ${{ (inputs.operation_demo || 'none') == 'gke-pod-resources' && 'true' || 'false' }}
       LIVE_GKE_CONTROLLER_WORKER_ENABLED: "false"
       LIVE_GKE_ROUTED_WORKERS_ENABLED: "false"
       KESTRA_K8S_ADDITIONAL_FLOW_DIRS: kestra/flows-federated
+      OPERATION_DEMO: ${{ inputs.operation_demo || 'none' }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -262,6 +278,23 @@ jobs:
           else
             nix develop -c scripts/verify-live-environments.sh "$TARGET_ENVIRONMENT" "$BUSINESS_DATE" "$MODE"
           fi
+      - name: Run operation demo verification
+        if: ${{ inputs.operation_demo != '' && inputs.operation_demo != 'none' }}
+        env:
+          BUSINESS_DATE: ${{ inputs.business_date || '' }}
+        run: |
+          case "$OPERATION_DEMO" in
+            gke-pod-resources)
+              nix develop -c scripts/verify-live-operation-demo-gke-pod-resources.sh
+              ;;
+            routed-workers)
+              nix develop -c scripts/verify-live-operation-demo-routed.sh "$BUSINESS_DATE"
+              ;;
+            *)
+              echo "Unknown operation demo mode: $OPERATION_DEMO" >&2
+              exit 1
+              ;;
+          esac
 
   run-batch:
     name: Run Batch

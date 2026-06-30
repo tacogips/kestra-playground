@@ -248,6 +248,48 @@ This is a better OSS fit than worker routing when the requirement is only "diffe
 different vCPU/memory". It does not provide "run this batch on this specific machine" semantics.
 For that, use Enterprise Worker Groups or the custom static worker-routing fork.
 
+The operation-demo layout makes the development-operation delta explicit:
+
+```text
+batches/resource_probe/run.sh
+  Shared batch implementation. Local, GKE PodCreate, and routed worker flows all execute this file.
+
+kestra/flows-operation-demo/local/
+  Local wrapper. It uses a Process task runner in the local standalone Kestra container.
+
+kestra/flows-operation-demo/gke-pod-resources/
+  GKE wrapper. It uses a Parallel flow task containing two OSS PodCreate tasks, one Kubernetes pod
+  per batch, and sets per-batch requests/limits in the pod spec. The child pod image comes from
+  ENV_RUNTIME_IMAGE, which is rendered from the deployed Kestra runtime image in
+  `scripts/apply-gke-dev.sh`.
+
+kestra/flows-operation-demo/routed-worker/
+  GCE/on-prem-style wrapper. It uses the custom OSS `workerSelector.tags` routing fork and Process
+  task runner so the same source runs on the selected worker host.
+```
+
+For a new batch, the intended source boundary is the same: put implementation code under
+`batches/<batch-name>/`, unit-check it locally, then create small Kestra resource wrappers for the
+runtime topology. The business code does not split between local, GKE, and on-prem paths. What
+changes between environments is the Kestra execution wrapper:
+
+| Path | Heavy work runs in | Kestra resource delta from local |
+|------|--------------------|----------------------------------|
+| Local standalone | Local Kestra worker container | Process task points at the mounted shared batch source. |
+| GKE PodCreate | Kubernetes child pod | Replace Process task with Parallel PodCreate tasks and add pod image/resources. |
+| GCE/on-prem routed worker | Selected external worker host | Keep Process task and add `workerSelector.tags`. |
+
+This means GKE PodCreate needs a larger Kestra YAML change than local because Kubernetes pod
+metadata, image, env, resources, and the parallel execution wrapper must be declared. The routed
+worker path is closer to local: the task body remains a Process command and the main added config is
+`workerSelector`.
+
+The GKE operation-demo verifier captures pod resource evidence before waiting for final Kestra
+execution state. Live testing showed that leaving PodCreate pods undeleted can trigger a Fabric8
+final GET timeout after the child pod succeeds on the current 2.0 snapshot image, so the demo keeps
+pods alive briefly with `SLEEP_SECONDS=45`, lets PodCreate clean them up, and inspects the pod specs
+while they are still present.
+
 Kestra Worker Groups remain an Enterprise Edition feature. The OSS runtime should not attach an
 external Kestra worker to a shared queue when deterministic placement is required, because ordinary
 workers load-balance tasks across all available workers. The removed DB-backed agent design remains

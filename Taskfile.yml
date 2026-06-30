@@ -151,6 +151,11 @@ tasks:
     cmds:
       - scripts/verify-local-federated.sh "${BUSINESS_DATE:-}"
 
+  kestra:flows:run-operation-demo-local:
+    desc: Unit-check the shared operation demo batch source and run its local Kestra flow
+    cmds:
+      - scripts/verify-local-operation-demo.sh "${BUSINESS_DATE:-}"
+
   kestra:flows:audit-federated-topology:
     desc: Audit the OSS federated topology for GKE controller-only and two sticky GCE workers
     cmds:
@@ -200,6 +205,16 @@ tasks:
     desc: Register and run the OSS K8s per-batch pod resource verification flow
     cmds:
       - scripts/verify-live-k8s-pod-resources.sh
+
+  kestra:live:run-operation-demo-gke-pod-resources:
+    desc: Run the shared operation demo batch source in GKE PodCreate pods with different resources
+    cmds:
+      - scripts/verify-live-operation-demo-gke-pod-resources.sh
+
+  kestra:live:run-operation-demo-routed:
+    desc: Run the shared operation demo batch source on selected routed GCE/on-prem-style workers
+    cmds:
+      - scripts/verify-live-operation-demo-routed.sh "${BUSINESS_DATE:-}"
 
   infra:fmt:
     desc: Format Terraform/OpenTofu files

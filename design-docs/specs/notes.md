@@ -101,3 +101,34 @@ Notable items that do not fit into architecture or client categories.
 - The DB-backed external agent and Enterprise Worker Group approaches remain documented in
   `design-docs/specs/design-kestra-enterprise-worker-group-mechanism.md` as design alternatives,
   but their runtime source has been removed.
+- The GKE operation-demo PodCreate resource test produced live Kubernetes and Kestra evidence on
+  2026-06-30 with execution `RtQuw62twarib4dJ0a3wP`: the small child pod used `500m` CPU /
+  `512Mi` memory requests and `1` CPU / `1Gi` limits, while the large child pod used `2` CPU /
+  `4Gi` memory requests and `4` CPU / `8Gi` limits. The Kestra task summary reported `SUCCESS` for
+  the Parallel wrapper and both PodCreate tasks. This proves per-batch pod resource sizing without
+  node pinning against the deployed GKE Kestra endpoint.
+- OSS PodCreate requires a GKE worker to claim and finalize the PodCreate control tasks. A GKE
+  controller-only deployment remains valid for the federated GCE/on-prem controller pattern, but it
+  is not the right live shape for the PodCreate resource-sizing topology.
+- The worker-enabled GKE topology needs more DB connection headroom than the controller-only path.
+  With `KESTRA_DB_MAX_POOL_SIZE=2`, the executor hit Hikari connection timeouts while consuming
+  queue messages after the worker was enabled. The Helm value now sets the common GKE pool size to
+  `4`; the final verification ran after all webserver, executor, scheduler, indexer, and worker
+  Deployments were available.
+- The routed GCE/on-prem-style operation-demo image was built and pushed to Artifact Registry as a
+  thin derivative of the verified custom routing image with `batches/resource_probe` included:
+  `kestra-oss-worker-routing:operation-demo-routed-53f6458-20260630081041`.
+  Live execution `6zPZucUaVSEizIGE0dnv7N` verified the routed path on 2026-06-30 with no
+  `kestra-worker` deployment in GKE. `batch_1_on_gce_a` logged `hostname=kestra-dev-gce-a` and
+  `worker_group=gce-a`; `batch_2_on_gce_b` logged `hostname=kestra-dev-gce-b` and
+  `worker_group=gce-b`.
+- The live routed verification required two operational workarounds in the current dev project:
+  Terraform was run with `GOOGLE_OAUTH_ACCESS_TOKEN="$(gcloud auth print-access-token)"` to avoid a
+  stale ADC `invalid_rapt` refresh, and the unrelated `kestra-cluster-dev-mig` was temporarily
+  resized from 2 to 1 because `asia-northeast1` was at the regional `IN_USE_ADDRESSES` quota. This
+  is an environment quota constraint, not a source-layout requirement.
+- The live GKE shared backend is tied to the custom `kestra-oss-worker-routing` image schema. An
+  upstream `kestra/kestra:v1.3.15` server-role rollout failed against the existing Cloud SQL database
+  because the upstream queue migration expected a `queue_type` enum, while the live `queues.type`
+  column is text with custom event-name values. Keep server roles on the compatible custom image
+  unless the database is rebuilt or explicitly migrated.

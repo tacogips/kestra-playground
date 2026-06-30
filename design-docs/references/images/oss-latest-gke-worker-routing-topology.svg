@@ -20,7 +20,7 @@
   <rect width="1500" height="1180" fill="#ffffff"/>
   <text x="750" y="48" text-anchor="middle" class="title">Kestra OSS latest verified GKE topologies</text>
   <text x="750" y="78" text-anchor="middle" class="subtitle">Shared controller visibility with either routed worker pods or per-batch Kubernetes pods</text>
-  <text x="750" y="105" text-anchor="middle" class="small">Verified 2026-06-30: execution 1jgUlKhFTZZPIhYYu4n663 succeeded; the Kestra UI showed Success and 2/2 tasks.</text>
+  <text x="750" y="105" text-anchor="middle" class="small">Verified 2026-06-30: routed worker and PodCreate executions reached Success; child pod CPU/memory specs were verified with kubectl.</text>
 
   <text x="80" y="155" class="lane">1. Custom OSS routed worker pods</text>
   <g id="routed-controller">

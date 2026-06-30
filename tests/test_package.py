@@ -127,6 +127,7 @@ def test_k8s_helm_values_define_split_components_and_worker_hpa() -> None:
         assert f"kestra.component={component}" in env["OTEL_RESOURCE_ATTRIBUTES"]
 
     assert common_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://otel-collector:4317"
+    assert common_env["KESTRA_DB_MAX_POOL_SIZE"] == "4"
     assert helm_values["configurations"]["configmaps"] == [
         {"name": "kestra-runtime-config", "key": "application.yaml"}
     ]
@@ -229,8 +230,10 @@ def test_live_external_gce_worker_mode_disables_gke_worker() -> None:
     script = _read_text("scripts/apply-gke-dev.sh")
     verify_script = _read_text("scripts/verify-live-environments.sh")
 
-    assert deploy_env["LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED"] == "true"
-    assert deploy_env["GKE_WORKER_ENABLED"] == "false"
+    assert "operation_demo" in deploy_env["LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED"]
+    assert "gke-pod-resources" in deploy_env["LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED"]
+    assert "operation_demo" in deploy_env["GKE_WORKER_ENABLED"]
+    assert "gke-pod-resources" in deploy_env["GKE_WORKER_ENABLED"]
     assert deploy_env["LIVE_GKE_CONTROLLER_WORKER_ENABLED"] == "false"
     assert deploy_env["LIVE_GKE_ROUTED_WORKERS_ENABLED"] == "false"
     assert deploy_env["KESTRA_K8S_ADDITIONAL_FLOW_DIRS"] == "kestra/flows-federated"
@@ -253,14 +256,22 @@ def test_flow_registration_retries_transient_api_failures() -> None:
     assert "Flow registration for ${flow} returned HTTP ${status}; retrying" in script
     assert "shopt -s nullglob" in script
     assert "No flow YAML files found in ${FLOW_DIR}" in script
+    assert "html_response" in script
+    assert 'status="599"' in script
 
 
 def test_routed_live_deploy_enables_controller_and_routed_workers() -> None:
     script = _read_text("scripts/deploy-routed-live.sh")
 
     assert "export GKE_WORKER_ENABLED=false" in script
-    assert "export LIVE_GKE_CONTROLLER_WORKER_ENABLED=true" in script
-    assert "export LIVE_GKE_ROUTED_WORKERS_ENABLED=true" in script
+    assert (
+        'export LIVE_GKE_CONTROLLER_WORKER_ENABLED="${LIVE_GKE_CONTROLLER_WORKER_ENABLED:-true}"'
+        in script
+    )
+    assert (
+        'export LIVE_GKE_ROUTED_WORKERS_ENABLED="${LIVE_GKE_ROUTED_WORKERS_ENABLED:-true}"'
+        in script
+    )
 
 
 def test_live_health_check_accepts_root_when_ui_route_is_absent() -> None:
@@ -458,6 +469,112 @@ def test_k8s_pod_resource_verifier_registers_resource_flow() -> None:
     assert "cleanup_resource_pods" in script
 
 
+def test_operation_demo_uses_one_batch_source_with_environment_specific_flows() -> None:
+    batch_source = Path("batches/resource_probe/run.sh")
+    local_flow = _yaml_load("kestra/flows-operation-demo/local/resource_probe_local.yaml")
+    gke_flow = _yaml_load(
+        "kestra/flows-operation-demo/gke-pod-resources/resource_probe_gke_pod_resources.yaml"
+    )
+    routed_flow = _yaml_load(
+        "kestra/flows-operation-demo/routed-worker/resource_probe_routed_workers.yaml"
+    )
+
+    assert batch_source.is_file()
+    assert "ARG KESTRA_BASE_IMAGE=kestra/kestra:v1.3.15" in _read_text("Dockerfile")
+    assert "/app/kestra-playground/batches/resource_probe/run.sh" in _read_text("Dockerfile")
+    assert "/app/kestra-playground/batches" in _read_text("local/docker/docker-compose.yml")
+    assert "/app/kestra-playground/batches" in _read_text("local/apple-container/start.sh")
+
+    assert local_flow["tasks"][0]["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
+    assert (
+        "/app/kestra-playground/batches/resource_probe/run.sh"
+        in local_flow["tasks"][0]["commands"][0]
+    )
+
+    assert gke_flow["tasks"][0]["type"] == "io.kestra.plugin.core.flow.Parallel"
+    gke_tasks = {task["id"]: task for task in gke_flow["tasks"][0]["tasks"]}
+    assert gke_tasks["batch_1_small_pod"]["type"] == "io.kestra.plugin.kubernetes.core.PodCreate"
+    assert gke_tasks["batch_1_small_pod"]["spec"]["containers"][0]["image"] == (
+        "{{ envs.runtime_image }}"
+    )
+    assert gke_tasks["batch_1_small_pod"]["waitForLogInterval"] == "PT2S"
+    assert {
+        env["name"]: env["value"]
+        for env in gke_tasks["batch_1_small_pod"]["spec"]["containers"][0]["env"]
+    }["SLEEP_SECONDS"] == "45"
+    assert gke_tasks["batch_1_small_pod"]["spec"]["containers"][0]["resources"] == {
+        "requests": {"cpu": "500m", "memory": "512Mi"},
+        "limits": {"cpu": "1", "memory": "1Gi"},
+    }
+    assert gke_tasks["batch_2_large_pod"]["spec"]["containers"][0]["resources"] == {
+        "requests": {"cpu": "2", "memory": "4Gi"},
+        "limits": {"cpu": "4", "memory": "8Gi"},
+    }
+
+    routed_tasks = {task["id"]: task for task in routed_flow["tasks"]}
+    assert routed_tasks["batch_1_on_gce_a"]["workerSelector"]["tags"] == ["gce-a"]
+    assert routed_tasks["batch_2_on_gce_b"]["workerSelector"]["tags"] == ["gce-b"]
+    for task in routed_flow["tasks"]:
+        assert task["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
+        assert "/app/kestra-playground/batches/resource_probe/run.sh" in task["commands"][0]
+
+
+def test_operation_demo_runtime_image_and_ci_entrypoints_are_configured() -> None:
+    taskfile = _yaml_load("Taskfile.yml")
+    workflow = _yaml_load(".github/workflows/deploy.yml")
+    apply_script = _read_text("scripts/apply-gke-dev.sh")
+
+    assert "ENV_RUNTIME_IMAGE" in _read_text("kestra/config/envs/local.env.example")
+    assert "ENV_RUNTIME_IMAGE" in _read_text("local/docker/.env.example")
+    assert 'ENV_RUNTIME_IMAGE: "${kestra_image}"' in apply_script
+    assert apply_script.index('--values "$helm_runtime_values"') < apply_script.index(
+        "kestra-controller-only-values.yaml"
+    )
+
+    for task_name in (
+        "kestra:flows:run-operation-demo-local",
+        "kestra:live:run-operation-demo-gke-pod-resources",
+        "kestra:live:run-operation-demo-routed",
+    ):
+        assert task_name in taskfile["tasks"]
+
+    operation_demo = workflow[True]["workflow_dispatch"]["inputs"]["operation_demo"]
+    assert operation_demo["options"] == ["none", "gke-pod-resources", "routed-workers"]
+    deploy_steps = workflow["jobs"]["deploy"]["steps"]
+    operation_step = next(
+        step for step in deploy_steps if step["name"] == "Run operation demo verification"
+    )
+    build_step = next(
+        step
+        for step in workflow["jobs"]["build-image"]["steps"]
+        if step["name"] == "Build and push runtime image"
+    )
+    assert "KESTRA_BASE_IMAGE=kestra/kestra:v1.3.15" in build_step["run"]
+    assert "scripts/verify-live-operation-demo-gke-pod-resources.sh" in operation_step["run"]
+    assert "scripts/verify-live-operation-demo-routed.sh" in operation_step["run"]
+    routed_build_steps = workflow["jobs"]["build-routed-image"]["steps"]
+    copy_step = next(
+        step for step in routed_build_steps if step["name"] == "Copy operation demo batch source"
+    )
+    assert "kestra-source/docker/app/kestra-playground/batches" in copy_step["run"]
+    local_script = _read_text("scripts/verify-local-operation-demo.sh")
+    assert "KESTRA_ENV_FILE" in local_script
+    assert "kestra/flows-operation-demo/local" in local_script
+    gke_script = _read_text("scripts/verify-live-operation-demo-gke-pod-resources.sh")
+    assert "print_pod_resources" in gke_script
+    assert "pod_resources_json" in gke_script
+    assert "Expected one small and one large operation demo pod" in gke_script
+    assert "Flow execution response was not a Kestra execution JSON document" in gke_script
+    assert "Execution status response was not a Kestra execution JSON document" in gke_script
+    assert "| unique" in gke_script
+    assert "did not complete cleanly after pod resources were verified" in gke_script
+    routed_script = _read_text("scripts/verify-live-operation-demo-routed.sh")
+    assert "hostname=kestra-dev-gce-a" in routed_script
+    assert "worker_group=gce-a" in routed_script
+    assert "hostname=kestra-dev-gce-b" in routed_script
+    assert "worker_group=gce-b" in routed_script
+
+
 def test_business_date_helper_resolves_default_business_date() -> None:
     result = _run_bash("source scripts/lib/business-date.sh; resolve_business_date")
 
@@ -507,6 +624,45 @@ def test_run_flow_rejects_invalid_business_date_before_curl() -> None:
     assert result.returncode != 0
     assert "Invalid business date: 2026-99-99" in result.stderr
     assert "curl" not in result.stderr.lower()
+
+
+def test_run_flow_rejects_non_json_success_response() -> None:
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            """
+            set -euo pipefail
+            tmpdir="$(mktemp -d)"
+            cat >"${tmpdir}/curl" <<'SH'
+#!/usr/bin/env bash
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -o)
+      printf '<!doctype html><html></html>' >"$2"
+      shift 2
+      ;;
+    -w)
+      printf '200'
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+SH
+            chmod +x "${tmpdir}/curl"
+            PATH="${tmpdir}:${PATH}" scripts/run-flow.sh resource_probe_local 2026-06-25 http://example.invalid
+            """,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "not a Kestra execution JSON document" in result.stderr
 
 
 def test_live_health_verification_does_not_validate_unused_business_date(tmp_path: Path) -> None:
@@ -585,7 +741,7 @@ def _flow_task(path: str, task_id: str) -> dict[str, Any]:
     raise AssertionError(f"Task {task_id!r} was not found in {path}")
 
 
-def _yaml_load(path: str) -> dict[str, Any]:
+def _yaml_load(path: str) -> dict[Any, Any]:
     return yaml.safe_load(_read_text(path))
 
 

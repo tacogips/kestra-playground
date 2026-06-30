@@ -43,6 +43,12 @@ data:
         tmp-dir:
           path: /tmp/kestra-wd/tmp
       worker:
+        controllers:
+          type: STATIC
+          static:
+            endpoints:
+              - host: kestra-controller-grpc
+                port: 50051
         routing:
           groups:
             controller:

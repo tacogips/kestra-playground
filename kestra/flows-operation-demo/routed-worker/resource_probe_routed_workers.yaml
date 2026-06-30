@@ -1,0 +1,44 @@
+id: resource_probe_routed_workers
+namespace: playground.operation_demo
+description: Run the shared resource probe batch source on two selected routed worker groups.
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+
+tasks:
+  - id: batch_1_on_gce_a
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    timeout: PT2M
+    workerSelector:
+      tags: [gce-a]
+      match: ALL
+      fallback: FAIL
+    commands:
+      - |
+        BATCH_ID=resource_probe_routed_workers \
+        RESOURCE_CLASS=gce-a \
+        BUSINESS_DATE="{{ inputs.business_date }}" \
+        WORKER_GROUP=gce-a \
+        /app/kestra-playground/batches/resource_probe/run.sh
+
+  - id: batch_2_on_gce_b
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    timeout: PT2M
+    workerSelector:
+      tags: [gce-b]
+      match: ALL
+      fallback: FAIL
+    commands:
+      - |
+        BATCH_ID=resource_probe_routed_workers \
+        RESOURCE_CLASS=gce-b \
+        BUSINESS_DATE="{{ inputs.business_date }}" \
+        WORKER_GROUP=gce-b \
+        /app/kestra-playground/batches/resource_probe/run.sh

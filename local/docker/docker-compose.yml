@@ -53,6 +53,7 @@ services:
       - kestra-data:/app/storage
       - /tmp/kestra-wd:/tmp/kestra-wd
       - ../../kestra/config/application.yaml:/etc/kestra/application.yaml:ro
+      - ../../batches:/app/kestra-playground/batches:ro
 
 volumes:
   postgres-data:
