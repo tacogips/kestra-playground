@@ -74,6 +74,36 @@ bucket = "${state_bucket}"
 EOF
 }
 
+gke_tfvars_extra_body() {
+  if [[ "${LIVE_GKE_ROUTED_WORKERS_ENABLED:-false}" == "true" ]]; then
+    cat <<EOF
+controller_worker_enabled      = ${LIVE_GKE_CONTROLLER_WORKER_ENABLED:-true}
+controller_worker_machine_type = "${LIVE_GKE_CONTROLLER_WORKER_MACHINE_TYPE:-e2-small}"
+controller_worker_threads      = ${LIVE_GKE_CONTROLLER_WORKER_THREADS:-4}
+routed_workers = {
+  gce-a = {
+    worker_group_id = "${LIVE_GKE_ROUTED_WORKER_A_GROUP_ID:-gce-a}"
+    machine_type    = "${LIVE_GKE_ROUTED_WORKER_MACHINE_TYPE:-${LIVE_GKE_EXTERNAL_GCE_WORKER_MACHINE_TYPE:-e2-small}}"
+    threads         = ${LIVE_GKE_ROUTED_WORKER_THREADS:-2}
+  }
+  gce-b = {
+    worker_group_id = "${LIVE_GKE_ROUTED_WORKER_B_GROUP_ID:-gce-b}"
+    machine_type    = "${LIVE_GKE_ROUTED_WORKER_MACHINE_TYPE:-${LIVE_GKE_EXTERNAL_GCE_WORKER_MACHINE_TYPE:-e2-small}}"
+    threads         = ${LIVE_GKE_ROUTED_WORKER_THREADS:-2}
+  }
+}
+EOF
+    return
+  fi
+
+  cat <<EOF
+controller_worker_enabled      = ${LIVE_GKE_CONTROLLER_WORKER_ENABLED:-true}
+controller_worker_machine_type = "${LIVE_GKE_CONTROLLER_WORKER_MACHINE_TYPE:-e2-small}"
+controller_worker_threads      = ${LIVE_GKE_CONTROLLER_WORKER_THREADS:-4}
+routed_workers                 = {}
+EOF
+}
+
 write_cloud_armor_tfvars
 write_tfvars gce-single.tfvars "${LIVE_GCE_SINGLE_ENVIRONMENT_NAME:-gce-compose}" "${LIVE_GCE_SINGLE_SUBDOMAIN:-gce-compose}" \
   "cloud_armor_security_policy_self_link" "${cloud_armor_security_policy_self_link}"
@@ -81,7 +111,8 @@ write_tfvars gce-cluster.tfvars "${LIVE_GCE_CLUSTER_ENVIRONMENT_NAME:-gce-contai
   "cloud_armor_security_policy_self_link" "${cloud_armor_security_policy_self_link}" \
   "cluster_size = ${LIVE_GCE_CLUSTER_SIZE:-2}"
 write_tfvars gke-dev.tfvars "${LIVE_GKE_ENVIRONMENT_NAME:-k8s}" "${LIVE_GKE_SUBDOMAIN:-k8s}" \
-  "cloud_armor_security_policy_name" "${cloud_armor_security_policy_name}"
+  "cloud_armor_security_policy_name" "${cloud_armor_security_policy_name}" \
+  "$(gke_tfvars_extra_body)"
 
 write_backend cloud-armor.backend.hcl
 write_backend gce-single.backend.hcl

@@ -28,6 +28,7 @@ require_command tofu
 
 export KESTRA_IMAGE
 export GKE_WORKER_ENABLED=false
+export LIVE_GKE_ROUTED_WORKERS_ENABLED=true
 
 echo "Deploying shared-backend OSS routed Kestra on GKE with GCE workers"
 TARGET_ENVIRONMENT=k8s scripts/deploy-live-environments.sh

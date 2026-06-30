@@ -206,6 +206,7 @@ def test_live_external_gce_worker_mode_disables_gke_worker() -> None:
 
     assert deploy_env["LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED"] == "true"
     assert deploy_env["GKE_WORKER_ENABLED"] == "false"
+    assert deploy_env["LIVE_GKE_ROUTED_WORKERS_ENABLED"] == "false"
     assert deploy_env["KESTRA_K8S_ADDITIONAL_FLOW_DIRS"] == "kestra/flows-federated"
     assert Path(deploy_env["KESTRA_K8S_ADDITIONAL_FLOW_DIRS"]).is_dir()
     assert 'LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED:-false}" == "true"' in script
@@ -226,6 +227,35 @@ def test_flow_registration_retries_transient_api_failures() -> None:
     assert "Flow registration for ${flow} returned HTTP ${status}; retrying" in script
     assert "shopt -s nullglob" in script
     assert "No flow YAML files found in ${FLOW_DIR}" in script
+
+
+def test_live_config_disables_routed_gke_workers_by_default(tmp_path: Path) -> None:
+    result = _run_bash("scripts/render-live-config.sh", env=_live_config_env(tmp_path))
+    gke_tfvars = (tmp_path / "gke-dev.tfvars").read_text(encoding="utf-8")
+
+    assert result.returncode == 0
+    assert "controller_worker_enabled      = true" in gke_tfvars
+    assert "routed_workers                 = {}" in gke_tfvars
+    assert "gce-a = {" not in gke_tfvars
+    assert "gce-b = {" not in gke_tfvars
+
+
+def test_live_config_enables_routed_gke_workers_for_routed_deploy(tmp_path: Path) -> None:
+    result = _run_bash(
+        "scripts/render-live-config.sh",
+        env={
+            **_live_config_env(tmp_path),
+            "LIVE_GKE_ROUTED_WORKERS_ENABLED": "true",
+            "LIVE_GKE_ROUTED_WORKER_MACHINE_TYPE": "e2-medium",
+        },
+    )
+    gke_tfvars = (tmp_path / "gke-dev.tfvars").read_text(encoding="utf-8")
+
+    assert result.returncode == 0
+    assert 'worker_group_id = "gce-a"' in gke_tfvars
+    assert 'worker_group_id = "gce-b"' in gke_tfvars
+    assert 'machine_type    = "e2-medium"' in gke_tfvars
+    assert "routed_workers                 = {}" not in gke_tfvars
 
 
 def test_routed_worker_verification_uses_process_task_runner() -> None:
@@ -395,6 +425,16 @@ def _run_bash(
         env={**os.environ, **(env or {})},
         text=True,
     )
+
+
+def _live_config_env(directory: Path) -> dict[str, str]:
+    return {
+        "LIVE_CONFIG_DIR": str(directory),
+        "PROJECT_ID": "test-project",
+        "LIVE_DOMAIN_NAME": "example.com",
+        "CLOUDFLARE_ZONE_ID": "zone-id",
+        "TOFU_STATE_BUCKET": "state-bucket",
+    }
 
 
 def _stub_executable(directory: Path, name: str) -> None:
