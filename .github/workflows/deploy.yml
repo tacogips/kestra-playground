@@ -227,7 +227,7 @@ jobs:
       - validate
       - build-image
       - build-routed-image
-    if: ${{ always() && needs.validate.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && ((inputs.target_environment == 'routed' && needs.build-routed-image.result == 'success') || ((inputs.target_environment || 'all') != 'routed' && needs.build-image.result == 'success')) }}
+    if: ${{ always() && needs.validate.result == 'success' && github.event_name == 'workflow_dispatch' && ((inputs.target_environment == 'routed' && needs.build-routed-image.result == 'success') || ((inputs.target_environment || 'all') != 'routed' && needs.build-image.result == 'success')) }}
     environment:
       name: development
       url: ${{ vars.LIVE_K8S_URL }}
@@ -303,7 +303,7 @@ jobs:
     needs:
       - validate
       - deploy
-    if: ${{ always() && needs.validate.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_batch && needs.deploy.result == 'success')) }}
+    if: ${{ always() && needs.validate.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.run_batch && needs.deploy.result == 'success' }}
     permissions:
       contents: read
       id-token: write
