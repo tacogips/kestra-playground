@@ -781,6 +781,10 @@ def _live_config_env(directory: Path) -> dict[str, str]:
         "LIVE_DOMAIN_NAME": "example.com",
         "CLOUDFLARE_ZONE_ID": "zone-id",
         "TOFU_STATE_BUCKET": "state-bucket",
+        "LIVE_GKE_CONTROLLER_WORKER_ENABLED": "",
+        "LIVE_GKE_ROUTED_WORKERS_ENABLED": "",
+        "LIVE_GKE_ROUTED_WORKER_MACHINE_TYPE": "",
+        "LIVE_GKE_EXTERNAL_GCE_WORKER_MACHINE_TYPE": "",
     }
 
 
