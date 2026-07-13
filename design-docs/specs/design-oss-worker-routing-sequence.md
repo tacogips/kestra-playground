@@ -8,7 +8,8 @@ sequence diagram.
 The OSS fork is a shared-backend routing model, not Kestra Enterprise Worker Groups. One GKE Kestra
 controller observes the execution, while selected worker processes run tasks on GCE or
 on-prem-style hosts. Routing happens before worker pickup: `workerSelector.tags` is mapped to a
-static worker queue, and only workers with the matching `workerGroupId` consume that queue.
+static worker queue, and only workers with the matching `workerGroupId` receive jobs for that
+queue over their worker-opened gRPC stream.
 
 ## Kestra Fork
 
@@ -25,10 +26,11 @@ result as:
 
 The fork adds config-backed static worker routing for OSS deployments. In this repo's live routed
 topology, the GKE controller config defines routing queues such as `gce-a` and `gce-b`, while each
-external worker starts with `kestra.worker.routing.workerGroupId` set to the group it serves. When a
-task declares `workerSelector.tags`, the fork maps those tags to the matching queue before any
-worker claims the task. That prevents ordinary load-balancing from sending placement-sensitive work
-to the wrong worker.
+external worker starts with `kestra.worker.routing.workerGroupId` set to the group it serves. The
+worker process opens outbound gRPC to the WorkerController and advertises that group. When a task
+declares `workerSelector.tags`, the fork maps those tags to the matching queue before dispatching
+the job over a matching worker stream. That prevents ordinary load-balancing from sending
+placement-sensitive work to the wrong worker.
 
 Upstream `kestra/kestra` should not be used to verify this path. The static
 `kestra.worker.routing` queue/group configuration only has routing semantics in the forked image,
@@ -45,10 +47,16 @@ sequenceDiagram
     participant Exec as GKE Scheduler/Executor
     participant Router as OSS Routing Map
     participant DB as Shared Cloud SQL Queue
+    participant WC as WorkerController gRPC
     participant Store as Shared GCS Storage
     participant CW as Controller Worker<br/>default/system
     participant WA as GCE Worker A<br/>workerGroupId=gce-a
     participant WB as GCE Worker B<br/>workerGroupId=gce-b
+
+    WA->>WC: open streamWorkerJobs(workerGroupId=gce-a, permits)
+    WC-->>WA: register stream for gce-a subscriptions
+    WB->>WC: open streamWorkerJobs(workerGroupId=gce-b, permits)
+    WC-->>WB: register stream for gce-b subscriptions
 
     Operator->>API: Start verify_gcp_worker_routing
     API->>DB: Persist execution and inputs
@@ -58,12 +66,12 @@ sequenceDiagram
         Exec->>Router: Resolve run_on_gce_a<br/>workerSelector.tags=[gce-a]
         Router-->>Exec: Route to worker queue gce-a
         Exec->>DB: Enqueue task run on gce-a queue
-        WA->>DB: Poll/claim tasks for workerGroupId=gce-a
-        WB->>DB: Poll only gce-b queue
-        DB-->>WA: Assign run_on_gce_a
+        DB-->>WC: keyed worker job available for gce-a
+        WC-->>WA: dispatch run_on_gce_a on existing stream
         WA->>WA: Run Process task locally on GCE A
         WA->>Store: Write logs and internal artifacts
-        WA->>DB: Mark task SUCCESS
+        WA->>WC: send completion/result
+        WC->>DB: Mark task SUCCESS
         Exec->>DB: Observe task completion
     end
 
@@ -71,12 +79,12 @@ sequenceDiagram
         Exec->>Router: Resolve run_on_gce_b<br/>workerSelector.tags=[gce-b]
         Router-->>Exec: Route to worker queue gce-b
         Exec->>DB: Enqueue task run on gce-b queue
-        WB->>DB: Poll/claim tasks for workerGroupId=gce-b
-        WA->>DB: Poll only gce-a queue
-        DB-->>WB: Assign run_on_gce_b
+        DB-->>WC: keyed worker job available for gce-b
+        WC-->>WB: dispatch run_on_gce_b on existing stream
         WB->>WB: Run Process task locally on GCE B
         WB->>Store: Write logs and internal artifacts
-        WB->>DB: Mark task SUCCESS
+        WB->>WC: send completion/result
+        WC->>DB: Mark task SUCCESS
         Exec->>DB: Observe task completion
     end
 
@@ -98,6 +106,16 @@ Each worker process starts with one group identity:
 - GCE worker A uses `kestra.worker.routing.workerGroupId: gce-a`.
 - GCE worker B uses `kestra.worker.routing.workerGroupId: gce-b`.
 - The optional controller worker uses default/system queues for lightweight unrouted control work.
+
+Workers do not directly poll the Kestra database for worker jobs. Each worker opens an outbound
+`WorkerControllerService.streamWorkerJobs` gRPC stream, sends its worker group and capacity, and
+the WorkerController registers that stream against the resolved queue subscriptions. Jobs and
+events are sent back over that same stream.
+
+In the sequence diagram, `dispatch ... on existing stream` means the worker has already established
+an application-level subscription through the WorkerController. It does not mean the controller
+opens a new connection to the worker, and it does not mean the worker is a direct database queue
+subscriber.
 
 A routed task uses this shape:
 

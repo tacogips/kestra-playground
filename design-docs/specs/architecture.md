@@ -191,6 +191,9 @@ The custom OSS worker-routing image enables a second, stronger shared-backend to
 - The GKE controller config defines static queues `gce-a` and `gce-b` under
   `kestra.worker.routing.queues`.
 - Each GCE worker sets `kestra.worker.routing.workerGroupId` to the group it serves.
+- External GCE or on-prem workers do not directly poll Kestra's database for worker jobs. They open
+  outbound gRPC streams to the WorkerController, and the WorkerController registers those streams
+  against queue subscriptions.
 - Flow tasks use native `workerSelector.tags` to dispatch to a queue before worker pickup, so
   non-target workers do not run skip/no-op tasks.
 - Script tasks that should run on the selected machine use
@@ -206,7 +209,8 @@ retry, rerun, and inspect the routed execution in one controller Kestra, while t
 work runs only on GCE workers.
 
 The sequence-level mechanism is documented in
-`design-docs/specs/design-oss-worker-routing-sequence.md`.
+`design-docs/specs/design-oss-worker-routing-sequence.md`. The closed data center network model is
+documented in `design-docs/specs/design-onprem-worker-model.md`.
 
 The same static routing mechanism can also be exercised inside GKE with explicit routed worker
 Deployments. `LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true` makes `scripts/apply-gke-dev.sh` render

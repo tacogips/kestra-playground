@@ -16,6 +16,7 @@ Store questions, pending decisions, and items awaiting user approval.
 ## Current Items
 
 - [qa-example.md](./qa-example.md) - Example: Database Selection (template example)
+- [qa-kestra-connect-controller-nat.md](./qa-kestra-connect-controller-nat.md) - Kestra ConnectController gRPC availability and on-prem NAT behavior
 - [pending-example.md](./pending-example.md) - Example: CLI Output Format (template example)
 
 ## Adding New Items
