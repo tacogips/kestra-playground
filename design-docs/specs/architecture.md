@@ -221,6 +221,22 @@ pod name and node name into task logs. The verification flow
 `workerSelector.tags` are claimed by the expected worker Deployment and therefore run in the worker
 pod's placement domain.
 
+Those routed worker Deployments must not be HPA targets, because a second replica of the same
+`workerGroupId` would compete for the same queue and break the one-worker-per-machine simulation.
+Their autoscaling shape is instead access-driven scale-from-zero:
+`LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true` renders the routed workers at `replicas: 0` and
+deploys a resident `kestra-worker-activator` (nginx reverse proxy in front of `kestra-webserver`
+plus a curl-based scaler sidecar). The first access through the activator Service scales all routed
+workers to one replica each, the woken workers subscribe to the controller gRPC endpoint and drain
+their queues, and an idle reaper returns them to zero after
+`LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS` without access. The wake trigger is user access, not
+control-plane startup: the control plane stays resident and never launches workers by itself. For
+dev cost reduction, `LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true` additionally parks the
+webserver, executor, scheduler, and indexer after the same idle window and wakes them on activator
+access, accepting JVM cold-start latency, no schedule-trigger evaluation while parked, and failing
+external health checks while parked. The mechanism is documented in
+`design-docs/specs/design-gke-routed-worker-activator.md`.
+
 The renderer supports two Kubernetes placement modes for those routed workers. The normal
 Autopilot-compatible mode uses `LIVE_GKE_ROUTED_K8S_WORKER_*_NODE_SELECTOR_*` with an allowed label
 such as `topology.kubernetes.io/zone`; this lets GKE schedule the pod and scale capacity. A

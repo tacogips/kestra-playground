@@ -12,6 +12,22 @@ if [[ -z "${GKE_WORKER_ENABLED+x}" && "${LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED:-f
 fi
 GKE_WORKER_ENABLED="${GKE_WORKER_ENABLED:-true}"
 LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED="${LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED:-false}"
+LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED="${LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED:-false}"
+LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS="${LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS:-1800}"
+LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS="${LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS:-10}"
+LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED="${LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED:-false}"
+
+if [[ "$LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED" == "true" && "$LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED" != "true" ]]; then
+  echo "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true requires LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true" >&2
+  exit 1
+fi
+
+if [[ "$LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED" == "true" ]]; then
+  if [[ "$LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED" != "true" || "$LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED" != "true" ]]; then
+    echo "LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true requires LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true and LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true" >&2
+    exit 1
+  fi
+fi
 GKE_MIN_COST_ENABLED="${GKE_MIN_COST_ENABLED:-false}"
 NAMESPACE="${NAMESPACE:-kestra-dev}"
 
@@ -210,6 +226,11 @@ if [[ "$GKE_WORKER_ENABLED" != "true" ]]; then
   kubectl -n "$NAMESPACE" delete hpa kestra-worker --ignore-not-found
 fi
 
+routed_worker_replicas=1
+if [[ "$LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED" == "true" ]]; then
+  routed_worker_replicas=0
+fi
+
 render_routed_k8s_worker() {
   local group_id="$1"
   local cpu_request="$2"
@@ -267,7 +288,7 @@ metadata:
     app.kubernetes.io/instance: kestra
     kestra.worker/group: ${group_id}
 spec:
-  replicas: 1
+  replicas: ${routed_worker_replicas}
   selector:
     matchLabels:
       app.kubernetes.io/name: kestra-gke-routed-worker
@@ -384,6 +405,280 @@ ${placement}      containers:
 EOF
 }
 
+activator_scale_deployments="kestra-gke-worker-small kestra-gke-worker-large"
+activator_boot_state="cold"
+activator_scale_resource_names="      - kestra-gke-worker-small
+      - kestra-gke-worker-large"
+if [[ "$LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED" == "true" ]]; then
+  activator_scale_deployments="${activator_scale_deployments} kestra-webserver kestra-executor kestra-scheduler kestra-indexer"
+  activator_boot_state="warm"
+  activator_scale_resource_names="${activator_scale_resource_names}
+      - kestra-webserver
+      - kestra-executor
+      - kestra-scheduler
+      - kestra-indexer"
+fi
+
+render_routed_worker_activator() {
+  cat <<EOF
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kestra-worker-activator
+  namespace: ${NAMESPACE}
+data:
+  nginx.conf: |
+EOF
+  sed 's/^/    /' <<'NGINX_CONF_EOF'
+worker_processes 1;
+error_log /dev/stderr warn;
+pid /tmp/nginx.pid;
+
+events {
+  worker_connections 1024;
+}
+
+http {
+  client_max_body_size 100m;
+  access_log /var/log/kestra-activator/access.log combined;
+
+  server {
+    listen 8080;
+
+    location / {
+      proxy_pass http://kestra-webserver;
+      proxy_http_version 1.1;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_read_timeout 300s;
+    }
+  }
+}
+NGINX_CONF_EOF
+  cat <<EOF
+  activator.sh: |
+EOF
+  sed 's/^/    /' <<'ACTIVATOR_SCRIPT_EOF'
+#!/bin/sh
+set -eu
+
+log() {
+  printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1"
+}
+
+scale_deployment() {
+  curl --fail --silent --show-error --output /dev/null \
+    --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+    -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
+    -H "Content-Type: application/merge-patch+json" \
+    -X PATCH \
+    -d "{\"spec\":{\"replicas\":$2}}" \
+    "https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}/apis/apps/v1/namespaces/${POD_NAMESPACE}/deployments/$1/scale"
+}
+
+scale_all() {
+  failed=0
+  for deployment in ${SCALE_DEPLOYMENTS}; do
+    if scale_deployment "${deployment}" "$1"; then
+      log "scaled ${deployment} to replicas=$1"
+    else
+      log "failed to scale ${deployment} to replicas=$1"
+      failed=1
+    fi
+  done
+  return "${failed}"
+}
+
+last_size=0
+if [ "${BOOT_STATE}" = "warm" ]; then
+  last_access="$(date +%s)"
+else
+  last_access=$(( $(date +%s) - IDLE_SECONDS ))
+fi
+current=-1
+
+log "activator started boot_state=${BOOT_STATE} idle_seconds=${IDLE_SECONDS} poll_seconds=${POLL_SECONDS} deployments=${SCALE_DEPLOYMENTS}"
+
+while :; do
+  now="$(date +%s)"
+  size=0
+  if [ -f "${ACCESS_LOG}" ]; then
+    size="$(wc -c <"${ACCESS_LOG}")"
+  fi
+  if [ "${size}" -ne "${last_size}" ]; then
+    last_size="${size}"
+    last_access="${now}"
+  fi
+  if [ $(( now - last_access )) -lt "${IDLE_SECONDS}" ]; then
+    want=1
+  else
+    want=0
+  fi
+  if [ "${want}" -ne "${current}" ]; then
+    if scale_all "${want}"; then
+      current="${want}"
+    fi
+  fi
+  sleep "${POLL_SECONDS}"
+done
+ACTIVATOR_SCRIPT_EOF
+  cat <<EOF
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kestra-worker-activator
+  namespace: ${NAMESPACE}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kestra-worker-activator
+  namespace: ${NAMESPACE}
+rules:
+  - apiGroups:
+      - apps
+    resources:
+      - deployments/scale
+    resourceNames:
+${activator_scale_resource_names}
+    verbs:
+      - get
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kestra-worker-activator
+  namespace: ${NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kestra-worker-activator
+subjects:
+  - kind: ServiceAccount
+    name: kestra-worker-activator
+    namespace: ${NAMESPACE}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kestra-worker-activator
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: kestra-worker-activator
+    app.kubernetes.io/component: activator
+    app.kubernetes.io/instance: kestra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kestra-worker-activator
+      app.kubernetes.io/component: activator
+      app.kubernetes.io/instance: kestra
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kestra-worker-activator
+        app.kubernetes.io/component: activator
+        app.kubernetes.io/instance: kestra
+    spec:
+      serviceAccountName: kestra-worker-activator
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: activator-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: activator-log
+              mountPath: /var/log/kestra-activator
+        - name: scaler
+          image: curlimages/curl:8.12.1
+          command:
+            - /bin/sh
+            - /app/activator.sh
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SCALE_DEPLOYMENTS
+              value: "${activator_scale_deployments}"
+            - name: BOOT_STATE
+              value: "${activator_boot_state}"
+            - name: ACCESS_LOG
+              value: /var/log/kestra-activator/access.log
+            - name: IDLE_SECONDS
+              value: "${LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS}"
+            - name: POLL_SECONDS
+              value: "${LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS}"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          volumeMounts:
+            - name: activator-config
+              mountPath: /app/activator.sh
+              subPath: activator.sh
+            - name: activator-log
+              mountPath: /var/log/kestra-activator
+      volumes:
+        - name: activator-config
+          configMap:
+            name: kestra-worker-activator
+        - name: activator-log
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kestra-worker-activator
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: kestra-worker-activator
+    app.kubernetes.io/component: activator
+    app.kubernetes.io/instance: kestra
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: kestra-worker-activator
+    app.kubernetes.io/component: activator
+    app.kubernetes.io/instance: kestra
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+EOF
+}
+
+delete_routed_worker_activator() {
+  kubectl -n "$NAMESPACE" delete deployment kestra-worker-activator --ignore-not-found
+  kubectl -n "$NAMESPACE" delete service kestra-worker-activator --ignore-not-found
+  kubectl -n "$NAMESPACE" delete configmap kestra-worker-activator --ignore-not-found
+  kubectl -n "$NAMESPACE" delete rolebinding kestra-worker-activator --ignore-not-found
+  kubectl -n "$NAMESPACE" delete role kestra-worker-activator --ignore-not-found
+  kubectl -n "$NAMESPACE" delete serviceaccount kestra-worker-activator --ignore-not-found
+}
+
 if [[ "$LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED" == "true" ]]; then
   routed_k8s_workers="${tmpdir}/routed-k8s-workers.yaml"
   : >"$routed_k8s_workers"
@@ -410,7 +705,16 @@ if [[ "$LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED" == "true" ]]; then
     "${LIVE_GKE_ROUTED_K8S_WORKER_LARGE_NODE_NAME:-}" \
     >>"$routed_k8s_workers"
   kubectl apply -f "$routed_k8s_workers"
+  if [[ "$LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED" == "true" ]]; then
+    routed_worker_activator="${tmpdir}/routed-worker-activator.yaml"
+    : >"$routed_worker_activator"
+    render_routed_worker_activator >>"$routed_worker_activator"
+    kubectl apply -f "$routed_worker_activator"
+  else
+    delete_routed_worker_activator
+  fi
 else
+  delete_routed_worker_activator
   kubectl -n "$NAMESPACE" delete deployment \
     kestra-gke-worker-small \
     kestra-gke-worker-large \
@@ -430,8 +734,12 @@ if [[ "$GKE_WORKER_ENABLED" == "true" ]]; then
   kubectl -n "$NAMESPACE" rollout status deployment/kestra-worker --timeout=15m
 fi
 if [[ "$LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED" == "true" ]]; then
-  kubectl -n "$NAMESPACE" rollout status deployment/kestra-gke-worker-small --timeout=15m
-  kubectl -n "$NAMESPACE" rollout status deployment/kestra-gke-worker-large --timeout=15m
+  if [[ "$LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED" == "true" ]]; then
+    kubectl -n "$NAMESPACE" rollout status deployment/kestra-worker-activator --timeout=10m
+  else
+    kubectl -n "$NAMESPACE" rollout status deployment/kestra-gke-worker-small --timeout=15m
+    kubectl -n "$NAMESPACE" rollout status deployment/kestra-gke-worker-large --timeout=15m
+  fi
 fi
 kubectl -n "$NAMESPACE" get ingress kestra-webserver
 kubectl -n "$NAMESPACE" get service kestra-controller-grpc

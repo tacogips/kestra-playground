@@ -390,6 +390,55 @@ def test_gke_apply_script_supports_optional_placement_constrained_routed_workers
     assert "exec /app/kestra server worker --thread=${threads}" in script
 
 
+def test_gke_apply_script_supports_access_driven_scale_to_zero() -> None:
+    script = _read_text("scripts/apply-gke-dev.sh")
+
+    assert "routed_worker_replicas=0" in script
+    assert "name: kestra-worker-activator" in script
+    assert "resources:\n      - deployments/scale" in script
+    assert 'value: "${activator_scale_deployments}"' in script
+    assert 'value: "${activator_boot_state}"' in script
+    assert 'scale_all "${want}"' in script
+    assert "kestra-gke-worker-small kestra-gke-worker-large" in script
+    for deployment in (
+        "kestra-webserver",
+        "kestra-executor",
+        "kestra-scheduler",
+        "kestra-indexer",
+    ):
+        assert deployment in script
+
+
+def test_gke_apply_script_rejects_invalid_autoscale_flag_combinations() -> None:
+    worker_result = _run_bash(
+        "scripts/apply-gke-dev.sh",
+        env={
+            "LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED": "false",
+            "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED": "true",
+        },
+    )
+    control_plane_result = _run_bash(
+        "scripts/apply-gke-dev.sh",
+        env={
+            "LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED": "true",
+            "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED": "false",
+            "LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED": "true",
+        },
+    )
+
+    assert worker_result.returncode == 1
+    assert (
+        "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true requires "
+        "LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true"
+    ) in worker_result.stderr
+    assert control_plane_result.returncode == 1
+    assert (
+        "LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true requires "
+        "LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true and "
+        "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true"
+    ) in control_plane_result.stderr
+
+
 def test_gke_terraform_supports_standard_autoscaled_worker_node_pools() -> None:
     main_tf = _read_text("infra/terraform/gke-dev/main.tf")
     variables_tf = _read_text("infra/terraform/gke-dev/variables.tf")

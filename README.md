@@ -233,6 +233,21 @@ Autopilot shape, `nodeSelector: kubernetes.io/hostname` is rejected. Direct `spe
 accepted by the API, but it bypasses normal scheduling, does not trigger Autopilot scale-up, and
 can fail if the chosen node lacks local free CPU or memory.
 
+The routed K8s workers can also run with access-driven scale-from-zero instead of fixed replicas.
+Setting `LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true` together with
+`LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true` renders both worker Deployments at `replicas: 0` and
+deploys a resident `kestra-worker-activator` nginx proxy in front of `kestra-webserver`. The first
+request through `svc/kestra-worker-activator` (for example via
+`kubectl -n kestra-dev port-forward svc/kestra-worker-activator 8080:8080`) wakes all routed
+workers to one replica; after `LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS` (default 1800) without
+access an idle reaper scales them back to zero. HPA is intentionally not used because a second
+replica of one `workerGroupId` would break the one-worker-per-machine routing model. Adding
+`LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true` extends the same parking to the webserver,
+executor, scheduler, and indexer for a dev-only cost mode: the stack stays up for one idle window
+after each deploy, then parks entirely, and the next activator access boots it back (first request
+sees 502s during the JVM cold start, and schedule triggers do not fire while parked). See
+`design-docs/specs/design-gke-routed-worker-activator.md`.
+
 For exact worker-class placement with autoscale, set `gke_autopilot_enabled=false` in the GKE
 Terraform root. That creates GKE Standard autoscaled node pools labeled by worker group, so routed
 worker Deployments can select `kestra.tacogips.io/worker-group=gke-small` or `gke-large` and the

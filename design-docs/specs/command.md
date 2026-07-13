@@ -257,6 +257,45 @@ kubectl get nodes -L kestra.tacogips.io/worker-group,cloud.google.com/gke-nodepo
 The expected signal is the worker-class node becoming `SchedulingDisabled` and then disappearing
 after the cluster autoscaler removes unused node-pool capacity.
 
+### Routed Worker Scale-From-Zero (Activator)
+
+Use this path to run the routed on-prem-simulation workers with access-driven autoscaling instead
+of fixed replicas. HPA is intentionally not used; the mechanism is documented in
+`design-docs/specs/design-gke-routed-worker-activator.md`.
+
+```bash
+LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true \
+LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true \
+scripts/apply-gke-dev.sh
+
+# Access Kestra through the activator so workers wake from replicas: 0.
+kubectl -n kestra-dev port-forward svc/kestra-worker-activator 8080:8080
+
+# Observe wake-up and idle reaping.
+kubectl -n kestra-dev get deployment kestra-gke-worker-small kestra-gke-worker-large -w
+kubectl -n kestra-dev logs deployment/kestra-worker-activator -c scaler -f
+```
+
+Tune the idle window with `LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS` (default 1800 seconds) and the
+poll interval with `LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS` (default 10 seconds).
+Requests through the HTTPS Ingress bypass the activator and do not wake workers.
+
+For the dev-only full parking mode, add `LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true` so the
+activator also parks `kestra-webserver`, `kestra-executor`, `kestra-scheduler`, and
+`kestra-indexer` after the idle window and wakes them on the next activator access:
+
+```bash
+LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true \
+LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true \
+LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true \
+scripts/apply-gke-dev.sh
+```
+
+In this mode the scaler boots warm (everything stays up for one idle window after deploy), the
+first access to a parked stack returns 502 until the webserver JVM boots, schedule triggers do not
+fire while parked, and external HTTPS health checks fail while parked. See
+`design-docs/specs/design-gke-routed-worker-activator.md`.
+
 ### OSS K8s Per-Batch Pod Resources
 
 Use `kestra/flows-k8s-pod-resources/verify_k8s_pod_resources.yaml` when the goal is different
