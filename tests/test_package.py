@@ -186,6 +186,14 @@ def test_routed_image_build_installs_required_runtime_plugins() -> None:
     assert "io.kestra.plugin:plugin-jdbc-postgres:1.15.4" in install_step["run"]
 
 
+def test_gke_startup_probe_allows_routed_plugin_scan() -> None:
+    values = _yaml_load("k8s/helm/kestra-values.yaml")
+    startup_probe = values["common"]["startupProbe"]
+
+    assert startup_probe["timeoutSeconds"] == 5
+    assert startup_probe["failureThreshold"] == 300
+
+
 def test_k8s_podcreate_rbac_allows_batch_pod_lifecycle() -> None:
     kustomization = _yaml_load("k8s/base/kustomization.yaml")
     role = _yaml_document(

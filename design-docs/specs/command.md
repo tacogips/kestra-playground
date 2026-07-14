@@ -138,6 +138,8 @@ By default the GKE Helm install enables split `webserver`, `scheduler`, `executo
 `worker` Deployments with a worker-only HPA. Set `GKE_WORKER_ENABLED=false` when GKE should be a
 controller-only Kestra that observes and reruns executions while external GCE/on-prem workers claim
 the actual work through the shared backend or federated API pattern.
+The shared startup probe allows five seconds per health request and a 300-second startup window so
+plugin scanning on dev-sized CPU allocations is not mistaken for a failed JVM start.
 
 ### Federated OSS Dev-As-Prod
 

@@ -19,6 +19,15 @@ configurations:
 
 common:
   replicas: 1
+  startupProbe:
+    httpGet:
+      path: /health
+      port: management
+    initialDelaySeconds: 1
+    periodSeconds: 1
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 300
   extraEnvFrom:
     - secretRef:
         name: kestra-secrets
