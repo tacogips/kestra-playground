@@ -90,11 +90,21 @@ if [[ "${AUTH_MODE}" == "iap" ]]; then
   IAP_SERVICE_AGENT="service-${PROJECT_NUMBER}@gcp-sa-iap.iam.gserviceaccount.com"
 
   gcloud beta services identity create \
-    --service=iap.googleapis.com --project "${PROJECT_ID}" >/dev/null 2>&1 || true
-  gcloud run services add-iam-policy-binding "${SERVICE}" \
-    --project "${PROJECT_ID}" --region "${REGION}" \
-    --member "serviceAccount:${IAP_SERVICE_AGENT}" \
-    --role roles/run.invoker >/dev/null
+    --service=iap.googleapis.com --project "${PROJECT_ID}"
+  # The service agent can take a moment to propagate after creation.
+  for attempt in $(seq 1 12); do
+    if gcloud run services add-iam-policy-binding "${SERVICE}" \
+      --project "${PROJECT_ID}" --region "${REGION}" \
+      --member "serviceAccount:${IAP_SERVICE_AGENT}" \
+      --role roles/run.invoker >/dev/null 2>&1; then
+      break
+    fi
+    if [[ "${attempt}" == "12" ]]; then
+      echo "IAP service agent ${IAP_SERVICE_AGENT} still unavailable." >&2
+      exit 1
+    fi
+    sleep 10
+  done
   gcloud run services remove-iam-policy-binding "${SERVICE}" \
     --project "${PROJECT_ID}" --region "${REGION}" \
     --member allUsers --role roles/run.invoker >/dev/null 2>&1 || true
