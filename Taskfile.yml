@@ -255,6 +255,40 @@ tasks:
     cmds:
       - scripts/apply-gke-dev.sh
 
+  webconsole:install:
+    desc: Install web console dependencies with bun
+    dir: webconsole
+    cmds:
+      - bun install
+
+  webconsole:build:
+    desc: Build the web console frontend
+    dir: webconsole
+    cmds:
+      - bun run build
+
+  webconsole:typecheck:
+    desc: Typecheck the web console TypeScript sources
+    dir: webconsole
+    cmds:
+      - bunx tsc --noEmit
+
+  webconsole:serve:
+    desc: Run the web console server locally (uses webconsole/.env via direnv or exported vars)
+    dir: webconsole
+    cmds:
+      - bun run serve
+
+  webconsole:secrets:
+    desc: Register web console runtime values in Secret Manager (values from env/kinko)
+    cmds:
+      - scripts/setup-webconsole-secrets.sh
+
+  webconsole:deploy:
+    desc: Deploy the web console to Cloud Run
+    cmds:
+      - scripts/deploy-webconsole.sh
+
   install-git-hooks:
     desc: Install the Nix-managed pre-commit hook configuration
     cmds:
