@@ -271,8 +271,10 @@ def test_flow_registration_retries_transient_api_failures() -> None:
 
 def test_routed_live_deploy_enables_controller_and_routed_workers() -> None:
     script = _read_text("scripts/deploy-routed-live.sh")
+    verifier = _read_text("scripts/verify-live-routed.sh")
 
     assert 'ZONE="${ZONE:-asia-northeast1-b}"' in script
+    assert 'ZONE="${ZONE:-asia-northeast1-b}"' in verifier
     assert 'export TF_VAR_zone="${TF_VAR_zone:-${ZONE}}"' in script
     assert "export GKE_WORKER_ENABLED=false" in script
     assert (
