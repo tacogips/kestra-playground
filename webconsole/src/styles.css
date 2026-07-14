@@ -1,0 +1,11 @@
+.log-view {
+  max-height: 60vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 0.8rem;
+}
+
+.execution-row {
+  cursor: pointer;
+}

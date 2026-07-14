@@ -1,0 +1,23 @@
+{
+  "name": "kestra-webconsole",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev:client": "vite",
+    "serve": "bun run server/index.ts",
+    "start": "bun run build && bun run serve",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "solid-js": "^1.9.5"
+  },
+  "devDependencies": {
+    "bulma": "^1.0.4",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vite-plugin-solid": "^2.11.6",
+    "@types/bun": "^1.2.14"
+  }
+}

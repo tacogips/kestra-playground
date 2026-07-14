@@ -166,6 +166,19 @@ cold-start, success, failure, cleanup, and scale-to-zero verification with:
 task kestra:live:run-remote-batch-routed
 ```
 
+## Web Console on Cloud Run
+
+`webconsole/` contains a Bun + SolidJS console deployed to Cloud Run that calls the on-premise
+Kestra API to trigger the ecommerce batch flows and show the ten most recent executions with
+logs. Sign-in uses Google OAuth restricted to an allowlist of emails; the allowlist, OAuth
+client, session secret, and Kestra URL/credentials live only in Secret Manager and local env
+files, never in git. See `webconsole/README.md` for local development and:
+
+```bash
+kinko exec --env PROJECT_ID,WEBCONSOLE_ALLOWED_EMAILS,WEBCONSOLE_GOOGLE_CLIENT_ID,WEBCONSOLE_GOOGLE_CLIENT_SECRET,WEBCONSOLE_KESTRA_URL,WEBCONSOLE_KESTRA_BASIC_AUTH_USERNAME,WEBCONSOLE_KESTRA_BASIC_AUTH_PASSWORD -- task webconsole:secrets
+kinko exec --env PROJECT_ID -- task webconsole:deploy
+```
+
 ## GCP Deployment Shapes
 
 Terraform roots are split by phase:

@@ -43,6 +43,12 @@ crash.*.log
 **/.~lock*
 **/.DS_Store
 
+## web console (bun / solidjs)
+**/node_modules/
+webconsole/dist/
+webconsole/.env*
+!webconsole/.env.example
+
 ## tmp and local outputs
 result
 **/tmp
