@@ -1,0 +1,118 @@
+id: build_affiliate_partner_rankings
+namespace: playground.affiliate
+description: Rank affiliate partners by approved commission for a business date.
+
+labels:
+  environment: playground
+  domain: affiliate
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+    description: Date to rank partners for.
+
+pluginDefaults:
+  - type: io.kestra.plugin.jdbc.postgresql
+    values:
+      url: "{{ envs.batch_db_url }}"
+      username: "{{ envs.batch_db_username }}"
+      password: "{{ envs.batch_db_password }}"
+
+tasks:
+  - id: ensure_rankings_table
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      CREATE TABLE IF NOT EXISTS affiliate_partner_rankings (
+        business_date date NOT NULL,
+        partner_id integer NOT NULL REFERENCES affiliate_partners(partner_id),
+        partner_name text NOT NULL,
+        tier text NOT NULL,
+        total_clicks integer NOT NULL,
+        approved_conversions integer NOT NULL,
+        approved_commission numeric(14, 2) NOT NULL,
+        conversion_rate numeric(8, 5) NOT NULL,
+        commission_rank integer NOT NULL,
+        generated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (business_date, partner_id)
+      );
+
+  - id: purge_rankings
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      DELETE FROM affiliate_partner_rankings
+      WHERE business_date = '{{ inputs.business_date }}'::date;
+
+  - id: write_partner_rankings
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      INSERT INTO affiliate_partner_rankings (
+        business_date,
+        partner_id,
+        partner_name,
+        tier,
+        total_clicks,
+        approved_conversions,
+        approved_commission,
+        conversion_rate,
+        commission_rank
+      )
+      SELECT
+        '{{ inputs.business_date }}'::date,
+        p.partner_id,
+        p.partner_name,
+        p.tier,
+        activity.total_clicks,
+        activity.approved_conversions,
+        activity.approved_commission,
+        CASE
+          WHEN activity.total_clicks = 0 THEN 0
+          ELSE round(activity.approved_conversions::numeric / activity.total_clicks, 5)
+        END,
+        rank() OVER (ORDER BY activity.approved_commission DESC, p.partner_id)
+      FROM affiliate_partners p
+      JOIN LATERAL (
+        SELECT
+          COALESCE((
+            SELECT SUM(k.clicks)
+            FROM affiliate_clicks k
+            WHERE k.partner_id = p.partner_id
+              AND k.business_date = '{{ inputs.business_date }}'::date
+          ), 0)::integer AS total_clicks,
+          COALESCE((
+            SELECT SUM(c.conversions)
+            FROM affiliate_conversions c
+            WHERE c.partner_id = p.partner_id
+              AND c.business_date = '{{ inputs.business_date }}'::date
+              AND c.status = 'approved'
+          ), 0)::integer AS approved_conversions,
+          COALESCE((
+            SELECT SUM(c.commission_amount)
+            FROM affiliate_conversions c
+            WHERE c.partner_id = p.partner_id
+              AND c.business_date = '{{ inputs.business_date }}'::date
+              AND c.status = 'approved'
+          ), 0) AS approved_commission
+      ) AS activity ON true
+      WHERE p.active;
+
+  - id: fetch_ranking_summary
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    fetchType: FETCH
+    sql: |
+      SELECT
+        commission_rank,
+        partner_name,
+        tier,
+        total_clicks,
+        approved_conversions,
+        approved_commission,
+        conversion_rate
+      FROM affiliate_partner_rankings
+      WHERE business_date = '{{ inputs.business_date }}'::date
+      ORDER BY commission_rank
+      LIMIT 10;

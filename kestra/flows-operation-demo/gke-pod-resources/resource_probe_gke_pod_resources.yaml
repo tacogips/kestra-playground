@@ -31,7 +31,7 @@ tasks:
             - name: main
               image: "{{ envs.runtime_image }}"
               command:
-                - /app/kestra-playground/batches/resource_probe/run.sh
+                - /app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh
               env:
                 - name: BATCH_ID
                   value: resource_probe_gke_pod_resources
@@ -68,7 +68,7 @@ tasks:
             - name: main
               image: "{{ envs.runtime_image }}"
               command:
-                - /app/kestra-playground/batches/resource_probe/run.sh
+                - /app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh
               env:
                 - name: BATCH_ID
                   value: resource_probe_gke_pod_resources

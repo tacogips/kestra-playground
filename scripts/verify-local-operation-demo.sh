@@ -59,7 +59,7 @@ BUSINESS_DATE="${BUSINESS_DATE}" \
   BATCH_ID=resource_probe_unit \
   RESOURCE_CLASS=unit \
   OUTPUT_PATH="${TMPDIR:-/tmp}/kestra-resource-probe-unit.json" \
-  "${ROOT_DIR}/batches/resource_probe/run.sh" >/tmp/kestra-resource-probe-unit.log
+  "${ROOT_DIR}/batch-groups/ec/batches/resource_probe/run.sh" >/tmp/kestra-resource-probe-unit.log
 
 grep -q "batch_id=resource_probe_unit" /tmp/kestra-resource-probe-unit.log
 grep -q "resource_class=unit" /tmp/kestra-resource-probe-unit.log

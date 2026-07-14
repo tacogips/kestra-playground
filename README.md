@@ -1,8 +1,23 @@
 # kestra-playground
 
-Kestra deployment playground for ecommerce batch workflows. The repository keeps a small Python
-package scaffold, but the primary assets are Kestra flows, local runtime scripts, Terraform, and
-Kubernetes manifests.
+Kestra deployment playground for two independently managed batch groups. The repository keeps a
+small Python package scaffold, but the primary assets are Kestra flows, local runtime scripts,
+Terraform, and Kubernetes manifests.
+
+## Batch Groups
+
+Batch sources are managed per service system under `batch-groups/`:
+
+- `batch-groups/ec/` is the ecommerce batch group (flows, SQL fixtures, and Python/shell batch
+  sources). It may run fork-based Kestra images such as the `tacogips/kestra` routed-worker
+  build.
+- `batch-groups/affiliate/` is the affiliate batch group for a separate service. Its Kestra runtime
+  always uses the official `kestra/kestra` distribution, never a `tacogips/kestra` fork build.
+
+Both batch groups share one PostgreSQL server: each Kestra keeps its own metadata database (`kestra`
+for EC, `kestra_affiliate` for affiliate) while batch tables live in the shared batch database.
+Shared platform assets (Kestra server config and deployment-topology demo flows) stay under
+`kestra/`.
 
 ## Requirements
 
@@ -21,7 +36,7 @@ uv run pytest
 
 ## Kestra Workloads
 
-Three mock ecommerce flows live under `kestra/flows/`:
+Three mock ecommerce flows live under `batch-groups/ec/flows/`:
 
 - `generate_ecommerce_mock_data` creates product, customer, order, payment, inventory, and support
   ticket data in PostgreSQL.
@@ -65,7 +80,14 @@ batch tables. Runtime connection values are stored as separate Secret Manager en
 Kestra connection and the batch connection, even when a development target temporarily uses the same
 PostgreSQL login behind both secret families.
 
-The generated ecommerce data is tracked in `kestra/fixtures/ecommerce/`. The generator flow embeds
+Three affiliate flows live under `batch-groups/affiliate/flows/` and follow the same linear pattern
+against the shared batch database: `generate_affiliate_mock_data` seeds partners and daily
+click/conversion activity, `build_affiliate_daily_report` aggregates traffic, conversion, and
+commission metrics, and `build_affiliate_partner_rankings` ranks partners by approved commission.
+The affiliate batch source under `batch-groups/affiliate/batches/` mirrors the remote batch framework
+conventions used by the EC batch sources.
+
+The generated ecommerce data is tracked in `batch-groups/ec/fixtures/`. The generator flow embeds
 those SQL fixtures into PostgreSQL tasks, and the test suite checks that the deployed flow SQL stays
 in sync with the committed fixture files.
 
@@ -100,7 +122,16 @@ task kestra:flows:segments
 task kestra:local:docker:stop
 ```
 
-Kestra UI defaults to `http://localhost:8080`.
+Both start paths boot the two batch groups side by side against one PostgreSQL container: the EC
+Kestra UI defaults to `http://localhost:8080` and the affiliate Kestra UI to
+`http://localhost:8082`. The affiliate flows have their own task entry points:
+
+```bash
+task kestra:affiliate:flows:register
+task kestra:affiliate:flows:generate
+task kestra:affiliate:flows:report
+task kestra:affiliate:flows:rankings
+```
 
 Flow helper scripts can load credentials, URL settings, and default batch date settings from an env
 file:
@@ -223,7 +254,7 @@ trying to attach remote workers to one OSS worker queue. In the live dev-as-prod
 - `k8s` is the controller Kestra only and does not run a `kestra-worker` Deployment;
 - the `gke-dev` Terraform root also creates a GCE `controller-worker` VM that runs only
   `kestra server worker` against the GKE controller backend;
-- `kestra/flows` is rendered and registered only on the two GCE child deployments;
+- `batch-groups/ec/flows` is rendered and registered only on the two GCE child deployments;
 - `kestra/flows-federated` is registered only on the GKE controller.
 
 The controller flow calls child Kestra REST APIs, waits for child execution status, and records child
@@ -264,8 +295,9 @@ Kestra runtime images are published to Artifact Registry:
 <region>-docker.pkg.dev/<project-id>/kestra-playground/kestra-oss-worker-routing
 ```
 
-The runtime image extends `kestra/kestra:latest` and bakes in `kestra/flows/`,
-`kestra/fixtures/`, `kestra/config/`, and the Python batch source under `src/`. The deployment
+The runtime image extends `kestra/kestra:latest` and bakes in `batch-groups/` (per-system flows,
+fixtures, and batch sources), `kestra/config/`, and the Python package source under `src/`. The
+deployment
 workflow builds and pushes a commit-SHA tag plus `latest`, then passes the SHA-tagged image to
 Terraform through `KESTRA_IMAGE`. The GCE roots use that image in Docker Compose; the GKE apply
 helper applies the same image through Kustomize before `kubectl apply`.
@@ -351,6 +383,35 @@ and optional environment URL.
 Live Terraform state uses a GCS bucket provided through generated backend config. The live roots use
 per-root prefixes so GitHub Actions can deploy from a fresh checkout without recreating existing
 resources.
+
+## Per-Batch-Group Deploys
+
+`.github/workflows/deploy-batch-groups.yml` deploys the two batch groups independently:
+
+- Pushing a release tag selects the system by prefix: `EC-x.y.z` deploys `batch-groups/ec/flows` and
+  `AFFILIATE-x.y.z` deploys `batch-groups/affiliate/flows`. Tags that do not match the `x.y.z` version
+  shape fail the run.
+- Pushing to `main` deploys each system whose sources under `batch-groups/<system>/` changed in that
+  push, ignoring Markdown-only changes.
+
+Both paths run the standard project checks first and then call
+`scripts/deploy-batch-group.sh <system>`, which registers the system's flow directory against
+its Kestra endpoint. Endpoints resolve from `EC_KESTRA_DEPLOY_URL` /
+`AFFILIATE_KESTRA_DEPLOY_URL`, then from `LIVE_DOMAIN_NAME` subdomains
+(`LIVE_EC_KESTRA_SUBDOMAIN`, default `k8s`; `LIVE_AFFILIATE_KESTRA_SUBDOMAIN`, default
+`affiliate-kestra`), and fall back to the local endpoints. Basic Auth values come from the
+environment or from Secret Manager prefixes (`EC_KESTRA_AUTH_SECRET_PREFIX`, default
+`kestra-dev-gke`; `AFFILIATE_KESTRA_AUTH_SECRET_PREFIX`, default `kestra-affiliate`).
+
+The affiliate deploy target must always run the official `kestra/kestra` distribution; only the
+EC system may deploy onto `tacogips/kestra` fork builds such as the routed-worker image.
+
+The same deploys can be run manually:
+
+```bash
+task kestra:batch-groups:deploy:ec
+task kestra:batch-groups:deploy:affiliate
+```
 
 ## Operations Flow
 

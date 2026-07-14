@@ -117,8 +117,8 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== Local federated child namespaces (${KESTRA_URL}) ==="
-gce_a_flow_dir="$("${SCRIPT_DIR}/render-federated-child-flows.sh" gce_a kestra/flows "${tmp_dir}/server_gce_a")"
-gce_b_flow_dir="$("${SCRIPT_DIR}/render-federated-child-flows.sh" gce_b kestra/flows "${tmp_dir}/server_gce_b")"
+gce_a_flow_dir="$("${SCRIPT_DIR}/render-federated-child-flows.sh" gce_a batch-groups/ec/flows "${tmp_dir}/server_gce_a")"
+gce_b_flow_dir="$("${SCRIPT_DIR}/render-federated-child-flows.sh" gce_b batch-groups/ec/flows "${tmp_dir}/server_gce_b")"
 
 scripts/register-flows.sh "${KESTRA_URL}" "${gce_a_flow_dir}"
 scripts/register-flows.sh "${KESTRA_URL}" "${gce_b_flow_dir}"

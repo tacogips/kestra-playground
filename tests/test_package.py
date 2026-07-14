@@ -14,10 +14,10 @@ def test_greet_returns_expected_message() -> None:
 
 
 def test_ecommerce_fixture_sql_is_embedded_in_generator_flow() -> None:
-    flow = "kestra/flows/generate_ecommerce_mock_data.yaml"
+    flow = "batch-groups/ec/flows/generate_ecommerce_mock_data.yaml"
 
     assert _flow_task_sql(flow, "seed_dimensions") == _read_text(
-        "kestra/fixtures/ecommerce/seed_dimensions.sql"
+        "batch-groups/ec/fixtures/seed_dimensions.sql"
     )
     assert _flow_tasks_sql(
         flow,
@@ -28,22 +28,22 @@ def test_ecommerce_fixture_sql_is_embedded_in_generator_flow() -> None:
             "insert_inventory_snapshots",
             "insert_support_tickets",
         ],
-    ) == _read_text("kestra/fixtures/ecommerce/generate_daily_facts.sql")
+    ) == _read_text("batch-groups/ec/fixtures/generate_daily_facts.sql")
 
 
 def test_customer_segments_fixture_sql_is_embedded_in_batch_flow() -> None:
     assert _flow_tasks_sql(
-        "kestra/flows/build_ecommerce_customer_segments.yaml",
+        "batch-groups/ec/flows/build_ecommerce_customer_segments.yaml",
         [
             "ensure_customer_segments_table",
             "purge_customer_segments",
             "write_customer_segments",
         ],
-    ) == _read_text("kestra/fixtures/ecommerce/build_customer_segments.sql")
+    ) == _read_text("batch-groups/ec/fixtures/build_customer_segments.sql")
 
 
 def test_batch_flows_are_split_into_granular_otel_audit_tasks() -> None:
-    assert _flow_task_ids("kestra/flows/generate_ecommerce_mock_data.yaml") == [
+    assert _flow_task_ids("batch-groups/ec/flows/generate_ecommerce_mock_data.yaml") == [
         "create_tables",
         "seed_dimensions",
         "purge_daily_facts",
@@ -53,7 +53,7 @@ def test_batch_flows_are_split_into_granular_otel_audit_tasks() -> None:
         "insert_support_tickets",
         "summarize_generated_data",
     ]
-    assert _flow_task_ids("kestra/flows/build_ecommerce_daily_report.yaml") == [
+    assert _flow_task_ids("batch-groups/ec/flows/build_ecommerce_daily_report.yaml") == [
         "ensure_report_table",
         "purge_report",
         "write_sales_summary",
@@ -63,7 +63,7 @@ def test_batch_flows_are_split_into_granular_otel_audit_tasks() -> None:
         "write_support_summary",
         "fetch_report",
     ]
-    assert _flow_task_ids("kestra/flows/build_ecommerce_customer_segments.yaml") == [
+    assert _flow_task_ids("batch-groups/ec/flows/build_ecommerce_customer_segments.yaml") == [
         "ensure_customer_segments_table",
         "purge_customer_segments",
         "write_customer_segments",
@@ -519,7 +519,7 @@ def test_k8s_pod_resource_verifier_registers_resource_flow() -> None:
 
 
 def test_operation_demo_uses_one_batch_source_with_environment_specific_flows() -> None:
-    batch_source = Path("batches/resource_probe/run.sh")
+    batch_source = Path("batch-groups/ec/batches/resource_probe/run.sh")
     local_flow = _yaml_load("kestra/flows-operation-demo/local/resource_probe_local.yaml")
     gke_flow = _yaml_load(
         "kestra/flows-operation-demo/gke-pod-resources/resource_probe_gke_pod_resources.yaml"
@@ -530,13 +530,19 @@ def test_operation_demo_uses_one_batch_source_with_environment_specific_flows() 
 
     assert batch_source.is_file()
     assert "ARG KESTRA_BASE_IMAGE=kestra/kestra:v1.3.15" in _read_text("Dockerfile")
-    assert "/app/kestra-playground/batches/resource_probe/run.sh" in _read_text("Dockerfile")
-    assert "/app/kestra-playground/batches" in _read_text("local/docker/docker-compose.yml")
-    assert "/app/kestra-playground/batches" in _read_text("local/apple-container/start.sh")
+    assert "/app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh" in _read_text(
+        "Dockerfile"
+    )
+    assert "/app/kestra-playground/batch-groups/ec/batches" in _read_text(
+        "local/docker/docker-compose.yml"
+    )
+    assert "/app/kestra-playground/batch-groups/ec/batches" in _read_text(
+        "local/apple-container/start.sh"
+    )
 
     assert local_flow["tasks"][0]["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
     assert (
-        "/app/kestra-playground/batches/resource_probe/run.sh"
+        "/app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh"
         in local_flow["tasks"][0]["commands"][0]
     )
 
@@ -565,7 +571,10 @@ def test_operation_demo_uses_one_batch_source_with_environment_specific_flows() 
     assert routed_tasks["batch_2_on_gce_b"]["workerSelector"]["tags"] == ["gce-b"]
     for task in routed_flow["tasks"]:
         assert task["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
-        assert "/app/kestra-playground/batches/resource_probe/run.sh" in task["commands"][0]
+        assert (
+            "/app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh"
+            in task["commands"][0]
+        )
 
 
 def test_operation_demo_runtime_image_and_ci_entrypoints_are_configured() -> None:
@@ -605,7 +614,7 @@ def test_operation_demo_runtime_image_and_ci_entrypoints_are_configured() -> Non
     copy_step = next(
         step for step in routed_build_steps if step["name"] == "Copy operation demo batch source"
     )
-    assert "kestra-source/docker/app/kestra-playground/batches" in copy_step["run"]
+    assert "kestra-source/docker/app/kestra-playground/batch-groups/ec/batches" in copy_step["run"]
     local_script = _read_text("scripts/verify-local-operation-demo.sh")
     assert "KESTRA_ENV_FILE" in local_script
     assert "kestra/flows-operation-demo/local" in local_script

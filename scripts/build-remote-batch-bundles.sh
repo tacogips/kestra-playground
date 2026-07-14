@@ -20,13 +20,13 @@ uv run python \
   "${STAGING_ROOT}/fixtures"
 
 cp \
-  "${ROOT_DIR}/batches/db_export/export_database.py" \
+  "${ROOT_DIR}/batch-groups/ec/batches/db_export/export_database.py" \
   "${STAGING_ROOT}/batches/db_export/export_database.py"
 cp \
   "${STAGING_ROOT}/fixtures/ecommerce.db" \
   "${STAGING_ROOT}/batches/db_export/fixtures/ecommerce.db"
 cp \
-  "${ROOT_DIR}/batches/log_parse/parse_logs.py" \
+  "${ROOT_DIR}/batch-groups/ec/batches/log_parse/parse_logs.py" \
   "${STAGING_ROOT}/batches/log_parse/parse_logs.py"
 cp \
   "${STAGING_ROOT}/fixtures/application.jsonl" \

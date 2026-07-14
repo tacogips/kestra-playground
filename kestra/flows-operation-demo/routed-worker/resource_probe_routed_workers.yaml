@@ -24,7 +24,7 @@ tasks:
         RESOURCE_CLASS=gce-a \
         BUSINESS_DATE="{{ inputs.business_date }}" \
         WORKER_GROUP=gce-a \
-        /app/kestra-playground/batches/resource_probe/run.sh
+        /app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh
 
   - id: batch_2_on_gce_b
     type: io.kestra.plugin.scripts.shell.Commands
@@ -41,4 +41,4 @@ tasks:
         RESOURCE_CLASS=gce-b \
         BUSINESS_DATE="{{ inputs.business_date }}" \
         WORKER_GROUP=gce-b \
-        /app/kestra-playground/batches/resource_probe/run.sh
+        /app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh

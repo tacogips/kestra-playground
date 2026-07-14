@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SERVER_KEY="${1:-}"
-SOURCE_DIR="${2:-kestra/flows}"
+SOURCE_DIR="${2:-batch-groups/ec/flows}"
 OUTPUT_DIR="${3:-}"
 BASE_NAMESPACE="${BASE_NAMESPACE:-playground.ecommerce}"
 

@@ -9,7 +9,7 @@ if [[ -n "${KESTRA_ENV_FILE:-}" ]]; then
 fi
 
 KESTRA_URL="${1:-${KESTRA_URL:-http://localhost:8080}}"
-FLOW_DIR="${2:-kestra/flows}"
+FLOW_DIR="${2:-batch-groups/ec/flows}"
 REGISTER_FLOW_ATTEMPTS="${REGISTER_FLOW_ATTEMPTS:-6}"
 REGISTER_FLOW_RETRY_DELAY="${REGISTER_FLOW_RETRY_DELAY:-10}"
 

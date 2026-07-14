@@ -8,6 +8,7 @@ services:
       BATCH_DB: ${BATCH_DB}
       BATCH_DB_USER: ${BATCH_DB_USER}
       BATCH_DB_PASSWORD: ${BATCH_DB_PASSWORD}
+      AFFILIATE_KESTRA_DB: ${AFFILIATE_KESTRA_DB}
     ports:
       - "5432:5432"
     volumes:
@@ -19,8 +20,10 @@ services:
       timeout: 5s
       retries: 10
 
-  kestra:
-    image: kestra/kestra:latest
+  kestra-ec:
+    # The EC batch group may run fork-based images (for example the tacogips/kestra
+    # routed-worker build) by overriding EC_KESTRA_IMAGE.
+    image: ${EC_KESTRA_IMAGE:-kestra/kestra:latest}
     user: "root"
     command: server standalone --worker-thread=64 --config /etc/kestra/application.yaml
     depends_on:
@@ -53,10 +56,42 @@ services:
       - "8080:8080"
       - "8081:8081"
     volumes:
-      - kestra-data:/app/storage
+      - kestra-ec-data:/app/storage
       - /tmp/kestra-wd:/tmp/kestra-wd
       - ../../kestra/config/application.yaml:/etc/kestra/application.yaml:ro
-      - ../../batches:/app/kestra-playground/batches:ro
+      - ../../batch-groups/ec/batches:/app/kestra-playground/batch-groups/ec/batches:ro
+
+  kestra-affiliate:
+    # The affiliate batch group always runs the official kestra/kestra image; never
+    # point AFFILIATE_KESTRA_IMAGE at a tacogips/kestra fork build.
+    image: ${AFFILIATE_KESTRA_IMAGE:-kestra/kestra:latest}
+    user: "root"
+    command: server standalone --worker-thread=64 --config /etc/kestra/application.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      KESTRA_DB_URL: ${AFFILIATE_KESTRA_DB_URL}
+      KESTRA_DB_USERNAME: ${KESTRA_DB_USERNAME}
+      KESTRA_DB_PASSWORD: ${KESTRA_DB_PASSWORD}
+      KESTRA_URL: ${AFFILIATE_KESTRA_URL}
+      KESTRA_STORAGE_TYPE: ${KESTRA_STORAGE_TYPE}
+      KESTRA_LOCAL_STORAGE_PATH: ${KESTRA_LOCAL_STORAGE_PATH}
+      KESTRA_BASIC_AUTH_USERNAME: ${KESTRA_BASIC_AUTH_USERNAME}
+      KESTRA_BASIC_AUTH_PASSWORD: ${KESTRA_BASIC_AUTH_PASSWORD}
+      KESTRA_SERVER_BASIC__AUTH_USERNAME: ${KESTRA_BASIC_AUTH_USERNAME}
+      KESTRA_SERVER_BASIC__AUTH_PASSWORD: ${KESTRA_BASIC_AUTH_PASSWORD}
+      ENV_BATCH_DB_URL: ${ENV_BATCH_DB_URL}
+      ENV_BATCH_DB_USERNAME: ${ENV_BATCH_DB_USERNAME}
+      ENV_BATCH_DB_PASSWORD: ${ENV_BATCH_DB_PASSWORD}
+    ports:
+      - "8082:8080"
+      - "8083:8081"
+    volumes:
+      - kestra-affiliate-data:/app/storage
+      - /tmp/kestra-affiliate-wd:/tmp/kestra-wd
+      - ../../kestra/config/application.yaml:/etc/kestra/application.yaml:ro
+      - ../../batch-groups/affiliate/batches:/app/kestra-playground/batch-groups/affiliate/batches:ro
 
   remote-worker:
     build:
@@ -71,4 +106,5 @@ services:
 
 volumes:
   postgres-data:
-  kestra-data:
+  kestra-ec-data:
+  kestra-affiliate-data:

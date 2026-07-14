@@ -95,13 +95,13 @@ done
   "${FLOW_REGISTER_DIR}"
 "${ROOT_DIR}/scripts/build-remote-batch-bundles.sh" "${REMOTE_BATCH_BUNDLE_DIR}"
 upload_namespace_file \
-  "${ROOT_DIR}/batches/db_export/export_database.py" \
+  "${ROOT_DIR}/batch-groups/ec/batches/db_export/export_database.py" \
   batches/db_export/export_database.py
 upload_namespace_file \
   "${REMOTE_BATCH_BUNDLE_DIR}/db_export.tar.gz" \
   bundles/db_export.tar.gz
 upload_namespace_file \
-  "${ROOT_DIR}/batches/log_parse/parse_logs.py" \
+  "${ROOT_DIR}/batch-groups/ec/batches/log_parse/parse_logs.py" \
   batches/log_parse/parse_logs.py
 upload_namespace_file \
   "${REMOTE_BATCH_BUNDLE_DIR}/log_parse.tar.gz" \
