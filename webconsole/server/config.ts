@@ -1,7 +1,7 @@
 export interface AppConfig {
   port: number;
   appBaseUrl: string;
-  authMode: "google" | "disabled";
+  authMode: "google" | "iap" | "disabled";
   googleClientId: string;
   googleClientSecret: string;
   allowedEmails: string[];
@@ -36,8 +36,8 @@ function optional(name: string, fallback: string): string {
 
 export function loadConfig(): AppConfig {
   const authMode = optional("AUTH_MODE", "google");
-  if (authMode !== "google" && authMode !== "disabled") {
-    throw new Error(`AUTH_MODE must be "google" or "disabled", got: ${authMode}`);
+  if (authMode !== "google" && authMode !== "iap" && authMode !== "disabled") {
+    throw new Error(`AUTH_MODE must be "google", "iap", or "disabled", got: ${authMode}`);
   }
   if (authMode === "disabled") {
     console.warn(
@@ -53,7 +53,7 @@ export function loadConfig(): AppConfig {
     googleClientId: authMode === "google" ? required("GOOGLE_CLIENT_ID") : "",
     googleClientSecret: authMode === "google" ? required("GOOGLE_CLIENT_SECRET") : "",
     allowedEmails:
-      authMode === "google"
+      authMode === "google" || authMode === "iap"
         ? required("ALLOWED_EMAILS")
             .split(",")
             .map((email) => email.trim().toLowerCase())
@@ -90,7 +90,7 @@ export function loadConfig(): AppConfig {
       password: optional("KESTRA_BASIC_AUTH_PASSWORD", ""),
     },
   };
-  if (authMode === "google" && config.allowedEmails.length === 0) {
+  if (authMode !== "disabled" && config.allowedEmails.length === 0) {
     throw new Error("ALLOWED_EMAILS must contain at least one email address");
   }
   return config;

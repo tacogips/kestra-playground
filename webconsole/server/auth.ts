@@ -64,6 +64,22 @@ export class Authenticator {
     if (this.config.authMode === "disabled") {
       return { email: "dev@localhost", expiresAt: Number.MAX_SAFE_INTEGER };
     }
+    if (this.config.authMode === "iap") {
+      // With Cloud Run's IAP integration enabled (and allUsers invoker
+      // removed), only IAP-proxied requests reach the container, so this
+      // header is set by IAP after Google sign-in. The allowlist check is a
+      // second enforcement layer on top of the IAP IAM policy.
+      const header = request.headers.get("x-goog-authenticated-user-email");
+      if (header === null) {
+        return null;
+      }
+      const email = (header.split(":").pop() ?? "").toLowerCase();
+      if (email === "" || !this.config.allowedEmails.includes(email)) {
+        console.warn(`[auth] rejected IAP-authenticated user ${email}`);
+        return null;
+      }
+      return { email, expiresAt: Number.MAX_SAFE_INTEGER };
+    }
     const token = parseCookies(request)[SESSION_COOKIE];
     if (token === undefined) {
       return null;
@@ -84,6 +100,9 @@ export class Authenticator {
   }
 
   loginRedirect(): Response {
+    if (this.config.authMode !== "google") {
+      return new Response(null, { status: 302, headers: { Location: "/" } });
+    }
     const state = crypto.randomUUID();
     const params = new URLSearchParams({
       client_id: this.config.googleClientId,
@@ -174,6 +193,13 @@ export class Authenticator {
   }
 
   logout(): Response {
+    if (this.config.authMode === "iap") {
+      // Clears the IAP session cookie.
+      return new Response(null, {
+        status: 302,
+        headers: { Location: "/?gcp-iap-mode=GCP_IAP_LOGOUT" },
+      });
+    }
     return new Response(null, {
       status: 302,
       headers: {

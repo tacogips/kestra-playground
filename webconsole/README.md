@@ -6,8 +6,12 @@ logs.
 
 - Runtime: Bun (`Bun.serve`) serving both the JSON API and the built frontend
 - Frontend: SolidJS + Bulma, built with Vite
-- Sign-in: Google OAuth 2.0 authorization-code flow enforced by the Bun server;
-  only the email addresses listed in `ALLOWED_EMAILS` may sign in
+- Sign-in: Cloud Run's IAP integration with a Google-managed OAuth client
+  (production default); IAP performs the Google login and IAM restricts access
+  to the allowlisted users, then the Bun server enforces the same
+  `ALLOWED_EMAILS` allowlist again from Secret Manager. An in-app Google OAuth
+  authorization-code flow (`AUTH_MODE=google`) is also available and needs a
+  manually created OAuth web client
 - Kestra access: Basic Auth against `KESTRA_URL`, tenant `main`
 
 Configuration is environment-only. Locally it comes from `webconsole/.env`
@@ -35,9 +39,13 @@ redirect URI `http://localhost:8787/auth/callback`, then set
 
 ## Deploy to Cloud Run
 
-One-time: create a Google OAuth 2.0 **Web application** client in the GCP
-console (APIs & Services > Credentials). After the first deploy, add the
-printed `https://<service-url>/auth/callback` as an authorized redirect URI.
+The default `AUTH_MODE=iap` needs no OAuth client: the deploy script enables
+IAP on the service, removes public invocation, and grants
+`roles/iap.httpsResourceAccessor` to each address in the
+`webconsole-allowed-emails` secret. For `AUTH_MODE=google`, first create a
+Google OAuth 2.0 **Web application** client in the GCP console and store it in
+the `webconsole-google-client-*` secrets, then add the printed
+`https://<service-url>/auth/callback` as an authorized redirect URI.
 
 ```bash
 # 1. Register runtime values in Secret Manager (values from kinko/env, not git)
@@ -64,7 +72,7 @@ in the `webconsole-allowed-emails` secret.
 
 | Variable | Purpose |
 | --- | --- |
-| `AUTH_MODE` | `google` (default) or `disabled` (local dev only) |
+| `AUTH_MODE` | `iap` (Cloud Run deploy default), `google`, or `disabled` (local dev only) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth 2.0 web client |
 | `ALLOWED_EMAILS` | Comma-separated allowed Google account emails |
 | `SESSION_SECRET` | HMAC key for session cookies |
