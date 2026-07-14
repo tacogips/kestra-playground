@@ -100,7 +100,9 @@ const server = Bun.serve({
     const url = new URL(request.url);
     const pathname = url.pathname;
 
-    if (pathname === "/healthz") {
+    // Google Frontend intercepts /healthz on run.app domains, so the health
+    // endpoint lives under /api/ where it reaches the container.
+    if (pathname === "/api/health" || pathname === "/healthz") {
       return json(200, { status: "ok" });
     }
     if (pathname === "/auth/login") {
