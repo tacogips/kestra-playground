@@ -190,7 +190,7 @@ wait_for_execution() {
         echo "${execution_json}"
         return 0
         ;;
-      FAILED | KILLED | WARNING)
+      FAILED | KILLED | CANCELLED | WARNING)
         echo "Federated controller execution ${execution_id} ended with state ${state}." >&2
         jq -r '.state.histories // []' <<<"${execution_json}" >&2
         return 1

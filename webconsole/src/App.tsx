@@ -32,6 +32,7 @@ function stateTagClass(state: string): string {
     case "QUEUED":
       return "tag is-warning";
     case "KILLED":
+    case "CANCELLED":
     case "WARNING":
       return "tag is-warning is-light";
     default:

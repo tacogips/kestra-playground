@@ -152,7 +152,7 @@ wait_for_execution() {
         echo "${execution_json}"
         return 0
         ;;
-      FAILED | KILLED | WARNING)
+      FAILED | KILLED | CANCELLED | WARNING)
         echo "Routed worker verification execution ${execution_id} ended with state ${state}." >&2
         print_execution_diagnostics "${execution_json}"
         return 1

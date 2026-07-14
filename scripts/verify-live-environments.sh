@@ -95,7 +95,7 @@ wait_for_execution() {
         print_execution_outputs "${execution_json}"
         return 0
         ;;
-      FAILED | KILLED | WARNING)
+      FAILED | KILLED | CANCELLED | WARNING)
         echo "Execution ${execution_id} ended with state ${state}." >&2
         return 1
         ;;

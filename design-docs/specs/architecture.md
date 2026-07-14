@@ -191,7 +191,7 @@ The production-like OSS hybrid path is federated rather than queue-shared:
 - the controller flow calls child Kestra REST APIs, waits for child execution state, and records
   child execution IDs in controller task outputs.
 
-The invariant is that no Kestra worker process runs in GKE. Any work executed by a Kestra worker,
+For the federated topology, the invariant is that no Kestra worker process runs in GKE. Any work executed by a Kestra worker,
 including lightweight controller HTTP and polling tasks, is picked up by the GCE controller-worker
 VM attached to the GKE controller backend. Ecommerce batch child flows are not registered or
 executed on GKE; all JDBC batch work is placed on the two GCE child Kestra targets by URL and
@@ -241,6 +241,11 @@ pod name and node name into task logs. The verification flow
 `playground.worker_routing.verify_gke_node_worker_routing` proves that tasks selected with
 `workerSelector.tags` are claimed by the expected worker Deployment and therefore run in the worker
 pod's placement domain.
+
+The routed live deployment enables these two Kubernetes worker groups with fixed replicas in
+addition to the GCE groups. This is required by the public Cloud Run batch console: its remote-batch
+flows select `gke-small` and `gke-large`, and its requests reach the normal HTTPS ingress rather
+than the activator Service. The generic Helm `kestra-worker` remains disabled.
 
 Those routed worker Deployments must not be HPA targets, because a second replica of the same
 `workerGroupId` would compete for the same queue and break the one-worker-per-machine simulation.

@@ -277,11 +277,33 @@ def test_routed_live_deploy_enables_controller_and_routed_workers() -> None:
     assert 'ZONE="${ZONE:-asia-northeast1-b}"' in verifier
     assert 'export TF_VAR_zone="${TF_VAR_zone:-${ZONE}}"' in script
     assert "export GKE_WORKER_ENABLED=false" in script
-    assert (
-        'export LIVE_GKE_CONTROLLER_WORKER_ENABLED="${LIVE_GKE_CONTROLLER_WORKER_ENABLED:-true}"'
-        in script
-    )
+    assert "export LIVE_GKE_CONTROLLER_WORKER_ENABLED=true" in script
     assert "export LIVE_GKE_ROUTED_WORKERS_ENABLED=true" in script
+    assert "export LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true" in script
+    assert "export LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=false" in script
+
+
+def test_execution_pollers_and_webconsole_handle_cancelled_as_terminal() -> None:
+    pollers = (
+        "scripts/verify-local-remote-batch.sh",
+        "scripts/verify-live-remote-batch-routed.sh",
+        "scripts/verify-live-operation-demo-gke-pod-resources.sh",
+        "scripts/verify-live-gke-node-routing.sh",
+        "scripts/verify-live-operation-demo-routed.sh",
+        "scripts/verify-live-k8s-pod-resources.sh",
+        "scripts/verify-live-federated.sh",
+        "scripts/verify-live-routed.sh",
+        "scripts/verify-live-environments.sh",
+        "scripts/verify-local-operation-demo.sh",
+        "scripts/verify-local-federated.sh",
+    )
+
+    for poller in pollers:
+        assert "CANCELLED" in _read_text(poller), poller
+
+    assert 'case "CANCELLED":' in _read_text("webconsole/src/App.tsx")
+    federated_flow = _read_text("kestra/flows-federated/run_federated_ecommerce_batch.yaml")
+    assert federated_flow.count('.state.current == \\"CANCELLED\\"') == 4
 
 
 def test_live_health_check_accepts_root_when_ui_route_is_absent() -> None:
