@@ -59,6 +59,14 @@ export class KestraClient {
     for (const [key, value] of Object.entries(inputs)) {
       form.append(key, value);
     }
+    const bundlePath = this.config.flowBundles[flowId];
+    if (bundlePath !== undefined) {
+      const bundle = Bun.file(bundlePath);
+      if (!(await bundle.exists())) {
+        throw new Error(`Bundle file for flow ${flowId} not found: ${bundlePath}`);
+      }
+      form.append("batch_bundle", bundle, bundlePath.split("/").pop() ?? "bundle.tar.gz");
+    }
     const response = await this.request(
       `/executions/${this.config.namespace}/${flowId}`,
       { method: "POST", body: form },

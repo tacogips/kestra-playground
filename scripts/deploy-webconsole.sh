@@ -34,6 +34,10 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
   secretmanager.googleapis.com artifactregistry.googleapis.com \
   --project "${PROJECT_ID}"
 
+# The routed remote-batch flows take an execution-scoped source bundle as a
+# FILE input; bake freshly built bundles into the console image.
+"${REPO_ROOT}/scripts/build-remote-batch-bundles.sh" "${REPO_ROOT}/webconsole/bundles"
+
 if ! gcloud iam service-accounts describe "${SERVICE_ACCOUNT}" \
   --project "${PROJECT_ID}" >/dev/null 2>&1; then
   gcloud iam service-accounts create "${SERVICE_ACCOUNT_NAME}" \
@@ -57,7 +61,7 @@ gcloud run deploy "${SERVICE}" \
   --min-instances 0 \
   --max-instances 2 \
   --memory 512Mi \
-  --set-env-vars "^|^AUTH_MODE=google|KESTRA_TENANT=main|KESTRA_NAMESPACE=${KESTRA_NAMESPACE:-playground.ecommerce}|KESTRA_FLOW_IDS=${KESTRA_FLOW_IDS:-generate_ecommerce_mock_data,build_ecommerce_daily_report,build_ecommerce_customer_segments}" \
+  --set-env-vars "^|^AUTH_MODE=google|KESTRA_TENANT=main|KESTRA_NAMESPACE=${KESTRA_NAMESPACE:-playground.remote_batch}|KESTRA_FLOW_IDS=${KESTRA_FLOW_IDS:-export_database_to_csv_routed,parse_application_logs_routed}|KESTRA_FLOW_BUNDLES=${KESTRA_FLOW_BUNDLES:-export_database_to_csv_routed=bundles/db_export.tar.gz,parse_application_logs_routed=bundles/log_parse.tar.gz}" \
   --set-secrets "ALLOWED_EMAILS=webconsole-allowed-emails:latest,GOOGLE_CLIENT_ID=webconsole-google-client-id:latest,GOOGLE_CLIENT_SECRET=webconsole-google-client-secret:latest,SESSION_SECRET=webconsole-session-secret:latest,KESTRA_URL=webconsole-kestra-url:latest,KESTRA_BASIC_AUTH_USERNAME=webconsole-kestra-basic-auth-username:latest,KESTRA_BASIC_AUTH_PASSWORD=webconsole-kestra-basic-auth-password:latest"
 
 SERVICE_URL="$(gcloud run services describe "${SERVICE}" \

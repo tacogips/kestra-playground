@@ -48,6 +48,8 @@ crash.*.log
 webconsole/dist/
 webconsole/.env*
 !webconsole/.env.example
+webconsole/bundles/*
+!webconsole/bundles/.gitkeep
 
 ## tmp and local outputs
 result

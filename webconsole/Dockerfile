@@ -4,6 +4,7 @@ COPY package.json bun.lock tsconfig.json vite.config.ts index.html ./
 RUN bun install --frozen-lockfile
 COPY src ./src
 COPY server ./server
+COPY bundles ./bundles
 RUN bun run build
 
 FROM oven/bun:1.3-slim
@@ -12,6 +13,7 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server ./server
+COPY --from=build /app/bundles ./bundles
 COPY --from=build /app/package.json ./package.json
 EXPOSE 8080
 CMD ["bun", "run", "server/index.ts"]

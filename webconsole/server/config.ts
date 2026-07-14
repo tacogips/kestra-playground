@@ -15,6 +15,8 @@ export interface KestraConfig {
   tenant: string;
   namespace: string;
   flowIds: string[];
+  /** flowId -> local tar.gz path attached as the flow's batch_bundle FILE input. */
+  flowBundles: Record<string, string>;
   username: string;
   password: string;
 }
@@ -74,6 +76,16 @@ export function loadConfig(): AppConfig {
         .split(",")
         .map((flowId) => flowId.trim())
         .filter((flowId) => flowId.length > 0),
+      flowBundles: Object.fromEntries(
+        optional("KESTRA_FLOW_BUNDLES", "")
+          .split(",")
+          .map((pair) => pair.trim())
+          .filter((pair) => pair.includes("="))
+          .map((pair) => {
+            const separator = pair.indexOf("=");
+            return [pair.slice(0, separator), pair.slice(separator + 1)];
+          }),
+      ),
       username: optional("KESTRA_BASIC_AUTH_USERNAME", ""),
       password: optional("KESTRA_BASIC_AUTH_PASSWORD", ""),
     },
