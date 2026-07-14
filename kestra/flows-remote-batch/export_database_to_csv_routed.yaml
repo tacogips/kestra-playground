@@ -1,0 +1,54 @@
+id: export_database_to_csv_routed
+namespace: playground.remote_batch
+description: Localize and run the database export on a selected scale-from-zero routed worker.
+
+labels:
+  pattern: routed-python-batch
+  example: database-export
+
+inputs:
+  - id: batch_bundle
+    type: FILE
+    required: true
+
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+
+  - id: worker_group
+    type: STRING
+    defaults: gke-small
+
+tasks:
+  - id: run_remote_batch
+    type: io.kestra.plugin.core.flow.Subflow
+    namespace: playground.remote_batch
+    flowId: routed_batch_runner
+    wait: true
+    transmitFailed: true
+    inputs:
+      batch_bundle: "{{ inputs.batch_bundle }}"
+      source_root: batches/db_export
+      script_name: batches/db_export/export_database.py
+      config_json: >-
+        {"database_path":"batches/db_export/fixtures/ecommerce.db","query":"SELECT order_id, business_date, customer_id, status, net_amount FROM orders WHERE business_date = '{{ inputs.business_date }}' ORDER BY order_id"}
+      output_file: "orders-{{ inputs.business_date }}.csv"
+      worker_group: "{{ inputs.worker_group }}"
+
+outputs:
+  - id: artifact
+    type: FILE
+    value: "{{ outputs.run_remote_batch.outputs is defined ? outputs.run_remote_batch.outputs.artifact : inputs.batch_bundle }}"
+
+  - id: artifact_checksum
+    type: STRING
+    value: "{{ outputs.run_remote_batch.outputs is defined ? outputs.run_remote_batch.outputs.artifact_checksum : 'not-collected' }}"
+
+  - id: worker_group
+    type: STRING
+    value: "{{ outputs.run_remote_batch.outputs is defined ? outputs.run_remote_batch.outputs.worker_group : inputs.worker_group }}"
+
+  - id: worker_pod
+    type: STRING
+    value: "{{ outputs.run_remote_batch.outputs is defined ? outputs.run_remote_batch.outputs.worker_pod : 'not-started' }}"

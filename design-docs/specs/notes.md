@@ -132,3 +132,30 @@ Notable items that do not fit into architecture or client categories.
   because the upstream queue migration expected a `queue_type` enum, while the live `queues.type`
   column is text with custom event-name values. Keep server roles on the compatible custom image
   unless the database is rebuilt or explicitly migrated.
+- The remote Python batch framework was verified locally on 2026-07-13 with Kestra `1.3.24` and
+  File System plugin `2.10.2`. Database export parent/runner executions
+  `T3Wksz8ugIv0r7gcaGYxj` / `tROeLH4b0KcyhLQ90v9gr` and log parse executions
+  `5D4NRFjQVMr8Ac98KJ6vEe` / `6XLDH659FyCySBLNKVRv1Y` completed all source-resolution, SSH,
+  SFTP, execution, artifact, and cleanup stages successfully. Missing-log parent/runner executions
+  `5SiYk5YQ3h5usHNaY3Wm69` / `3E4No3T5vnjjiwZSSl4bPQ` proved failure propagation and verified
+  error cleanup. After every case, a direct destination-container scan found no execution
+  directory below `/home/batch/kestra-runs`.
+- The remote batch routed adapter was verified live against the full-parking
+  `fix/gke-scale-to-zero` GKE topology on 2026-07-13. Export parent/runner executions
+  `5j7sL3tbIDEc3bmqDdZbir` / `2xVMqy5OqujuXAUEFUEKDm` ran on `gke-small`; parse executions
+  `2oC6pDl9NszxdB44ZrYAlZ` / `1UNLWWW8Bo7gcyw5iHujxc` ran on `gke-large`; missing-input
+  executions `5ffTMRIUlLfoq7reU7z4RA` / `3gL0SlobVApt0wwzQE3Tgb` failed as intended. Each EXIT trap
+  deleted and then checked the execution bundle, extracted source, uv cache, and uv-managed Python
+  directory before logging `runtime_cleaned verified=true`. All six activator-managed Deployments
+  returned to zero replicas.
+- The custom routed worker-controller endpoint does not implement
+  `NamespaceFileMetadataService/findAll`, so `namespaceFiles.include` fails on an external routed
+  worker. Execution FILE inputs resolve to exact `kestra:///` objects and work with `inputFiles`;
+  this is the selected no-SSH source-copy contract.
+- `workerSelector.tags` is validated as a literal RFC 1123 label and cannot contain a Pebble input.
+  `routed_batch_runner` therefore uses one Switch with static `gke-small` and `gke-large` cases.
+  Adding a batch only selects an existing case; adding a new worker group requires one framework
+  case.
+- In full control-plane parking mode, a terminating webserver can briefly answer the activator root
+  before the replacement JVM is stable. The live verifier keeps activator traffic alive while all
+  managed Deployments become ready and retries flow registration and transient execution reads.

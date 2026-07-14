@@ -427,6 +427,61 @@ Kubernetes client final GET timeout after a child pod had already reached `Succe
 `delete: false` was used. The operation-demo GKE flow therefore lets PodCreate clean up pods and the
 verifier captures pod resource evidence before final task cleanup.
 
+### Remote Python Batch Examples Over SSH/SFTP
+
+Use this path when Kestra must copy a Python program onto an SSH-accessible machine for each
+execution, run it there, and collect the result into Kestra internal storage.
+
+```bash
+task kestra:local:docker:start
+task kestra:flows:run-remote-batch-examples
+task kestra:local:docker:stop
+```
+
+The verification registers `kestra/flows-remote-batch`, uploads the two Python programs as
+Namespace Files, executes the database export and log parser, then runs the parser with a missing
+remote input. It asserts:
+
+- Namespace File resolution and SFTP source staging;
+- all success-path SSH/SFTP task states;
+- controller-visible remote progress logs and structured variables;
+- internal-storage artifact URIs and SHA-256 checksums;
+- non-zero remote exit propagation to the runner and caller flows;
+- success/error cleanup markers emitted only after the execution directory is absent;
+- a direct destination-container scan showing no execution directories after every case.
+
+Worker connection defaults come from `ENV_REMOTE_BATCH_HOST` and
+`ENV_REMOTE_BATCH_USERNAME`. The password is read through `secret('REMOTE_BATCH_PASSWORD')`; OSS
+deployments provide the base64-encoded value as `SECRET_REMOTE_BATCH_PASSWORD`.
+
+For a new batch, upload a standalone Python source into the `playground.remote_batch` namespace and
+create a one-task caller flow that invokes `remote_batch_runner` with `script_name`, `config_json`,
+`output_file`, and worker coordinates. Do not repeat SSH, SFTP, cleanup, or error handling in the
+caller.
+
+### Remote Python Batch On Scale-From-Zero Routed Workers
+
+Use this path for the `fix/gke-scale-to-zero` GKE/on-prem simulation. It requires that topology's
+routed worker and activator resources, but does not require `sshd` or SFTP on the worker pod. The
+verifier accesses Kestra through `svc/kestra-worker-activator`, so the first request wakes the cold
+control plane and `gke-small`/`gke-large` workers.
+
+```bash
+nix develop -c task kestra:live:run-remote-batch-routed
+```
+
+The command confirms the zero-replica baseline, waits through cold start, registers flows, builds
+and uploads an execution FILE bundle per run, runs SQLite export on `gke-small`, runs JSONL parsing
+on `gke-large`, verifies an intentional Python failure, and confirms the activator-managed
+Deployments return to zero. It checks
+worker identity, progress logs, structured variables, artifacts, checksums, parent/child state, and
+the success/failure `runtime_cleaned verified=true` signal emitted only after the localized bundle,
+source, uv cache, and uv-managed Python directory have each been checked as absent.
+
+The caller supplies only `batch_bundle`, `source_root`, `script_name`, business `config_json`,
+`output_file`, and `worker_group`. `routed_batch_runner` owns localization, uv/Python invocation,
+artifact persistence, checksum emission, cleanup, and worker selection.
+
 Live GKE image caveat: the current shared-backend GKE deployment uses the custom
 `kestra-oss-worker-routing` image and database schema. Do not replace the GKE webserver, scheduler,
 executor, indexer, or worker Deployments with upstream `kestra/kestra:v1.3.x` against the existing

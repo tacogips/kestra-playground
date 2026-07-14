@@ -126,6 +126,46 @@ scripts/run-flow.sh build_ecommerce_daily_report 2026-06-25 http://34.84.21.87:8
 scripts/run-flow.sh build_ecommerce_customer_segments 2026-06-25 http://34.84.21.87:8080
 ```
 
+## Remote Python Batch Examples
+
+The remote-batch framework has two adapters with one business-script contract. The SSH/SFTP runner
+targets unmanaged machines: it copies a Python Namespace File into an execution-specific directory,
+runs it over SSH, streams progress/errors, downloads the result, and cleans the directory. The
+routed runner targets the GKE/on-prem simulation: an execution FILE upload is stored in Kestra
+internal storage and localized into the selected `gke-small` or `gke-large` worker, which runs it
+with `uv` and the Process task runner and persists declared output files without SSH.
+
+Two one-task caller flows demonstrate the pattern:
+
+- `export_database_to_csv` exports a date partition from a remote SQLite database to CSV;
+- `parse_application_logs` parses remote JSON Lines logs into a JSON summary.
+
+Run both success cases plus an expected remote failure with Docker Compose:
+
+```bash
+task kestra:local:docker:start
+task kestra:flows:run-remote-batch-examples
+task kestra:local:docker:stop
+```
+
+The local `remote-worker` container models an arbitrary batch machine. Production workers do not
+need a custom resident agent, but they do need Python 3, an SSH/SFTP account, network reachability
+from the Kestra worker role, verified host identity, and credentials supplied through Kestra
+Secrets. See `design-docs/specs/design-remote-python-batch-runner.md` for the complete contract and
+security boundaries.
+
+For the scale-from-zero GKE topology, no SSH/SFTP server is installed on the destination worker.
+The routed Kestra worker is the generic control channel, an execution-scoped bundle plus
+`inputFiles` supplies code and fixtures, and `outputFiles` returns artifacts. The batch runtime needs
+only `uv`; it uses or provisions Python 3.12. Both the uv cache and managed interpreter are
+execution-scoped; an exit trap removes them and the copied source after success or failure, checks
+that every runtime path is absent, and preserves the business process exit status. Run the
+cold-start, success, failure, cleanup, and scale-to-zero verification with:
+
+```bash
+task kestra:live:run-remote-batch-routed
+```
+
 ## GCP Deployment Shapes
 
 Terraform roots are split by phase:

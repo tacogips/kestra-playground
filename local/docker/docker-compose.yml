@@ -46,6 +46,9 @@ services:
       ENV_FEDERATED_GCE_B_URL: ${ENV_FEDERATED_GCE_B_URL}
       ENV_FEDERATED_GCE_B_USERNAME: ${ENV_FEDERATED_GCE_B_USERNAME}
       ENV_FEDERATED_GCE_B_PASSWORD: ${ENV_FEDERATED_GCE_B_PASSWORD}
+      ENV_REMOTE_BATCH_HOST: ${ENV_REMOTE_BATCH_HOST:-remote-worker}
+      ENV_REMOTE_BATCH_USERNAME: ${ENV_REMOTE_BATCH_USERNAME:-batch}
+      SECRET_REMOTE_BATCH_PASSWORD: ${SECRET_REMOTE_BATCH_PASSWORD:-cmVtb3RlLWJhdGNoLWxvY2Fs}
     ports:
       - "8080:8080"
       - "8081:8081"
@@ -54,6 +57,17 @@ services:
       - /tmp/kestra-wd:/tmp/kestra-wd
       - ../../kestra/config/application.yaml:/etc/kestra/application.yaml:ro
       - ../../batches:/app/kestra-playground/batches:ro
+
+  remote-worker:
+    build:
+      context: ./remote-worker
+    environment:
+      REMOTE_BATCH_PASSWORD: ${REMOTE_BATCH_PASSWORD:-remote-batch-local}
+    healthcheck:
+      test: ["CMD-SHELL", "ssh-keyscan -4 -T 2 127.0.0.1 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
 volumes:
   postgres-data:

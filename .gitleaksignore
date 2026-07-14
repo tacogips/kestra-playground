@@ -1,0 +1,4 @@
+# Demo/example credentials in template env files (base64 of "remote-batch-local").
+# These are placeholder values for the remote Python batch runner demo, not real secrets.
+kestra/config/envs/local.env.example:generic-api-key:25
+local/docker/.env.example:generic-api-key:32

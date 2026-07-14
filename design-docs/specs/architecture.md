@@ -313,6 +313,22 @@ final GET timeout after the child pod succeeds on the current 2.0 snapshot image
 pods alive briefly with `SLEEP_SECONDS=45`, lets PodCreate clean them up, and inspects the pod specs
 while they are still present.
 
+The remote Python batch topology has two execution adapters with one environment-variable contract.
+For an unmanaged machine, `remote_batch_runner` resolves versioned source from Namespace Files,
+copies it through SFTP, executes it through SSH, downloads one artifact, and cleans the remote
+directory. That machine must run an SSH server with SFTP plus Python, but does not join the Kestra
+worker queue.
+
+For the GKE scale-from-zero/on-prem simulation, `routed_batch_runner` routes one Process task with
+`workerSelector.tags`, localizes a controller-stored FILE bundle through `inputFiles`, invokes Python
+through `uv`, and persists `outputFiles` to internal storage. The routed worker does not expose
+SSH/SFTP. Its existing outbound controller stream is the control channel, so the batch runtime
+dependency is only `uv`/Python. The exact FILE URI avoids Namespace File metadata listing, which the
+custom routing fork's worker-controller gRPC endpoint does not implement. Both adapters retain exit
+state, stdout/stderr, structured variables, metrics, artifacts, checksums, cleanup, and parent
+failure propagation. The detailed contract is in
+`design-docs/specs/design-remote-python-batch-runner.md`.
+
 ### Promotion And Release Design Principles
 
 The Kestra operation is designed around a narrow promotion contract:

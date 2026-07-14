@@ -1,0 +1,147 @@
+id: remote_batch_runner
+namespace: playground.remote_batch
+description: Reusable SSH/SFTP framework that stages, runs, collects, and cleans one Python batch.
+
+inputs:
+  - id: script_name
+    type: STRING
+    required: true
+    description: Python source filename stored in the flow namespace.
+
+  - id: config_json
+    type: STRING
+    required: true
+    description: Business configuration passed to the remote script as JSON.
+
+  - id: output_file
+    type: STRING
+    required: true
+    description: Artifact filename created by the remote script.
+
+  - id: worker_host
+    type: STRING
+    required: true
+
+  - id: worker_port
+    type: INT
+    defaults: 22
+
+  - id: worker_username
+    type: STRING
+    required: true
+
+  - id: worker_password_secret
+    type: STRING
+    defaults: REMOTE_BATCH_PASSWORD
+    description: Kestra secret name containing the SSH/SFTP password.
+
+  - id: timeout
+    type: DURATION
+    defaults: PT5M
+
+tasks:
+  - id: resolve_source
+    type: io.kestra.plugin.core.namespace.DownloadFiles
+    namespace: "{{ flow.namespace }}"
+    files:
+      - "{{ inputs.script_name }}"
+
+  - id: prepare_workspace
+    type: io.kestra.plugin.fs.ssh.Command
+    host: "{{ inputs.worker_host }}"
+    port: "{{ inputs.worker_port }}"
+    authMethod: PASSWORD
+    username: "{{ inputs.worker_username }}"
+    password: "{{ secret(inputs.worker_password_secret) }}"
+    strictHostKeyChecking: "no"
+    commands:
+      - |
+        set -eu
+        install -d -m 700 "$HOME/kestra-runs/{{ execution.id }}/output"
+        rm -f "$HOME/kestra-runs/{{ execution.id }}/main.py" "$HOME/kestra-runs/{{ execution.id }}/output/{{ inputs.output_file }}"
+        printf '%s\n' 'progress phase=workspace_ready'
+
+  - id: stage_source
+    type: io.kestra.plugin.fs.sftp.Upload
+    host: "{{ inputs.worker_host }}"
+    port: "{{ inputs.worker_port }}"
+    username: "{{ inputs.worker_username }}"
+    password: "{{ secret(inputs.worker_password_secret) }}"
+    from: "{{ outputs.resolve_source.files['/' ~ inputs.script_name] }}"
+    to: "kestra-runs/{{ execution.id }}/main.py"
+    overwrite: true
+
+  - id: execute_batch
+    type: io.kestra.plugin.fs.ssh.Command
+    host: "{{ inputs.worker_host }}"
+    port: "{{ inputs.worker_port }}"
+    authMethod: PASSWORD
+    username: "{{ inputs.worker_username }}"
+    password: "{{ secret(inputs.worker_password_secret) }}"
+    strictHostKeyChecking: "no"
+    timeout: "{{ inputs.timeout }}"
+    commands:
+      - |
+        set -eu
+        cd "$HOME/kestra-runs/{{ execution.id }}"
+        KESTRA_BATCH_CONFIG="$(printf '%s' '{{ inputs.config_json | base64encode }}' | base64 --decode)"
+        KESTRA_BATCH_OUTPUT="$HOME/kestra-runs/{{ execution.id }}/output/{{ inputs.output_file }}"
+        PYTHONUNBUFFERED=1
+        export KESTRA_BATCH_CONFIG KESTRA_BATCH_OUTPUT PYTHONUNBUFFERED
+        python3 main.py
+
+  - id: collect_artifact
+    type: io.kestra.plugin.fs.sftp.Download
+    host: "{{ inputs.worker_host }}"
+    port: "{{ inputs.worker_port }}"
+    username: "{{ inputs.worker_username }}"
+    password: "{{ secret(inputs.worker_password_secret) }}"
+    from: "kestra-runs/{{ execution.id }}/output/{{ inputs.output_file }}"
+
+  - id: cleanup_workspace
+    type: io.kestra.plugin.fs.ssh.Command
+    host: "{{ inputs.worker_host }}"
+    port: "{{ inputs.worker_port }}"
+    authMethod: PASSWORD
+    username: "{{ inputs.worker_username }}"
+    password: "{{ secret(inputs.worker_password_secret) }}"
+    strictHostKeyChecking: "no"
+    commands:
+      - |
+        set -eu
+        workspace="$HOME/kestra-runs/{{ execution.id }}"
+        rm -rf -- "${workspace}"
+        if [ -e "${workspace}" ] || [ -L "${workspace}" ]; then
+          printf '%s\n' "cleanup_error path=${workspace}" >&2
+          exit 1
+        fi
+        printf '%s\n' 'progress phase=workspace_cleaned verified=true'
+
+errors:
+  - id: cleanup_failed_workspace
+    type: io.kestra.plugin.fs.ssh.Command
+    host: "{{ inputs.worker_host }}"
+    port: "{{ inputs.worker_port }}"
+    authMethod: PASSWORD
+    username: "{{ inputs.worker_username }}"
+    password: "{{ secret(inputs.worker_password_secret) }}"
+    strictHostKeyChecking: "no"
+    commands:
+      - |
+        set -eu
+        workspace="$HOME/kestra-runs/{{ execution.id }}"
+        rm -rf -- "${workspace}"
+        if [ -e "${workspace}" ] || [ -L "${workspace}" ]; then
+          printf '%s\n' "cleanup_error path=${workspace}" >&2
+          exit 1
+        fi
+        printf '%s\n' 'progress phase=workspace_cleaned verified=true'
+
+outputs:
+  - id: artifact
+    type: FILE
+    value: "{{ outputs.collect_artifact is defined ? outputs.collect_artifact.to : 'nsfile:///' ~ inputs.script_name }}"
+
+  - id: artifact_checksum
+    type: STRING
+    value: "{{ outputs.collect_artifact is defined ? outputs.collect_artifact.checksum : 'not-collected' }}"

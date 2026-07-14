@@ -1,0 +1,58 @@
+id: parse_application_logs_routed
+namespace: playground.remote_batch
+description: Localize and run the log parser on a selected scale-from-zero routed worker.
+
+labels:
+  pattern: routed-python-batch
+  example: log-parse
+
+inputs:
+  - id: batch_bundle
+    type: FILE
+    required: true
+
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+
+  - id: worker_group
+    type: STRING
+    defaults: gke-large
+
+  - id: log_path
+    type: STRING
+    defaults: batches/log_parse/fixtures/application.jsonl
+
+tasks:
+  - id: run_remote_batch
+    type: io.kestra.plugin.core.flow.Subflow
+    namespace: playground.remote_batch
+    flowId: routed_batch_runner
+    wait: true
+    transmitFailed: true
+    inputs:
+      batch_bundle: "{{ inputs.batch_bundle }}"
+      source_root: batches/log_parse
+      script_name: batches/log_parse/parse_logs.py
+      config_json: >-
+        {"input_path":"{{ inputs.log_path }}","business_date":"{{ inputs.business_date }}"}
+      output_file: "log-summary-{{ inputs.business_date }}.json"
+      worker_group: "{{ inputs.worker_group }}"
+
+outputs:
+  - id: artifact
+    type: FILE
+    value: "{{ outputs.run_remote_batch.outputs is defined ? outputs.run_remote_batch.outputs.artifact : inputs.batch_bundle }}"
+
+  - id: artifact_checksum
+    type: STRING
+    value: "{{ outputs.run_remote_batch.outputs is defined ? outputs.run_remote_batch.outputs.artifact_checksum : 'not-collected' }}"
+
+  - id: worker_group
+    type: STRING
+    value: "{{ outputs.run_remote_batch.outputs is defined ? outputs.run_remote_batch.outputs.worker_group : inputs.worker_group }}"
+
+  - id: worker_pod
+    type: STRING
+    value: "{{ outputs.run_remote_batch.outputs is defined ? outputs.run_remote_batch.outputs.worker_pod : 'not-started' }}"
