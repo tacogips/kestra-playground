@@ -96,27 +96,33 @@ tasks:
       - |
         env_file="${KESTRA_ENV_FILE:-}"
         if [ -z "$env_file" ]; then
-          if [ -f local/docker/.env ]; then
-            env_file=local/docker/.env
+          if [ -f batch-groups/ec/config/envs/local.env ]; then
+            env_file=batch-groups/ec/config/envs/local.env
           else
-            env_file=kestra/config/envs/local.env
+            env_file=batch-groups/ec/config/envs/local.env.example
           fi
         fi
+        set -a
+        . "$env_file"
+        set +a
         KESTRA_ENV_FILE="$env_file" scripts/register-flows.sh "${KESTRA_URL:-http://localhost:8080}" batch-groups/ec/flows
 
   kestra:affiliate:flows:register:
-    desc: Register local affiliate Kestra flows against AFFILIATE_KESTRA_URL or localhost
+    desc: Register local affiliate flows against AFFILIATE_KESTRA_URL, its group env, or localhost
     cmds:
       - |
         env_file="${KESTRA_ENV_FILE:-}"
         if [ -z "$env_file" ]; then
-          if [ -f local/docker/.env ]; then
-            env_file=local/docker/.env
+          if [ -f batch-groups/affiliate/config/envs/local.env ]; then
+            env_file=batch-groups/affiliate/config/envs/local.env
           else
-            env_file=kestra/config/envs/local.env
+            env_file=batch-groups/affiliate/config/envs/local.env.example
           fi
         fi
-        KESTRA_ENV_FILE="$env_file" scripts/register-flows.sh "${AFFILIATE_KESTRA_URL:-http://localhost:8082}" batch-groups/affiliate/flows
+        set -a
+        . "$env_file"
+        set +a
+        KESTRA_ENV_FILE="$env_file" scripts/register-flows.sh "${AFFILIATE_KESTRA_URL:-${KESTRA_URL:-http://localhost:8082}}" batch-groups/affiliate/flows
 
   kestra:affiliate:flows:generate:
     desc: Execute the affiliate mock data generator flow
@@ -124,13 +130,16 @@ tasks:
       - |
         env_file="${KESTRA_ENV_FILE:-}"
         if [ -z "$env_file" ]; then
-          if [ -f local/docker/.env ]; then
-            env_file=local/docker/.env
+          if [ -f batch-groups/affiliate/config/envs/local.env ]; then
+            env_file=batch-groups/affiliate/config/envs/local.env
           else
-            env_file=kestra/config/envs/local.env
+            env_file=batch-groups/affiliate/config/envs/local.env.example
           fi
         fi
-        NAMESPACE=playground.affiliate KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh generate_affiliate_mock_data "${BUSINESS_DATE:-}" "${AFFILIATE_KESTRA_URL:-http://localhost:8082}"
+        set -a
+        . "$env_file"
+        set +a
+        NAMESPACE=playground.affiliate KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh generate_affiliate_mock_data "${BUSINESS_DATE:-}" "${AFFILIATE_KESTRA_URL:-${KESTRA_URL:-http://localhost:8082}}"
 
   kestra:affiliate:flows:report:
     desc: Execute the affiliate daily report flow
@@ -138,13 +147,16 @@ tasks:
       - |
         env_file="${KESTRA_ENV_FILE:-}"
         if [ -z "$env_file" ]; then
-          if [ -f local/docker/.env ]; then
-            env_file=local/docker/.env
+          if [ -f batch-groups/affiliate/config/envs/local.env ]; then
+            env_file=batch-groups/affiliate/config/envs/local.env
           else
-            env_file=kestra/config/envs/local.env
+            env_file=batch-groups/affiliate/config/envs/local.env.example
           fi
         fi
-        NAMESPACE=playground.affiliate KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_affiliate_daily_report "${BUSINESS_DATE:-}" "${AFFILIATE_KESTRA_URL:-http://localhost:8082}"
+        set -a
+        . "$env_file"
+        set +a
+        NAMESPACE=playground.affiliate KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_affiliate_daily_report "${BUSINESS_DATE:-}" "${AFFILIATE_KESTRA_URL:-${KESTRA_URL:-http://localhost:8082}}"
 
   kestra:affiliate:flows:rankings:
     desc: Execute the affiliate partner rankings flow
@@ -152,13 +164,16 @@ tasks:
       - |
         env_file="${KESTRA_ENV_FILE:-}"
         if [ -z "$env_file" ]; then
-          if [ -f local/docker/.env ]; then
-            env_file=local/docker/.env
+          if [ -f batch-groups/affiliate/config/envs/local.env ]; then
+            env_file=batch-groups/affiliate/config/envs/local.env
           else
-            env_file=kestra/config/envs/local.env
+            env_file=batch-groups/affiliate/config/envs/local.env.example
           fi
         fi
-        NAMESPACE=playground.affiliate KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_affiliate_partner_rankings "${BUSINESS_DATE:-}" "${AFFILIATE_KESTRA_URL:-http://localhost:8082}"
+        set -a
+        . "$env_file"
+        set +a
+        NAMESPACE=playground.affiliate KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_affiliate_partner_rankings "${BUSINESS_DATE:-}" "${AFFILIATE_KESTRA_URL:-${KESTRA_URL:-http://localhost:8082}}"
 
   kestra:flows:generate:
     desc: Execute the ecommerce mock data generator flow
@@ -166,12 +181,15 @@ tasks:
       - |
         env_file="${KESTRA_ENV_FILE:-}"
         if [ -z "$env_file" ]; then
-          if [ -f local/docker/.env ]; then
-            env_file=local/docker/.env
+          if [ -f batch-groups/ec/config/envs/local.env ]; then
+            env_file=batch-groups/ec/config/envs/local.env
           else
-            env_file=kestra/config/envs/local.env
+            env_file=batch-groups/ec/config/envs/local.env.example
           fi
         fi
+        set -a
+        . "$env_file"
+        set +a
         KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh generate_ecommerce_mock_data "${BUSINESS_DATE:-}" "${KESTRA_URL:-http://localhost:8080}"
 
   kestra:flows:report:
@@ -180,12 +198,15 @@ tasks:
       - |
         env_file="${KESTRA_ENV_FILE:-}"
         if [ -z "$env_file" ]; then
-          if [ -f local/docker/.env ]; then
-            env_file=local/docker/.env
+          if [ -f batch-groups/ec/config/envs/local.env ]; then
+            env_file=batch-groups/ec/config/envs/local.env
           else
-            env_file=kestra/config/envs/local.env
+            env_file=batch-groups/ec/config/envs/local.env.example
           fi
         fi
+        set -a
+        . "$env_file"
+        set +a
         KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_ecommerce_daily_report "${BUSINESS_DATE:-}" "${KESTRA_URL:-http://localhost:8080}"
 
   kestra:flows:segments:
@@ -194,12 +215,15 @@ tasks:
       - |
         env_file="${KESTRA_ENV_FILE:-}"
         if [ -z "$env_file" ]; then
-          if [ -f local/docker/.env ]; then
-            env_file=local/docker/.env
+          if [ -f batch-groups/ec/config/envs/local.env ]; then
+            env_file=batch-groups/ec/config/envs/local.env
           else
-            env_file=kestra/config/envs/local.env
+            env_file=batch-groups/ec/config/envs/local.env.example
           fi
         fi
+        set -a
+        . "$env_file"
+        set +a
         KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_ecommerce_customer_segments "${BUSINESS_DATE:-}" "${KESTRA_URL:-http://localhost:8080}"
 
   kestra:flows:run-federated-local:

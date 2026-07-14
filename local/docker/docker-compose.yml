@@ -14,6 +14,10 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./init-batch-db.sh:/docker-entrypoint-initdb.d/20-init-batch-db.sh:ro
+    networks:
+      default:
+        aliases:
+          - kestra-postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
       interval: 10s
@@ -29,29 +33,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
-      KESTRA_DB_URL: ${KESTRA_DB_URL}
-      KESTRA_DB_USERNAME: ${KESTRA_DB_USERNAME}
-      KESTRA_DB_PASSWORD: ${KESTRA_DB_PASSWORD}
-      KESTRA_URL: ${KESTRA_URL}
-      KESTRA_STORAGE_TYPE: ${KESTRA_STORAGE_TYPE}
-      KESTRA_LOCAL_STORAGE_PATH: ${KESTRA_LOCAL_STORAGE_PATH}
-      KESTRA_BASIC_AUTH_USERNAME: ${KESTRA_BASIC_AUTH_USERNAME}
-      KESTRA_BASIC_AUTH_PASSWORD: ${KESTRA_BASIC_AUTH_PASSWORD}
-      KESTRA_SERVER_BASIC__AUTH_USERNAME: ${KESTRA_BASIC_AUTH_USERNAME}
-      KESTRA_SERVER_BASIC__AUTH_PASSWORD: ${KESTRA_BASIC_AUTH_PASSWORD}
-      ENV_BATCH_DB_URL: ${ENV_BATCH_DB_URL}
-      ENV_BATCH_DB_USERNAME: ${ENV_BATCH_DB_USERNAME}
-      ENV_BATCH_DB_PASSWORD: ${ENV_BATCH_DB_PASSWORD}
-      ENV_FEDERATED_GCE_A_URL: ${ENV_FEDERATED_GCE_A_URL}
-      ENV_FEDERATED_GCE_A_USERNAME: ${ENV_FEDERATED_GCE_A_USERNAME}
-      ENV_FEDERATED_GCE_A_PASSWORD: ${ENV_FEDERATED_GCE_A_PASSWORD}
-      ENV_FEDERATED_GCE_B_URL: ${ENV_FEDERATED_GCE_B_URL}
-      ENV_FEDERATED_GCE_B_USERNAME: ${ENV_FEDERATED_GCE_B_USERNAME}
-      ENV_FEDERATED_GCE_B_PASSWORD: ${ENV_FEDERATED_GCE_B_PASSWORD}
-      ENV_REMOTE_BATCH_HOST: ${ENV_REMOTE_BATCH_HOST:-remote-worker}
-      ENV_REMOTE_BATCH_USERNAME: ${ENV_REMOTE_BATCH_USERNAME:-batch}
-      SECRET_REMOTE_BATCH_PASSWORD: ${SECRET_REMOTE_BATCH_PASSWORD:-cmVtb3RlLWJhdGNoLWxvY2Fs}
+    env_file:
+      - ../../batch-groups/ec/config/envs/local.env
     ports:
       - "8080:8080"
       - "8081:8081"
@@ -70,20 +53,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
-      KESTRA_DB_URL: ${AFFILIATE_KESTRA_DB_URL}
-      KESTRA_DB_USERNAME: ${KESTRA_DB_USERNAME}
-      KESTRA_DB_PASSWORD: ${KESTRA_DB_PASSWORD}
-      KESTRA_URL: ${AFFILIATE_KESTRA_URL}
-      KESTRA_STORAGE_TYPE: ${KESTRA_STORAGE_TYPE}
-      KESTRA_LOCAL_STORAGE_PATH: ${KESTRA_LOCAL_STORAGE_PATH}
-      KESTRA_BASIC_AUTH_USERNAME: ${KESTRA_BASIC_AUTH_USERNAME}
-      KESTRA_BASIC_AUTH_PASSWORD: ${KESTRA_BASIC_AUTH_PASSWORD}
-      KESTRA_SERVER_BASIC__AUTH_USERNAME: ${KESTRA_BASIC_AUTH_USERNAME}
-      KESTRA_SERVER_BASIC__AUTH_PASSWORD: ${KESTRA_BASIC_AUTH_PASSWORD}
-      ENV_BATCH_DB_URL: ${ENV_BATCH_DB_URL}
-      ENV_BATCH_DB_USERNAME: ${ENV_BATCH_DB_USERNAME}
-      ENV_BATCH_DB_PASSWORD: ${ENV_BATCH_DB_PASSWORD}
+    env_file:
+      - ../../batch-groups/affiliate/config/envs/local.env
     ports:
       - "8082:8080"
       - "8083:8081"
@@ -96,8 +67,8 @@ services:
   remote-worker:
     build:
       context: ./remote-worker
-    environment:
-      REMOTE_BATCH_PASSWORD: ${REMOTE_BATCH_PASSWORD:-remote-batch-local}
+    env_file:
+      - ../../batch-groups/ec/config/envs/local.env
     healthcheck:
       test: ["CMD-SHELL", "ssh-keyscan -4 -T 2 127.0.0.1 >/dev/null 2>&1"]
       interval: 5s

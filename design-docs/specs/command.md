@@ -42,12 +42,28 @@ local/apple-container/stop.sh
 ### Local Docker Compose Fallback
 
 ```bash
-docker compose --env-file local/docker/.env.example -f local/docker/docker-compose.yml up -d
+cp local/docker/.env.example local/docker/.env
+cp batch-groups/ec/config/envs/local.env.example batch-groups/ec/config/envs/local.env
+cp batch-groups/affiliate/config/envs/local.env.example batch-groups/affiliate/config/envs/local.env
+task kestra:local:docker:start
 scripts/register-flows.sh http://localhost:8080
 scripts/run-flow.sh generate_ecommerce_mock_data
 scripts/run-flow.sh build_ecommerce_daily_report
 scripts/run-flow.sh build_ecommerce_customer_segments
-docker compose -f local/docker/docker-compose.yml down
+task kestra:local:docker:stop
+```
+
+`local/docker/.env` contains shared PostgreSQL provisioning only. Each Kestra service receives its
+runtime variables from its owning batch group under `batch-groups/<group>/config/envs/local.env`.
+Both local start scripts create ignored env files from the checked-in examples when they are absent.
+
+GCP flow deployment uses `batch-groups/<group>/config/envs/gcp.env` when present and otherwise reads
+the checked-in `.example`. The file owns only non-secret routing defaults and Secret Manager name
+prefixes; inject `PROJECT_ID` and `LIVE_DOMAIN_NAME` through kinko or CI:
+
+```bash
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- scripts/deploy-batch-group.sh ec
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- scripts/deploy-batch-group.sh affiliate
 ```
 
 Flow execution defaults to the current date in `Asia/Tokyo` when no business date is provided. Set
@@ -169,7 +185,7 @@ worker routing in a single shared Kestra backend:
   `${REGION}-docker.pkg.dev/${PROJECT_ID}/kestra-playground/kestra-oss-worker-routing:<tag>`
   unless `KESTRA_IMAGE` is explicitly overridden;
 - GitHub Actions builds this routed image from `tacogips/kestra@feature/oss-worker-routing`,
-  installs `io.kestra.storage:storage-gcs` and `io.kestra.plugin:plugin-script-shell`, pushes it
+  installs GCS storage plus the shell, Kubernetes, and PostgreSQL JDBC runtime plugins, pushes it
   to Artifact Registry, and deploys the commit-SHA tag;
 - `kestra/flows-worker-routing/verify_gcp_worker_routing.yaml` is registered on the GKE controller
   and uses `workerSelector.tags` to force one task onto `gce-a` and another onto `gce-b`;
@@ -186,6 +202,8 @@ kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-routed
 
 The verification command checks that GKE has no worker Deployment/pods, that all GCE worker
 instances are `RUNNING`, and that the two routed tasks complete with different worker IDs.
+`scripts/deploy-routed-live.sh` uses `ZONE` for both the OpenTofu worker placement and subsequent
+instance resets; its live default is `asia-northeast1-b`.
 
 ### Shared-Backend OSS GKE Routed Workers
 

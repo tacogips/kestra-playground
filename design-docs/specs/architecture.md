@@ -98,6 +98,27 @@ The primary local target is Apple container. The scripts under `local/apple-cont
 `local/docker/docker-compose.yml` is kept as a fallback for machines where Docker Compose is still
 more convenient than Apple container.
 
+Local configuration follows the same ownership boundary as the two batch groups:
+
+- `local/docker/.env` owns only shared PostgreSQL provisioning values;
+- `batch-groups/ec/config/envs/local.env` owns the EC Kestra metadata connection, endpoint,
+  authentication defaults, batch connection, and EC-only routed/federated settings;
+- `batch-groups/affiliate/config/envs/local.env` owns the affiliate Kestra metadata connection,
+  endpoint, authentication defaults, and batch connection.
+
+The EC and affiliate files intentionally use the generic variables consumed by
+`kestra/config/application.yaml`. Each file is injected only into its own Kestra runtime, so one
+batch group cannot override the other group's metadata connection or endpoint. The batch database
+values currently match because both groups share one development database, but each group declares
+its own flow-facing connection contract.
+
+GCP deployment routing follows the same directory boundary through
+`batch-groups/<group>/config/envs/gcp.env`. These files contain only non-secret endpoint-routing
+defaults and Secret Manager name prefixes. Project/domain values are injected by kinko or CI, while
+database credentials and Basic Auth payloads remain in Secret Manager. A group-owned GCP env file
+does not provision its Kestra runtime; the target control plane, metadata database, DNS, and secrets
+must already exist before flow deployment.
+
 ### GCP Single VM
 
 `infra/terraform/gce-single` creates a VM that runs Docker Compose for Kestra and PostgreSQL.

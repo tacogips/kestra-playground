@@ -183,6 +183,7 @@ def test_routed_image_build_installs_required_runtime_plugins() -> None:
     assert "io.kestra.storage:storage-gcs:1.2.0" in install_step["run"]
     assert "io.kestra.plugin:plugin-script-shell:1.9.0" in install_step["run"]
     assert "io.kestra.plugin:plugin-kubernetes:1.9.5" in install_step["run"]
+    assert "io.kestra.plugin:plugin-jdbc-postgres:1.15.4" in install_step["run"]
 
 
 def test_k8s_podcreate_rbac_allows_batch_pod_lifecycle() -> None:
@@ -263,15 +264,14 @@ def test_flow_registration_retries_transient_api_failures() -> None:
 def test_routed_live_deploy_enables_controller_and_routed_workers() -> None:
     script = _read_text("scripts/deploy-routed-live.sh")
 
+    assert 'ZONE="${ZONE:-asia-northeast1-b}"' in script
+    assert 'export TF_VAR_zone="${TF_VAR_zone:-${ZONE}}"' in script
     assert "export GKE_WORKER_ENABLED=false" in script
     assert (
         'export LIVE_GKE_CONTROLLER_WORKER_ENABLED="${LIVE_GKE_CONTROLLER_WORKER_ENABLED:-true}"'
         in script
     )
-    assert (
-        'export LIVE_GKE_ROUTED_WORKERS_ENABLED="${LIVE_GKE_ROUTED_WORKERS_ENABLED:-true}"'
-        in script
-    )
+    assert "export LIVE_GKE_ROUTED_WORKERS_ENABLED=true" in script
 
 
 def test_live_health_check_accepts_root_when_ui_route_is_absent() -> None:
@@ -582,8 +582,8 @@ def test_operation_demo_runtime_image_and_ci_entrypoints_are_configured() -> Non
     workflow = _yaml_load(".github/workflows/deploy.yml")
     apply_script = _read_text("scripts/apply-gke-dev.sh")
 
-    assert "ENV_RUNTIME_IMAGE" in _read_text("kestra/config/envs/local.env.example")
-    assert "ENV_RUNTIME_IMAGE" in _read_text("local/docker/.env.example")
+    assert "ENV_RUNTIME_IMAGE" in _read_text("batch-groups/ec/config/envs/local.env.example")
+    assert "ENV_RUNTIME_IMAGE" not in _read_text("local/docker/.env.example")
     assert 'ENV_RUNTIME_IMAGE: "${kestra_image}"' in apply_script
     assert apply_script.index('--values "$helm_runtime_values"') < apply_script.index(
         "kestra-controller-only-values.yaml"

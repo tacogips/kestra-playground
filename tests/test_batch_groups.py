@@ -22,6 +22,16 @@ def _read_text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
+def _load_env(path: str) -> dict[str, str]:
+    entries: dict[str, str] = {}
+    for line in _read_text(path).splitlines():
+        if line == "" or line.startswith("#"):
+            continue
+        key, value = line.split("=", maxsplit=1)
+        entries[key] = value
+    return entries
+
+
 def _run_batch(
     script: Path, config: dict[str, object], output_path: Path
 ) -> subprocess.CompletedProcess[str]:
@@ -100,10 +110,8 @@ def test_local_compose_runs_both_batch_groups_against_one_postgres() -> None:
     assert ec["depends_on"]["postgres"]["condition"] == "service_healthy"
     assert affiliate["depends_on"]["postgres"]["condition"] == "service_healthy"
 
-    assert ec["environment"]["KESTRA_DB_URL"] == "${KESTRA_DB_URL}"
-    assert affiliate["environment"]["KESTRA_DB_URL"] == "${AFFILIATE_KESTRA_DB_URL}"
-    assert ec["environment"]["ENV_BATCH_DB_URL"] == "${ENV_BATCH_DB_URL}"
-    assert affiliate["environment"]["ENV_BATCH_DB_URL"] == "${ENV_BATCH_DB_URL}"
+    assert ec["env_file"] == ["../../batch-groups/ec/config/envs/local.env"]
+    assert affiliate["env_file"] == ["../../batch-groups/affiliate/config/envs/local.env"]
 
     assert "8080:8080" in ec["ports"]
     assert "8082:8080" in affiliate["ports"]
@@ -124,7 +132,40 @@ def test_affiliate_local_kestra_defaults_to_the_official_image() -> None:
     assert compose["services"]["kestra-affiliate"]["image"] == (
         "${AFFILIATE_KESTRA_IMAGE:-kestra/kestra:latest}"
     )
-    assert "AFFILIATE_KESTRA_IMAGE=kestra/kestra:latest" in _read_text("local/docker/.env.example")
+
+
+def test_batch_group_env_files_are_owned_separately() -> None:
+    shared = _load_env("local/docker/.env.example")
+    ec = _load_env("batch-groups/ec/config/envs/local.env.example")
+    affiliate = _load_env("batch-groups/affiliate/config/envs/local.env.example")
+    ec_gcp = _load_env("batch-groups/ec/config/envs/gcp.env.example")
+    affiliate_gcp = _load_env("batch-groups/affiliate/config/envs/gcp.env.example")
+
+    assert set(shared) == {
+        "POSTGRES_DB",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "BATCH_DB",
+        "BATCH_DB_USER",
+        "BATCH_DB_PASSWORD",
+        "AFFILIATE_KESTRA_DB",
+    }
+    assert ec["KESTRA_URL"] == "http://localhost:8080/"
+    assert ec["KESTRA_DB_URL"].endswith("/kestra")
+    assert affiliate["KESTRA_URL"] == "http://localhost:8082/"
+    assert affiliate["KESTRA_DB_URL"].endswith("/kestra_affiliate")
+    assert ec["ENV_BATCH_DB_URL"] == affiliate["ENV_BATCH_DB_URL"]
+    assert ec_gcp == {
+        "LIVE_KESTRA_SUBDOMAIN": "k8s",
+        "KESTRA_AUTH_SECRET_PREFIX": "kestra-dev-gke",
+        "KESTRA_AUTH_SOURCE": "secret-manager",
+    }
+    assert affiliate_gcp == {
+        "LIVE_KESTRA_SUBDOMAIN": "affiliate-kestra",
+        "KESTRA_AUTH_SECRET_PREFIX": "kestra-affiliate",
+        "KESTRA_AUTH_SOURCE": "secret-manager",
+    }
+    assert not (ROOT / "kestra/config/envs/local.env.example").exists()
 
 
 def test_local_env_provisions_the_affiliate_metadata_database() -> None:
@@ -136,7 +177,23 @@ def test_local_env_provisions_the_affiliate_metadata_database() -> None:
     assert "CREATE DATABASE ${AFFILIATE_KESTRA_DB}" in start_script
     env_text = _read_text("local/docker/.env.example")
     assert "AFFILIATE_KESTRA_DB=kestra_affiliate" in env_text
-    assert "AFFILIATE_KESTRA_DB_URL=jdbc:postgresql://postgres:5432/kestra_affiliate" in env_text
+    affiliate_env = _load_env("batch-groups/affiliate/config/envs/local.env.example")
+    assert affiliate_env["KESTRA_DB_URL"] == (
+        "jdbc:postgresql://kestra-postgres:5432/kestra_affiliate"
+    )
+
+
+def test_local_launchers_load_each_batch_group_env_file() -> None:
+    docker_start = _read_text("local/docker/start.sh")
+    apple_start = _read_text("local/apple-container/start.sh")
+
+    for script in (docker_start, apple_start):
+        assert 'batch-groups/ec/config/envs/local.env"' in script
+        assert 'batch-groups/affiliate/config/envs/local.env"' in script
+
+    assert '--env-file "${EC_ENV_FILE}"' in apple_start
+    assert '--env-file "${AFFILIATE_ENV_FILE}"' in apple_start
+    assert "grep -Ev" not in apple_start
 
 
 def test_batch_group_deploy_workflow_routes_by_tag_prefix_and_main_diff() -> None:
@@ -171,6 +228,9 @@ def test_batch_group_deploy_script_maps_groups_to_flow_directories() -> None:
 
     assert 'FLOW_DIR="batch-groups/ec/flows"' in script
     assert 'FLOW_DIR="batch-groups/affiliate/flows"' in script
+    assert "batch-groups/${SYSTEM}/config/envs/${ENVIRONMENT}.env" in script
+    assert 'ENVIRONMENT="${BATCH_GROUP_ENVIRONMENT:-}"' in script
+    assert 'source "${ENV_FILE}"' in script
 
     result = subprocess.run(
         ["scripts/deploy-batch-group.sh", "unknown-system"],

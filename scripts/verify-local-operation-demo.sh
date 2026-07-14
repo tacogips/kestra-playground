@@ -6,10 +6,10 @@ KESTRA_URL="${KESTRA_URL:-http://localhost:8080}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if [[ -z "${KESTRA_ENV_FILE:-}" ]]; then
-  if [[ -f "${ROOT_DIR}/local/docker/.env" ]]; then
-    KESTRA_ENV_FILE="${ROOT_DIR}/local/docker/.env"
+  if [[ -f "${ROOT_DIR}/batch-groups/ec/config/envs/local.env" ]]; then
+    KESTRA_ENV_FILE="${ROOT_DIR}/batch-groups/ec/config/envs/local.env"
   else
-    KESTRA_ENV_FILE="${ROOT_DIR}/kestra/config/envs/local.env"
+    KESTRA_ENV_FILE="${ROOT_DIR}/batch-groups/ec/config/envs/local.env.example"
   fi
 fi
 export KESTRA_ENV_FILE

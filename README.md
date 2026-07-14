@@ -91,17 +91,20 @@ The generated ecommerce data is tracked in `batch-groups/ec/fixtures/`. The gene
 those SQL fixtures into PostgreSQL tasks, and the test suite checks that the deployed flow SQL stays
 in sync with the committed fixture files.
 
-Current Kestra OSS requires Basic Auth. Local defaults are in `local/docker/.env.example`; the GCP
-Terraform roots generate/store runtime credentials in Secret Manager. The GCE roots read Basic Auth
-directly from Secret Manager at startup, and the GKE apply helper renders the Kubernetes Secret from
-GKE-specific Secret Manager entries.
+Current Kestra OSS requires Basic Auth. Each batch group's local defaults are in its
+`batch-groups/<group>/config/envs/local.env.example`; the GCP Terraform roots generate/store runtime
+credentials in Secret Manager. The GCE roots read Basic Auth directly from Secret Manager at
+startup, and the GKE apply helper renders the Kubernetes Secret from GKE-specific Secret Manager
+entries.
 
 ## Local Kestra
 
 Apple container path:
 
 ```bash
-cp kestra/config/envs/local.env.example kestra/config/envs/local.env
+cp local/docker/.env.example local/docker/.env
+cp batch-groups/ec/config/envs/local.env.example batch-groups/ec/config/envs/local.env
+cp batch-groups/affiliate/config/envs/local.env.example batch-groups/affiliate/config/envs/local.env
 task kestra:local:apple:start
 task kestra:flows:register
 task kestra:flows:generate
@@ -114,6 +117,8 @@ Docker Compose fallback:
 
 ```bash
 cp local/docker/.env.example local/docker/.env
+cp batch-groups/ec/config/envs/local.env.example batch-groups/ec/config/envs/local.env
+cp batch-groups/affiliate/config/envs/local.env.example batch-groups/affiliate/config/envs/local.env
 task kestra:local:docker:start
 task kestra:flows:register
 task kestra:flows:generate
@@ -137,12 +142,17 @@ Flow helper scripts can load credentials, URL settings, and default batch date s
 file:
 
 ```bash
-KESTRA_ENV_FILE=kestra/config/envs/local.env scripts/register-flows.sh
-KESTRA_ENV_FILE=local/docker/.env scripts/register-flows.sh
+KESTRA_ENV_FILE=batch-groups/ec/config/envs/local.env scripts/register-flows.sh \
+  http://localhost:8080 batch-groups/ec/flows
+KESTRA_ENV_FILE=batch-groups/affiliate/config/envs/local.env scripts/register-flows.sh \
+  http://localhost:8082 batch-groups/affiliate/flows
 ```
 
-The `task kestra:flows:*` commands use `KESTRA_ENV_FILE` when provided, otherwise they prefer
-`local/docker/.env` and fall back to `kestra/config/envs/local.env`.
+The `task kestra:flows:*` commands use `KESTRA_ENV_FILE` when provided. Otherwise EC commands load
+`batch-groups/ec/config/envs/local.env` and affiliate commands load
+`batch-groups/affiliate/config/envs/local.env`, falling back to the corresponding checked-in
+`.example` file. `local/docker/.env` contains only shared PostgreSQL provisioning values; it is not
+a Kestra runtime env file.
 
 Registering/running flows against an authenticated endpoint. If a business date is not provided,
 the helper scripts default to the current date in `Asia/Tokyo`; set `BUSINESS_DATE_TZ` to override
@@ -396,12 +406,19 @@ resources.
 
 Both paths run the standard project checks first and then call
 `scripts/deploy-batch-group.sh <system>`, which registers the system's flow directory against
-its Kestra endpoint. Endpoints resolve from `EC_KESTRA_DEPLOY_URL` /
+its Kestra endpoint. Each group owns non-secret GCP routing defaults in
+`batch-groups/<system>/config/envs/gcp.env.example`; an ignored `gcp.env` or an explicit
+`BATCH_GROUP_ENV_FILE` overrides that template. Endpoints resolve from `EC_KESTRA_DEPLOY_URL` /
 `AFFILIATE_KESTRA_DEPLOY_URL`, then from `LIVE_DOMAIN_NAME` subdomains
 (`LIVE_EC_KESTRA_SUBDOMAIN`, default `k8s`; `LIVE_AFFILIATE_KESTRA_SUBDOMAIN`, default
 `affiliate-kestra`), and fall back to the local endpoints. Basic Auth values come from the
 environment or from Secret Manager prefixes (`EC_KESTRA_AUTH_SECRET_PREFIX`, default
 `kestra-dev-gke`; `AFFILIATE_KESTRA_AUTH_SECRET_PREFIX`, default `kestra-affiliate`).
+`PROJECT_ID`, `LIVE_DOMAIN_NAME`, and all secret payloads remain externally injected by kinko, CI,
+or Secret Manager rather than being committed to the GCP env templates.
+GCP templates set `KESTRA_AUTH_SOURCE=secret-manager`, preventing local direnv credentials from
+silently overriding live credentials. Set `KESTRA_AUTH_SOURCE=environment` only for an intentional
+credential override.
 
 The affiliate deploy target must always run the official `kestra/kestra` distribution; only the
 EC system may deploy onto `tacogips/kestra` fork builds such as the routed-worker image.

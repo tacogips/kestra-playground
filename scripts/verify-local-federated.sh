@@ -8,10 +8,10 @@ KESTRA_BASIC_AUTH_USERNAME_OVERRIDE="${KESTRA_BASIC_AUTH_USERNAME:-}"
 KESTRA_BASIC_AUTH_PASSWORD_OVERRIDE="${KESTRA_BASIC_AUTH_PASSWORD:-}"
 
 if [[ -z "${KESTRA_ENV_FILE}" ]]; then
-  if [[ -f local/docker/.env ]]; then
-    KESTRA_ENV_FILE=local/docker/.env
+  if [[ -f batch-groups/ec/config/envs/local.env ]]; then
+    KESTRA_ENV_FILE=batch-groups/ec/config/envs/local.env
   else
-    KESTRA_ENV_FILE=kestra/config/envs/local.env
+    KESTRA_ENV_FILE=batch-groups/ec/config/envs/local.env.example
   fi
 fi
 

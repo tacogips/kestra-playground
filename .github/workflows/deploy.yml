@@ -186,6 +186,9 @@ jobs:
           docker/app/kestra plugins install io.kestra.plugin:plugin-kubernetes:1.9.5 \
             --plugins plugins \
             --repositories=https://central.sonatype.com/repository/maven-snapshots
+          docker/app/kestra plugins install io.kestra.plugin:plugin-jdbc-postgres:1.15.4 \
+            --plugins plugins \
+            --repositories=https://central.sonatype.com/repository/maven-snapshots
       - name: Copy operation demo batch source
         run: |
           mkdir -p kestra-source/docker/app/kestra-playground/batch-groups/ec

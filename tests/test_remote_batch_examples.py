@@ -213,11 +213,11 @@ def test_routed_examples_need_only_uv_on_the_selected_worker() -> None:
 def test_local_compose_provisions_an_external_ssh_worker_and_kestra_secret() -> None:
     compose = _load_yaml("local/docker/docker-compose.yml")
     services = compose["services"]
+    ec_env = (ROOT / "batch-groups/ec/config/envs/local.env.example").read_text(encoding="utf-8")
 
     assert services["remote-worker"]["build"]["context"] == "./remote-worker"
-    assert services["remote-worker"]["environment"]["REMOTE_BATCH_PASSWORD"] == (
-        "${REMOTE_BATCH_PASSWORD:-remote-batch-local}"
-    )
-    assert services["kestra-ec"]["environment"]["SECRET_REMOTE_BATCH_PASSWORD"] == (
-        "${SECRET_REMOTE_BATCH_PASSWORD:-cmVtb3RlLWJhdGNoLWxvY2Fs}"
-    )
+    expected_env_file = ["../../batch-groups/ec/config/envs/local.env"]
+    assert services["remote-worker"]["env_file"] == expected_env_file
+    assert services["kestra-ec"]["env_file"] == expected_env_file
+    assert "REMOTE_BATCH_PASSWORD=local" in ec_env
+    assert "SECRET_REMOTE_BATCH_PASSWORD=bG9jYWw=" in ec_env

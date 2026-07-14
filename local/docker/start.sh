@@ -3,9 +3,17 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${ROOT_DIR}/local/docker/.env"
+EC_ENV_FILE="${ROOT_DIR}/batch-groups/ec/config/envs/local.env"
+AFFILIATE_ENV_FILE="${ROOT_DIR}/batch-groups/affiliate/config/envs/local.env"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   cp "${ROOT_DIR}/local/docker/.env.example" "${ENV_FILE}"
+fi
+if [[ ! -f "${EC_ENV_FILE}" ]]; then
+  cp "${EC_ENV_FILE}.example" "${EC_ENV_FILE}"
+fi
+if [[ ! -f "${AFFILIATE_ENV_FILE}" ]]; then
+  cp "${AFFILIATE_ENV_FILE}.example" "${AFFILIATE_ENV_FILE}"
 fi
 
 compose_env_keys=()
