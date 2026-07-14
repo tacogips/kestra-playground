@@ -2,10 +2,18 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ENV_FILE="${ROOT_DIR}/kestra/config/envs/local.env"
+ENV_FILE="${ROOT_DIR}/local/docker/.env"
+EC_ENV_FILE="${ROOT_DIR}/batch-groups/ec/config/envs/local.env"
+AFFILIATE_ENV_FILE="${ROOT_DIR}/batch-groups/affiliate/config/envs/local.env"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
-  cp "${ROOT_DIR}/kestra/config/envs/local.env.example" "${ENV_FILE}"
+  cp "${ROOT_DIR}/local/docker/.env.example" "${ENV_FILE}"
+fi
+if [[ ! -f "${EC_ENV_FILE}" ]]; then
+  cp "${EC_ENV_FILE}.example" "${EC_ENV_FILE}"
+fi
+if [[ ! -f "${AFFILIATE_ENV_FILE}" ]]; then
+  cp "${AFFILIATE_ENV_FILE}.example" "${AFFILIATE_ENV_FILE}"
 fi
 
 set -a
@@ -17,10 +25,13 @@ container system start
 
 container network create kestra-playground >/dev/null 2>&1 || true
 container volume create kestra-postgres-data >/dev/null 2>&1 || true
-container volume create kestra-data >/dev/null 2>&1 || true
+container volume create kestra-ec-data >/dev/null 2>&1 || true
+container volume create kestra-affiliate-data >/dev/null 2>&1 || true
 
 container delete --force kestra-postgres >/dev/null 2>&1 || true
 container delete --force kestra >/dev/null 2>&1 || true
+container delete --force kestra-ec >/dev/null 2>&1 || true
+container delete --force kestra-affiliate >/dev/null 2>&1 || true
 
 container run -d \
   --name kestra-postgres \
@@ -43,6 +54,8 @@ done
 container exec kestra-postgres psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -v ON_ERROR_STOP=1 <<SQL
 SELECT 'CREATE DATABASE ${BATCH_DB}'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${BATCH_DB}')\gexec
+SELECT 'CREATE DATABASE ${AFFILIATE_KESTRA_DB}'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${AFFILIATE_KESTRA_DB}')\gexec
 DO \$\$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${BATCH_DB_USER}') THEN
@@ -60,16 +73,30 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${BATCH_DB_U
 SQL
 
 container run -d \
-  --name kestra \
+  --name kestra-ec \
   --network kestra-playground \
   -p 8080:8080 \
   -p 8081:8081 \
-  -v kestra-data:/app/storage \
+  -v kestra-ec-data:/app/storage \
   -v /tmp/kestra-wd:/tmp/kestra-wd \
   -v "${ROOT_DIR}/kestra/config/application.yaml:/etc/kestra/application.yaml" \
-  -v "${ROOT_DIR}/batches:/app/kestra-playground/batches" \
-  --env-file "${ENV_FILE}" \
+  -v "${ROOT_DIR}/batch-groups/ec/batches:/app/kestra-playground/batch-groups/ec/batches" \
+  --env-file "${EC_ENV_FILE}" \
   kestra/kestra:latest server standalone --worker-thread=64 --config /etc/kestra/application.yaml
 
-echo "Kestra is starting at http://localhost:8080"
-echo "Register flows with: scripts/register-flows.sh http://localhost:8080"
+container run -d \
+  --name kestra-affiliate \
+  --network kestra-playground \
+  -p 8082:8080 \
+  -p 8083:8081 \
+  -v kestra-affiliate-data:/app/storage \
+  -v /tmp/kestra-affiliate-wd:/tmp/kestra-wd \
+  -v "${ROOT_DIR}/kestra/config/application.yaml:/etc/kestra/application.yaml" \
+  -v "${ROOT_DIR}/batch-groups/affiliate/batches:/app/kestra-playground/batch-groups/affiliate/batches" \
+  --env-file "${AFFILIATE_ENV_FILE}" \
+  kestra/kestra:latest server standalone --worker-thread=64 --config /etc/kestra/application.yaml
+
+echo "EC Kestra is starting at http://localhost:8080"
+echo "Affiliate Kestra is starting at http://localhost:8082"
+echo "Register EC flows with: scripts/register-flows.sh http://localhost:8080 batch-groups/ec/flows"
+echo "Register affiliate flows with: scripts/register-flows.sh http://localhost:8082 batch-groups/affiliate/flows"

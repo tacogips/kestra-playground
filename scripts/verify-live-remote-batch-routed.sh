@@ -174,7 +174,7 @@ wait_for_execution() {
     fi
     state="$(jq -r '.state.current // empty' <<<"${execution_json}")"
     case "${state}" in
-      SUCCESS | FAILED | KILLED | WARNING)
+      SUCCESS | FAILED | KILLED | CANCELLED | WARNING)
         printf '%s\n' "${execution_json}" >"${destination}"
         if [[ "${state}" != "${expected_state}" ]]; then
           echo "Execution ${execution_id} ended with ${state}; expected ${expected_state}." >&2

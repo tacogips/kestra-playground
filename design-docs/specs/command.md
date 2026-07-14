@@ -42,12 +42,28 @@ local/apple-container/stop.sh
 ### Local Docker Compose Fallback
 
 ```bash
-docker compose --env-file local/docker/.env.example -f local/docker/docker-compose.yml up -d
+cp local/docker/.env.example local/docker/.env
+cp batch-groups/ec/config/envs/local.env.example batch-groups/ec/config/envs/local.env
+cp batch-groups/affiliate/config/envs/local.env.example batch-groups/affiliate/config/envs/local.env
+task kestra:local:docker:start
 scripts/register-flows.sh http://localhost:8080
 scripts/run-flow.sh generate_ecommerce_mock_data
 scripts/run-flow.sh build_ecommerce_daily_report
 scripts/run-flow.sh build_ecommerce_customer_segments
-docker compose -f local/docker/docker-compose.yml down
+task kestra:local:docker:stop
+```
+
+`local/docker/.env` contains shared PostgreSQL provisioning only. Each Kestra service receives its
+runtime variables from its owning batch group under `batch-groups/<group>/config/envs/local.env`.
+Both local start scripts create ignored env files from the checked-in examples when they are absent.
+
+GCP flow deployment uses `batch-groups/<group>/config/envs/gcp.env` when present and otherwise reads
+the checked-in `.example`. The file owns only non-secret routing defaults and Secret Manager name
+prefixes; inject `PROJECT_ID` and `LIVE_DOMAIN_NAME` through kinko or CI:
+
+```bash
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- scripts/deploy-batch-group.sh ec
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- scripts/deploy-batch-group.sh affiliate
 ```
 
 Flow execution defaults to the current date in `Asia/Tokyo` when no business date is provided. Set
@@ -122,6 +138,8 @@ By default the GKE Helm install enables split `webserver`, `scheduler`, `executo
 `worker` Deployments with a worker-only HPA. Set `GKE_WORKER_ENABLED=false` when GKE should be a
 controller-only Kestra that observes and reruns executions while external GCE/on-prem workers claim
 the actual work through the shared backend or federated API pattern.
+The shared startup probe allows five seconds per health request and a 300-second startup window so
+plugin scanning on dev-sized CPU allocations is not mistaken for a failed JVM start.
 
 ### Federated OSS Dev-As-Prod
 
@@ -158,7 +176,10 @@ worker routing in a single shared Kestra backend:
 
 - GKE runs the Helm-rendered `webserver`, `scheduler`, `executor`, and `indexer` roles only;
 - `GKE_WORKER_ENABLED=false` adds `k8s/helm/kestra-controller-only-values.yaml`, so no
-  `kestra-worker` Deployment or HPA is released in GKE;
+  generic `kestra-worker` Deployment or HPA is released in GKE;
+- the routed live entry point also keeps `kestra-gke-worker-small` and
+  `kestra-gke-worker-large` resident because Cloud Run submits the remote-batch flows through the
+  public HTTPS ingress, which bypasses the scale-from-zero activator;
 - GCE `kestra-dev-controller-worker` subscribes to the default/system queues for lightweight
   unrouted work;
 - GCE `kestra-dev-gce-a` starts `kestra server worker` with `workerGroupId: gce-a`;
@@ -169,7 +190,7 @@ worker routing in a single shared Kestra backend:
   `${REGION}-docker.pkg.dev/${PROJECT_ID}/kestra-playground/kestra-oss-worker-routing:<tag>`
   unless `KESTRA_IMAGE` is explicitly overridden;
 - GitHub Actions builds this routed image from `tacogips/kestra@feature/oss-worker-routing`,
-  installs `io.kestra.storage:storage-gcs` and `io.kestra.plugin:plugin-script-shell`, pushes it
+  installs GCS storage plus the shell, Kubernetes, and PostgreSQL JDBC runtime plugins, pushes it
   to Artifact Registry, and deploys the commit-SHA tag;
 - `kestra/flows-worker-routing/verify_gcp_worker_routing.yaml` is registered on the GKE controller
   and uses `workerSelector.tags` to force one task onto `gce-a` and another onto `gce-b`;
@@ -184,8 +205,14 @@ kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKE
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-routed
 ```
 
-The verification command checks that GKE has no worker Deployment/pods, that all GCE worker
-instances are `RUNNING`, and that the two routed tasks complete with different worker IDs.
+The verification command checks that GKE has no generic worker Deployment/pods, that all GCE worker
+instances are `RUNNING`, and that the two routed tasks complete with different worker IDs. The
+dedicated `gke-small` and `gke-large` workers remain available for Cloud Run remote-batch requests.
+`scripts/deploy-routed-live.sh` uses `ZONE` for both the OpenTofu worker placement and subsequent
+instance resets; its live default is `asia-northeast1-b`. It forces
+`LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true` and
+`LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=false`; use the separate activator workflow when
+testing scale-from-zero through a port-forward.
 
 ### Shared-Backend OSS GKE Routed Workers
 
@@ -279,6 +306,10 @@ kubectl -n kestra-dev logs deployment/kestra-worker-activator -c scaler -f
 Tune the idle window with `LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS` (default 1800 seconds) and the
 poll interval with `LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS` (default 10 seconds).
 Requests through the HTTPS Ingress bypass the activator and do not wake workers.
+
+The public Cloud Run batch console therefore uses the routed live deployment with fixed replicas,
+not this scale-from-zero mode. Otherwise executions selected for `gke-small` or `gke-large` remain
+`SUBMITTED` without a worker ID.
 
 For the dev-only full parking mode, add `LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true` so the
 activator also parks `kestra-webserver`, `kestra-executor`, `kestra-scheduler`, and

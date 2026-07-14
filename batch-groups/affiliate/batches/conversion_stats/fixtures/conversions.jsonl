@@ -1,0 +1,10 @@
+{"occurred_at": "2026-06-25T00:12:44Z", "partner_code": "AFP-0001", "status": "approved", "commission": 12.5, "order_id": "ord-1001"}
+{"occurred_at": "2026-06-25T01:03:11Z", "partner_code": "AFP-0002", "status": "pending", "commission": 8.75, "order_id": "ord-1002"}
+{"occurred_at": "2026-06-25T02:41:09Z", "partner_code": "AFP-0001", "status": "approved", "commission": 30.0, "order_id": "ord-1003"}
+{"occurred_at": "2026-06-25T04:17:53Z", "partner_code": "AFP-0003", "status": "rejected", "commission": 5.25, "order_id": "ord-1004"}
+{"occurred_at": "2026-06-25T07:55:20Z", "partner_code": "AFP-0002", "status": "approved", "commission": 14.4, "order_id": "ord-1005"}
+{"occurred_at": "2026-06-24T22:10:05Z", "partner_code": "AFP-0001", "status": "approved", "commission": 99.99, "order_id": "ord-0999"}
+not-json
+{"occurred_at": "2026-06-25T09:31:37Z", "partner_code": "AFP-0004", "status": "APPROVED", "commission": 21, "order_id": "ord-1006"}
+{"occurred_at": "2026-06-25T11:44:02Z", "partner_code": "AFP-0003", "status": "pending", "commission": "broken", "order_id": "ord-1007"}
+{"occurred_at": "2026-06-25T13:20:48Z", "partner_code": "AFP-0005", "status": "approved", "commission": 7.6, "order_id": "ord-1008"}

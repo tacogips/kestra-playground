@@ -30,7 +30,7 @@ tasks:
 
   - id: wait_gce_a_generate
     type: io.kestra.plugin.core.flow.LoopUntil
-    condition: "{{ outputs.poll_gce_a_generate.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"WARNING\")') | first }}"
+    condition: "{{ outputs.poll_gce_a_generate.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"CANCELLED\" or .state.current == \"WARNING\")') | first }}"
     failOnMaxReached: true
     checkFrequency:
       interval: PT10S
@@ -63,7 +63,7 @@ tasks:
 
   - id: wait_gce_a_segments
     type: io.kestra.plugin.core.flow.LoopUntil
-    condition: "{{ outputs.poll_gce_a_segments.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"WARNING\")') | first }}"
+    condition: "{{ outputs.poll_gce_a_segments.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"CANCELLED\" or .state.current == \"WARNING\")') | first }}"
     failOnMaxReached: true
     checkFrequency:
       interval: PT10S
@@ -96,7 +96,7 @@ tasks:
 
   - id: wait_gce_b_generate
     type: io.kestra.plugin.core.flow.LoopUntil
-    condition: "{{ outputs.poll_gce_b_generate.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"WARNING\")') | first }}"
+    condition: "{{ outputs.poll_gce_b_generate.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"CANCELLED\" or .state.current == \"WARNING\")') | first }}"
     failOnMaxReached: true
     checkFrequency:
       interval: PT10S
@@ -129,7 +129,7 @@ tasks:
 
   - id: wait_gce_b_daily_report
     type: io.kestra.plugin.core.flow.LoopUntil
-    condition: "{{ outputs.poll_gce_b_daily_report.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"WARNING\")') | first }}"
+    condition: "{{ outputs.poll_gce_b_daily_report.body | jq('(.state.current == \"SUCCESS\" or .state.current == \"FAILED\" or .state.current == \"KILLED\" or .state.current == \"CANCELLED\" or .state.current == \"WARNING\")') | first }}"
     failOnMaxReached: true
     checkFrequency:
       interval: PT10S

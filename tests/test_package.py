@@ -14,10 +14,10 @@ def test_greet_returns_expected_message() -> None:
 
 
 def test_ecommerce_fixture_sql_is_embedded_in_generator_flow() -> None:
-    flow = "kestra/flows/generate_ecommerce_mock_data.yaml"
+    flow = "batch-groups/ec/flows/generate_ecommerce_mock_data.yaml"
 
     assert _flow_task_sql(flow, "seed_dimensions") == _read_text(
-        "kestra/fixtures/ecommerce/seed_dimensions.sql"
+        "batch-groups/ec/fixtures/seed_dimensions.sql"
     )
     assert _flow_tasks_sql(
         flow,
@@ -28,22 +28,22 @@ def test_ecommerce_fixture_sql_is_embedded_in_generator_flow() -> None:
             "insert_inventory_snapshots",
             "insert_support_tickets",
         ],
-    ) == _read_text("kestra/fixtures/ecommerce/generate_daily_facts.sql")
+    ) == _read_text("batch-groups/ec/fixtures/generate_daily_facts.sql")
 
 
 def test_customer_segments_fixture_sql_is_embedded_in_batch_flow() -> None:
     assert _flow_tasks_sql(
-        "kestra/flows/build_ecommerce_customer_segments.yaml",
+        "batch-groups/ec/flows/build_ecommerce_customer_segments.yaml",
         [
             "ensure_customer_segments_table",
             "purge_customer_segments",
             "write_customer_segments",
         ],
-    ) == _read_text("kestra/fixtures/ecommerce/build_customer_segments.sql")
+    ) == _read_text("batch-groups/ec/fixtures/build_customer_segments.sql")
 
 
 def test_batch_flows_are_split_into_granular_otel_audit_tasks() -> None:
-    assert _flow_task_ids("kestra/flows/generate_ecommerce_mock_data.yaml") == [
+    assert _flow_task_ids("batch-groups/ec/flows/generate_ecommerce_mock_data.yaml") == [
         "create_tables",
         "seed_dimensions",
         "purge_daily_facts",
@@ -53,7 +53,7 @@ def test_batch_flows_are_split_into_granular_otel_audit_tasks() -> None:
         "insert_support_tickets",
         "summarize_generated_data",
     ]
-    assert _flow_task_ids("kestra/flows/build_ecommerce_daily_report.yaml") == [
+    assert _flow_task_ids("batch-groups/ec/flows/build_ecommerce_daily_report.yaml") == [
         "ensure_report_table",
         "purge_report",
         "write_sales_summary",
@@ -63,7 +63,7 @@ def test_batch_flows_are_split_into_granular_otel_audit_tasks() -> None:
         "write_support_summary",
         "fetch_report",
     ]
-    assert _flow_task_ids("kestra/flows/build_ecommerce_customer_segments.yaml") == [
+    assert _flow_task_ids("batch-groups/ec/flows/build_ecommerce_customer_segments.yaml") == [
         "ensure_customer_segments_table",
         "purge_customer_segments",
         "write_customer_segments",
@@ -183,6 +183,15 @@ def test_routed_image_build_installs_required_runtime_plugins() -> None:
     assert "io.kestra.storage:storage-gcs:1.2.0" in install_step["run"]
     assert "io.kestra.plugin:plugin-script-shell:1.9.0" in install_step["run"]
     assert "io.kestra.plugin:plugin-kubernetes:1.9.5" in install_step["run"]
+    assert "io.kestra.plugin:plugin-jdbc-postgres:1.15.4" in install_step["run"]
+
+
+def test_gke_startup_probe_allows_routed_plugin_scan() -> None:
+    values = _yaml_load("k8s/helm/kestra-values.yaml")
+    startup_probe = values["common"]["startupProbe"]
+
+    assert startup_probe["timeoutSeconds"] == 5
+    assert startup_probe["failureThreshold"] == 300
 
 
 def test_k8s_podcreate_rbac_allows_batch_pod_lifecycle() -> None:
@@ -262,16 +271,39 @@ def test_flow_registration_retries_transient_api_failures() -> None:
 
 def test_routed_live_deploy_enables_controller_and_routed_workers() -> None:
     script = _read_text("scripts/deploy-routed-live.sh")
+    verifier = _read_text("scripts/verify-live-routed.sh")
 
+    assert 'ZONE="${ZONE:-asia-northeast1-b}"' in script
+    assert 'ZONE="${ZONE:-asia-northeast1-b}"' in verifier
+    assert 'export TF_VAR_zone="${TF_VAR_zone:-${ZONE}}"' in script
     assert "export GKE_WORKER_ENABLED=false" in script
-    assert (
-        'export LIVE_GKE_CONTROLLER_WORKER_ENABLED="${LIVE_GKE_CONTROLLER_WORKER_ENABLED:-true}"'
-        in script
+    assert "export LIVE_GKE_CONTROLLER_WORKER_ENABLED=true" in script
+    assert "export LIVE_GKE_ROUTED_WORKERS_ENABLED=true" in script
+    assert "export LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true" in script
+    assert "export LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=false" in script
+
+
+def test_execution_pollers_and_webconsole_handle_cancelled_as_terminal() -> None:
+    pollers = (
+        "scripts/verify-local-remote-batch.sh",
+        "scripts/verify-live-remote-batch-routed.sh",
+        "scripts/verify-live-operation-demo-gke-pod-resources.sh",
+        "scripts/verify-live-gke-node-routing.sh",
+        "scripts/verify-live-operation-demo-routed.sh",
+        "scripts/verify-live-k8s-pod-resources.sh",
+        "scripts/verify-live-federated.sh",
+        "scripts/verify-live-routed.sh",
+        "scripts/verify-live-environments.sh",
+        "scripts/verify-local-operation-demo.sh",
+        "scripts/verify-local-federated.sh",
     )
-    assert (
-        'export LIVE_GKE_ROUTED_WORKERS_ENABLED="${LIVE_GKE_ROUTED_WORKERS_ENABLED:-true}"'
-        in script
-    )
+
+    for poller in pollers:
+        assert "CANCELLED" in _read_text(poller), poller
+
+    assert 'case "CANCELLED":' in _read_text("webconsole/src/App.tsx")
+    federated_flow = _read_text("kestra/flows-federated/run_federated_ecommerce_batch.yaml")
+    assert federated_flow.count('.state.current == \\"CANCELLED\\"') == 4
 
 
 def test_live_health_check_accepts_root_when_ui_route_is_absent() -> None:
@@ -519,7 +551,7 @@ def test_k8s_pod_resource_verifier_registers_resource_flow() -> None:
 
 
 def test_operation_demo_uses_one_batch_source_with_environment_specific_flows() -> None:
-    batch_source = Path("batches/resource_probe/run.sh")
+    batch_source = Path("batch-groups/ec/batches/resource_probe/run.sh")
     local_flow = _yaml_load("kestra/flows-operation-demo/local/resource_probe_local.yaml")
     gke_flow = _yaml_load(
         "kestra/flows-operation-demo/gke-pod-resources/resource_probe_gke_pod_resources.yaml"
@@ -530,13 +562,19 @@ def test_operation_demo_uses_one_batch_source_with_environment_specific_flows() 
 
     assert batch_source.is_file()
     assert "ARG KESTRA_BASE_IMAGE=kestra/kestra:v1.3.15" in _read_text("Dockerfile")
-    assert "/app/kestra-playground/batches/resource_probe/run.sh" in _read_text("Dockerfile")
-    assert "/app/kestra-playground/batches" in _read_text("local/docker/docker-compose.yml")
-    assert "/app/kestra-playground/batches" in _read_text("local/apple-container/start.sh")
+    assert "/app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh" in _read_text(
+        "Dockerfile"
+    )
+    assert "/app/kestra-playground/batch-groups/ec/batches" in _read_text(
+        "local/docker/docker-compose.yml"
+    )
+    assert "/app/kestra-playground/batch-groups/ec/batches" in _read_text(
+        "local/apple-container/start.sh"
+    )
 
     assert local_flow["tasks"][0]["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
     assert (
-        "/app/kestra-playground/batches/resource_probe/run.sh"
+        "/app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh"
         in local_flow["tasks"][0]["commands"][0]
     )
 
@@ -565,7 +603,10 @@ def test_operation_demo_uses_one_batch_source_with_environment_specific_flows() 
     assert routed_tasks["batch_2_on_gce_b"]["workerSelector"]["tags"] == ["gce-b"]
     for task in routed_flow["tasks"]:
         assert task["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
-        assert "/app/kestra-playground/batches/resource_probe/run.sh" in task["commands"][0]
+        assert (
+            "/app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh"
+            in task["commands"][0]
+        )
 
 
 def test_operation_demo_runtime_image_and_ci_entrypoints_are_configured() -> None:
@@ -573,8 +614,8 @@ def test_operation_demo_runtime_image_and_ci_entrypoints_are_configured() -> Non
     workflow = _yaml_load(".github/workflows/deploy.yml")
     apply_script = _read_text("scripts/apply-gke-dev.sh")
 
-    assert "ENV_RUNTIME_IMAGE" in _read_text("kestra/config/envs/local.env.example")
-    assert "ENV_RUNTIME_IMAGE" in _read_text("local/docker/.env.example")
+    assert "ENV_RUNTIME_IMAGE" in _read_text("batch-groups/ec/config/envs/local.env.example")
+    assert "ENV_RUNTIME_IMAGE" not in _read_text("local/docker/.env.example")
     assert 'ENV_RUNTIME_IMAGE: "${kestra_image}"' in apply_script
     assert apply_script.index('--values "$helm_runtime_values"') < apply_script.index(
         "kestra-controller-only-values.yaml"
@@ -605,7 +646,7 @@ def test_operation_demo_runtime_image_and_ci_entrypoints_are_configured() -> Non
     copy_step = next(
         step for step in routed_build_steps if step["name"] == "Copy operation demo batch source"
     )
-    assert "kestra-source/docker/app/kestra-playground/batches" in copy_step["run"]
+    assert "kestra-source/docker/app/kestra-playground/batch-groups/ec/batches" in copy_step["run"]
     local_script = _read_text("scripts/verify-local-operation-demo.sh")
     assert "KESTRA_ENV_FILE" in local_script
     assert "kestra/flows-operation-demo/local" in local_script

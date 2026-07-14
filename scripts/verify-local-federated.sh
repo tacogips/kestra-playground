@@ -8,10 +8,10 @@ KESTRA_BASIC_AUTH_USERNAME_OVERRIDE="${KESTRA_BASIC_AUTH_USERNAME:-}"
 KESTRA_BASIC_AUTH_PASSWORD_OVERRIDE="${KESTRA_BASIC_AUTH_PASSWORD:-}"
 
 if [[ -z "${KESTRA_ENV_FILE}" ]]; then
-  if [[ -f local/docker/.env ]]; then
-    KESTRA_ENV_FILE=local/docker/.env
+  if [[ -f batch-groups/ec/config/envs/local.env ]]; then
+    KESTRA_ENV_FILE=batch-groups/ec/config/envs/local.env
   else
-    KESTRA_ENV_FILE=kestra/config/envs/local.env
+    KESTRA_ENV_FILE=batch-groups/ec/config/envs/local.env.example
   fi
 fi
 
@@ -79,7 +79,7 @@ wait_for_execution() {
         echo "${execution_json}"
         return 0
         ;;
-      FAILED | KILLED | WARNING)
+      FAILED | KILLED | CANCELLED | WARNING)
         echo "Federated local controller execution ${execution_id} ended with state ${state}." >&2
         jq -r '.state.histories // []' <<<"${execution_json}" >&2
         return 1
@@ -117,8 +117,8 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== Local federated child namespaces (${KESTRA_URL}) ==="
-gce_a_flow_dir="$("${SCRIPT_DIR}/render-federated-child-flows.sh" gce_a kestra/flows "${tmp_dir}/server_gce_a")"
-gce_b_flow_dir="$("${SCRIPT_DIR}/render-federated-child-flows.sh" gce_b kestra/flows "${tmp_dir}/server_gce_b")"
+gce_a_flow_dir="$("${SCRIPT_DIR}/render-federated-child-flows.sh" gce_a batch-groups/ec/flows "${tmp_dir}/server_gce_a")"
+gce_b_flow_dir="$("${SCRIPT_DIR}/render-federated-child-flows.sh" gce_b batch-groups/ec/flows "${tmp_dir}/server_gce_b")"
 
 scripts/register-flows.sh "${KESTRA_URL}" "${gce_a_flow_dir}"
 scripts/register-flows.sh "${KESTRA_URL}" "${gce_b_flow_dir}"

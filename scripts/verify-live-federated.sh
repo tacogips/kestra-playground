@@ -190,7 +190,7 @@ wait_for_execution() {
         echo "${execution_json}"
         return 0
         ;;
-      FAILED | KILLED | WARNING)
+      FAILED | KILLED | CANCELLED | WARNING)
         echo "Federated controller execution ${execution_id} ended with state ${state}." >&2
         jq -r '.state.histories // []' <<<"${execution_json}" >&2
         return 1
@@ -280,14 +280,14 @@ echo "=== Federated child: GCE A (${gce_a_url}) ==="
 export KESTRA_BASIC_AUTH_USERNAME="${gce_a_username}"
 export KESTRA_BASIC_AUTH_PASSWORD="${gce_a_password}"
 wait_for_ui "${gce_a_url}" "${gce_a_username}" "${gce_a_password}"
-gce_a_flow_dir="$("${SCRIPT_DIR}/render-federated-child-flows.sh" gce_a kestra/flows "${tmp_dir}/server_gce_a")"
+gce_a_flow_dir="$("${SCRIPT_DIR}/render-federated-child-flows.sh" gce_a batch-groups/ec/flows "${tmp_dir}/server_gce_a")"
 scripts/register-flows.sh "${gce_a_url}" "${gce_a_flow_dir}"
 
 echo "=== Federated child: GCE B (${gce_b_url}) ==="
 export KESTRA_BASIC_AUTH_USERNAME="${gce_b_username}"
 export KESTRA_BASIC_AUTH_PASSWORD="${gce_b_password}"
 wait_for_ui "${gce_b_url}" "${gce_b_username}" "${gce_b_password}"
-gce_b_flow_dir="$("${SCRIPT_DIR}/render-federated-child-flows.sh" gce_b kestra/flows "${tmp_dir}/server_gce_b")"
+gce_b_flow_dir="$("${SCRIPT_DIR}/render-federated-child-flows.sh" gce_b batch-groups/ec/flows "${tmp_dir}/server_gce_b")"
 scripts/register-flows.sh "${gce_b_url}" "${gce_b_flow_dir}"
 
 echo "=== Federated controller only: GKE (${gke_url}) ==="

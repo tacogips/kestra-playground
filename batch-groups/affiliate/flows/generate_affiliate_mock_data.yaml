@@ -1,0 +1,156 @@
+id: generate_affiliate_mock_data
+namespace: playground.affiliate
+description: Generate deterministic mock affiliate partner activity in PostgreSQL.
+
+labels:
+  environment: playground
+  domain: affiliate
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+    description: Date used for the generated affiliate clicks and conversions.
+
+pluginDefaults:
+  - type: io.kestra.plugin.jdbc.postgresql
+    values:
+      url: "{{ envs.batch_db_url }}"
+      username: "{{ envs.batch_db_username }}"
+      password: "{{ envs.batch_db_password }}"
+
+tasks:
+  - id: create_tables
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      CREATE TABLE IF NOT EXISTS affiliate_partners (
+        partner_id integer PRIMARY KEY,
+        partner_code text NOT NULL UNIQUE,
+        partner_name text NOT NULL,
+        tier text NOT NULL,
+        commission_rate numeric(5, 4) NOT NULL,
+        active boolean NOT NULL DEFAULT true
+      );
+
+      CREATE TABLE IF NOT EXISTS affiliate_clicks (
+        business_date date NOT NULL,
+        partner_id integer NOT NULL REFERENCES affiliate_partners(partner_id),
+        channel text NOT NULL,
+        clicks integer NOT NULL,
+        unique_visitors integer NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (business_date, partner_id, channel)
+      );
+
+      CREATE TABLE IF NOT EXISTS affiliate_conversions (
+        business_date date NOT NULL,
+        partner_id integer NOT NULL REFERENCES affiliate_partners(partner_id),
+        channel text NOT NULL,
+        status text NOT NULL,
+        conversions integer NOT NULL,
+        gross_sales numeric(14, 2) NOT NULL,
+        commission_amount numeric(14, 2) NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (business_date, partner_id, channel, status)
+      );
+
+  - id: seed_partners
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      INSERT INTO affiliate_partners (partner_id, partner_code, partner_name, tier, commission_rate, active)
+      SELECT
+        partner_id,
+        'AFP-' || lpad(partner_id::text, 4, '0'),
+        'Affiliate Partner ' || partner_id,
+        CASE
+          WHEN partner_id % 5 = 0 THEN 'platinum'
+          WHEN partner_id % 3 = 0 THEN 'gold'
+          ELSE 'standard'
+        END,
+        CASE
+          WHEN partner_id % 5 = 0 THEN 0.1200
+          WHEN partner_id % 3 = 0 THEN 0.0800
+          ELSE 0.0500
+        END,
+        partner_id % 11 <> 0
+      FROM generate_series(1, 12) AS partner_id
+      ON CONFLICT (partner_id) DO NOTHING;
+
+  - id: purge_daily_activity
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      DELETE FROM affiliate_conversions
+      WHERE business_date = '{{ inputs.business_date }}'::date;
+
+      DELETE FROM affiliate_clicks
+      WHERE business_date = '{{ inputs.business_date }}'::date;
+
+  - id: insert_clicks
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      INSERT INTO affiliate_clicks (business_date, partner_id, channel, clicks, unique_visitors)
+      SELECT
+        '{{ inputs.business_date }}'::date,
+        p.partner_id,
+        c.channel,
+        40 + seeded.value % 960,
+        20 + (seeded.value / 7) % (20 + seeded.value % 960)
+      FROM affiliate_partners p
+      CROSS JOIN (VALUES ('blog'), ('social'), ('email')) AS c(channel)
+      CROSS JOIN LATERAL (
+        SELECT (('x' || substr(md5(p.partner_code || c.channel || '{{ inputs.business_date }}'), 1, 8))::bit(32)::int & 2147483647) AS value
+      ) AS seeded
+      WHERE p.active;
+
+  - id: insert_conversions
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      INSERT INTO affiliate_conversions (
+        business_date,
+        partner_id,
+        channel,
+        status,
+        conversions,
+        gross_sales,
+        commission_amount
+      )
+      SELECT
+        k.business_date,
+        k.partner_id,
+        k.channel,
+        s.status,
+        conv.count,
+        conv.sales,
+        round(conv.sales * p.commission_rate, 2)
+      FROM affiliate_clicks k
+      JOIN affiliate_partners p ON p.partner_id = k.partner_id
+      CROSS JOIN (VALUES ('approved'), ('pending'), ('rejected')) AS s(status)
+      CROSS JOIN LATERAL (
+        SELECT (('x' || substr(md5(p.partner_code || k.channel || s.status || '{{ inputs.business_date }}'), 1, 8))::bit(32)::int & 2147483647) AS value
+      ) AS seeded
+      CROSS JOIN LATERAL (
+        SELECT
+          1 + seeded.value % greatest(k.clicks / 20, 1) AS count,
+          round((80 + seeded.value % 12000) / 100.0 * (1 + seeded.value % greatest(k.clicks / 20, 1)), 2) AS sales
+      ) AS conv
+      WHERE k.business_date = '{{ inputs.business_date }}'::date;
+
+  - id: summarize_generated_data
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    fetchType: FETCH_ONE
+    sql: |
+      SELECT
+        (SELECT count(*) FROM affiliate_partners) AS partners,
+        (SELECT coalesce(sum(clicks), 0) FROM affiliate_clicks
+          WHERE business_date = '{{ inputs.business_date }}'::date) AS clicks,
+        (SELECT coalesce(sum(conversions), 0) FROM affiliate_conversions
+          WHERE business_date = '{{ inputs.business_date }}'::date) AS conversions,
+        (SELECT coalesce(sum(commission_amount), 0) FROM affiliate_conversions
+          WHERE business_date = '{{ inputs.business_date }}'::date
+            AND status = 'approved') AS approved_commission;

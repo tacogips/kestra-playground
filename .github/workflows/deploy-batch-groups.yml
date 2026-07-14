@@ -1,0 +1,174 @@
+name: Deploy Batch Groups
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "EC-*"
+      - "AFFILIATE-*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kestra-batch-groups-deploy
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve Target Batch Groups
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      deploy_ec: ${{ steps.targets.outputs.deploy_ec }}
+      deploy_affiliate: ${{ steps.targets.outputs.deploy_affiliate }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Determine batch groups to deploy
+        id: targets
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          deploy_ec=false
+          deploy_affiliate=false
+
+          if [ "$REF_TYPE" = "tag" ]; then
+            case "$REF_NAME" in
+              EC-*)
+                if ! printf '%s\n' "$REF_NAME" | grep -Eq '^EC-[0-9]+\.[0-9]+\.[0-9]+$'; then
+                  echo "Tag $REF_NAME does not match EC-x.y.z" >&2
+                  exit 1
+                fi
+                deploy_ec=true
+                ;;
+              AFFILIATE-*)
+                if ! printf '%s\n' "$REF_NAME" | grep -Eq '^AFFILIATE-[0-9]+\.[0-9]+\.[0-9]+$'; then
+                  echo "Tag $REF_NAME does not match AFFILIATE-x.y.z" >&2
+                  exit 1
+                fi
+                deploy_affiliate=true
+                ;;
+              *)
+                echo "Unsupported release tag: $REF_NAME" >&2
+                exit 1
+                ;;
+            esac
+          else
+            if [ -n "$BEFORE_SHA" ] && git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+              base_ref="$BEFORE_SHA"
+            else
+              base_ref="${AFTER_SHA}^"
+            fi
+            changed_files="$(git diff --name-only "$base_ref" "$AFTER_SHA")"
+            printf 'Changed files:\n%s\n' "$changed_files"
+
+            if printf '%s\n' "$changed_files" | grep -E '^batch-groups/ec/' | grep -Ev '\.md$' | grep -q .; then
+              deploy_ec=true
+            fi
+            if printf '%s\n' "$changed_files" | grep -E '^batch-groups/affiliate/' | grep -Ev '\.md$' | grep -q .; then
+              deploy_affiliate=true
+            fi
+          fi
+
+          echo "deploy_ec=$deploy_ec"
+          echo "deploy_affiliate=$deploy_affiliate"
+          printf 'deploy_ec=%s\n' "$deploy_ec" >>"$GITHUB_OUTPUT"
+          printf 'deploy_affiliate=%s\n' "$deploy_affiliate" >>"$GITHUB_OUTPUT"
+
+  validate:
+    name: Validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs:
+      - resolve
+    if: ${{ needs.resolve.outputs.deploy_ec == 'true' || needs.resolve.outputs.deploy_affiliate == 'true' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Run project checks
+        run: nix develop -c task ci
+      - name: Run script checks
+        run: nix develop -c task scripts:check
+
+  deploy-ec:
+    name: Deploy EC Batch Group
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs:
+      - resolve
+      - validate
+    if: ${{ needs.resolve.outputs.deploy_ec == 'true' }}
+    environment:
+      name: development
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      LIVE_DOMAIN_NAME: ${{ vars.LIVE_DOMAIN_NAME }}
+      EC_KESTRA_DEPLOY_URL: ${{ vars.EC_KESTRA_DEPLOY_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Deploy EC flows
+        run: nix develop -c scripts/deploy-batch-group.sh ec
+
+  deploy-affiliate:
+    name: Deploy Affiliate Batch Group
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs:
+      - resolve
+      - validate
+    if: ${{ needs.resolve.outputs.deploy_affiliate == 'true' }}
+    environment:
+      name: development
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      LIVE_DOMAIN_NAME: ${{ vars.LIVE_DOMAIN_NAME }}
+      AFFILIATE_KESTRA_DEPLOY_URL: ${{ vars.AFFILIATE_KESTRA_DEPLOY_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      # The affiliate Kestra endpoint runs the official kestra/kestra
+      # distribution; this job only registers flows and never builds or ships
+      # tacogips/kestra fork images.
+      - name: Deploy affiliate flows
+        run: nix develop -c scripts/deploy-batch-group.sh affiliate

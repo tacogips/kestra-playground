@@ -77,7 +77,7 @@ wait_for_execution() {
         printf '%s\n' "${execution_json}"
         return 0
         ;;
-      FAILED | KILLED | WARNING)
+      FAILED | KILLED | CANCELLED | WARNING)
         echo "Execution ${execution_id} finished with state ${state}." >&2
         jq -r '.taskRunList // []' <<<"${execution_json}" >&2
         return 1

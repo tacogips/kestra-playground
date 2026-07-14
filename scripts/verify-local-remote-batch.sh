@@ -6,12 +6,17 @@ KESTRA_URL="${KESTRA_URL:-http://localhost:8080}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NAMESPACE="playground.remote_batch"
 COMPOSE_FILE="${ROOT_DIR}/local/docker/docker-compose.yml"
+COMPOSE_ENV_FILE="${ROOT_DIR}/local/docker/.env"
+
+if [[ ! -f "${COMPOSE_ENV_FILE}" ]]; then
+  COMPOSE_ENV_FILE="${ROOT_DIR}/local/docker/.env.example"
+fi
 
 if [[ -z "${KESTRA_ENV_FILE:-}" ]]; then
-  if [[ -f "${ROOT_DIR}/local/docker/.env" ]]; then
-    KESTRA_ENV_FILE="${ROOT_DIR}/local/docker/.env"
+  if [[ -f "${ROOT_DIR}/batch-groups/ec/config/envs/local.env" ]]; then
+    KESTRA_ENV_FILE="${ROOT_DIR}/batch-groups/ec/config/envs/local.env"
   else
-    KESTRA_ENV_FILE="${ROOT_DIR}/local/docker/.env.example"
+    KESTRA_ENV_FILE="${ROOT_DIR}/batch-groups/ec/config/envs/local.env.example"
   fi
 fi
 export KESTRA_ENV_FILE
@@ -56,7 +61,7 @@ wait_for_execution() {
     state="$(jq -r '.state.current // empty' <<<"${execution_json}")"
 
     case "${state}" in
-      SUCCESS | FAILED | KILLED | WARNING)
+      SUCCESS | FAILED | KILLED | CANCELLED | WARNING)
         printf '%s\n' "${execution_json}" >"${destination}"
         if [[ "${state}" != "${expected_state}" ]]; then
           echo "Execution ${execution_id} ended with ${state}; expected ${expected_state}." >&2
@@ -111,7 +116,7 @@ fetch_execution_logs() {
 
 assert_no_remote_workspaces() {
   docker compose \
-    --env-file "${KESTRA_ENV_FILE}" \
+    --env-file "${COMPOSE_ENV_FILE}" \
     -f "${COMPOSE_FILE}" \
     exec -T remote-worker sh -eu -c '
       workspace_root=/home/batch/kestra-runs

@@ -44,7 +44,7 @@ def test_database_export_writes_csv_and_emits_progress(tmp_path: Path) -> None:
 
     output_path = tmp_path / "orders.csv"
     result = _run_batch(
-        ROOT / "batches/db_export/export_database.py",
+        ROOT / "batch-groups/ec/batches/db_export/export_database.py",
         {"database_path": str(database_path), "query": "SELECT * FROM orders ORDER BY id"},
         output_path,
     )
@@ -63,7 +63,7 @@ def test_database_export_writes_csv_and_emits_progress(tmp_path: Path) -> None:
 
 def test_database_export_rejects_missing_database(tmp_path: Path) -> None:
     result = _run_batch(
-        ROOT / "batches/db_export/export_database.py",
+        ROOT / "batch-groups/ec/batches/db_export/export_database.py",
         {"database_path": str(tmp_path / "missing.db"), "query": "SELECT 1"},
         tmp_path / "out.csv",
     )
@@ -107,7 +107,7 @@ def test_log_parser_writes_summary_and_counts_malformed_lines(tmp_path: Path) ->
     output_path = tmp_path / "summary.json"
 
     result = _run_batch(
-        ROOT / "batches/log_parse/parse_logs.py",
+        ROOT / "batch-groups/ec/batches/log_parse/parse_logs.py",
         {"input_path": str(input_path), "business_date": "2026-06-25"},
         output_path,
     )
@@ -213,11 +213,11 @@ def test_routed_examples_need_only_uv_on_the_selected_worker() -> None:
 def test_local_compose_provisions_an_external_ssh_worker_and_kestra_secret() -> None:
     compose = _load_yaml("local/docker/docker-compose.yml")
     services = compose["services"]
+    ec_env = (ROOT / "batch-groups/ec/config/envs/local.env.example").read_text(encoding="utf-8")
 
     assert services["remote-worker"]["build"]["context"] == "./remote-worker"
-    assert services["remote-worker"]["environment"]["REMOTE_BATCH_PASSWORD"] == (
-        "${REMOTE_BATCH_PASSWORD:-remote-batch-local}"
-    )
-    assert services["kestra"]["environment"]["SECRET_REMOTE_BATCH_PASSWORD"] == (
-        "${SECRET_REMOTE_BATCH_PASSWORD:-cmVtb3RlLWJhdGNoLWxvY2Fs}"
-    )
+    expected_env_file = ["../../batch-groups/ec/config/envs/local.env"]
+    assert services["remote-worker"]["env_file"] == expected_env_file
+    assert services["kestra-ec"]["env_file"] == expected_env_file
+    assert "REMOTE_BATCH_PASSWORD=local" in ec_env
+    assert "SECRET_REMOTE_BATCH_PASSWORD=bG9jYWw=" in ec_env

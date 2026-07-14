@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ID="${PROJECT_ID:-${GCP_PROJECT_ID:-}}"
 REGION="${REGION:-asia-northeast1}"
-ZONE="${ZONE:-asia-northeast1-a}"
+ZONE="${ZONE:-asia-northeast1-b}"
 NAMESPACE="${NAMESPACE:-kestra-dev}"
 BUSINESS_DATE_INPUT="${1:-${BUSINESS_DATE:-}}"
 LIVE_DOMAIN_NAME="${LIVE_DOMAIN_NAME:-}"
@@ -152,7 +152,7 @@ wait_for_execution() {
         echo "${execution_json}"
         return 0
         ;;
-      FAILED | KILLED | WARNING)
+      FAILED | KILLED | CANCELLED | WARNING)
         echo "Routed worker verification execution ${execution_id} ended with state ${state}." >&2
         print_execution_diagnostics "${execution_json}"
         return 1

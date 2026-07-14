@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-${GCP_PROJECT_ID:-}}"
 REGION="${REGION:-asia-northeast1}"
-ZONE="${ZONE:-asia-northeast1-a}"
+ZONE="${ZONE:-asia-northeast1-b}"
 KESTRA_IMAGE="${KESTRA_IMAGE:-}"
 
 if [[ -z "${PROJECT_ID}" ]]; then
@@ -27,9 +27,18 @@ require_command jq
 require_command tofu
 
 export KESTRA_IMAGE
+export TF_VAR_zone="${TF_VAR_zone:-${ZONE}}"
 export GKE_WORKER_ENABLED=false
-export LIVE_GKE_CONTROLLER_WORKER_ENABLED="${LIVE_GKE_CONTROLLER_WORKER_ENABLED:-true}"
-export LIVE_GKE_ROUTED_WORKERS_ENABLED="${LIVE_GKE_ROUTED_WORKERS_ENABLED:-true}"
+# This entrypoint is specifically for the routed topology. Do not allow an
+# inherited value from direnv or a generic CI environment to disable any of
+# the controller, GCE-routed, or Kubernetes-routed workers it requires.
+export LIVE_GKE_CONTROLLER_WORKER_ENABLED=true
+export LIVE_GKE_ROUTED_WORKERS_ENABLED=true
+# Cloud Run reaches Kestra through the public HTTPS ingress, which bypasses the
+# scale-from-zero activator. Keep both routed Kubernetes worker groups resident
+# so gke-small and gke-large tasks submitted by the web console can be claimed.
+export LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true
+export LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=false
 
 echo "Deploying shared-backend OSS routed Kestra on GKE with GCE workers"
 TARGET_ENVIRONMENT=k8s scripts/deploy-live-environments.sh

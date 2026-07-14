@@ -98,6 +98,27 @@ The primary local target is Apple container. The scripts under `local/apple-cont
 `local/docker/docker-compose.yml` is kept as a fallback for machines where Docker Compose is still
 more convenient than Apple container.
 
+Local configuration follows the same ownership boundary as the two batch groups:
+
+- `local/docker/.env` owns only shared PostgreSQL provisioning values;
+- `batch-groups/ec/config/envs/local.env` owns the EC Kestra metadata connection, endpoint,
+  authentication defaults, batch connection, and EC-only routed/federated settings;
+- `batch-groups/affiliate/config/envs/local.env` owns the affiliate Kestra metadata connection,
+  endpoint, authentication defaults, and batch connection.
+
+The EC and affiliate files intentionally use the generic variables consumed by
+`kestra/config/application.yaml`. Each file is injected only into its own Kestra runtime, so one
+batch group cannot override the other group's metadata connection or endpoint. The batch database
+values currently match because both groups share one development database, but each group declares
+its own flow-facing connection contract.
+
+GCP deployment routing follows the same directory boundary through
+`batch-groups/<group>/config/envs/gcp.env`. These files contain only non-secret endpoint-routing
+defaults and Secret Manager name prefixes. Project/domain values are injected by kinko or CI, while
+database credentials and Basic Auth payloads remain in Secret Manager. A group-owned GCP env file
+does not provision its Kestra runtime; the target control plane, metadata database, DNS, and secrets
+must already exist before flow deployment.
+
 ### GCP Single VM
 
 `infra/terraform/gce-single` creates a VM that runs Docker Compose for Kestra and PostgreSQL.
@@ -170,7 +191,7 @@ The production-like OSS hybrid path is federated rather than queue-shared:
 - the controller flow calls child Kestra REST APIs, waits for child execution state, and records
   child execution IDs in controller task outputs.
 
-The invariant is that no Kestra worker process runs in GKE. Any work executed by a Kestra worker,
+For the federated topology, the invariant is that no Kestra worker process runs in GKE. Any work executed by a Kestra worker,
 including lightweight controller HTTP and polling tasks, is picked up by the GCE controller-worker
 VM attached to the GKE controller backend. Ecommerce batch child flows are not registered or
 executed on GKE; all JDBC batch work is placed on the two GCE child Kestra targets by URL and
@@ -220,6 +241,11 @@ pod name and node name into task logs. The verification flow
 `playground.worker_routing.verify_gke_node_worker_routing` proves that tasks selected with
 `workerSelector.tags` are claimed by the expected worker Deployment and therefore run in the worker
 pod's placement domain.
+
+The routed live deployment enables these two Kubernetes worker groups with fixed replicas in
+addition to the GCE groups. This is required by the public Cloud Run batch console: its remote-batch
+flows select `gke-small` and `gke-large`, and its requests reach the normal HTTPS ingress rather
+than the activator Service. The generic Helm `kestra-worker` remains disabled.
 
 Those routed worker Deployments must not be HPA targets, because a second replica of the same
 `workerGroupId` would compete for the same queue and break the one-worker-per-machine simulation.

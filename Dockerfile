@@ -14,10 +14,10 @@ USER root
 WORKDIR /app/kestra-playground
 
 COPY kestra/ /app/kestra-playground/kestra/
-COPY batches/ /app/kestra-playground/batches/
+COPY batch-groups/ /app/kestra-playground/batch-groups/
 COPY src/ /app/kestra-playground/src/
 COPY pyproject.toml uv.lock README.md /app/kestra-playground/
 
-RUN chmod +x /app/kestra-playground/batches/resource_probe/run.sh
+RUN chmod +x /app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh
 
 ENV KESTRA_PLAYGROUND_HOME=/app/kestra-playground
