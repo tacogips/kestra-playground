@@ -48,6 +48,14 @@ kinko exec --env PROJECT_ID,WEBCONSOLE_ALLOWED_EMAILS,WEBCONSOLE_GOOGLE_CLIENT_I
 kinko exec --env PROJECT_ID -- task webconsole:deploy
 ```
 
+The deploy defaults target the live GKE topology: namespace
+`playground.remote_batch` with the `export_database_to_csv_routed` and
+`parse_application_logs_routed` flows. The deploy script rebuilds the
+remote-batch source bundles into `webconsole/bundles/` (ignored by git) and
+bakes them into the image so the console can supply each flow's
+`batch_bundle` FILE input. Override `KESTRA_NAMESPACE`, `KESTRA_FLOW_IDS`,
+and `KESTRA_FLOW_BUNDLES` at deploy time for other targets.
+
 The service allows unauthenticated ingress at the platform layer because the
 application performs Google sign-in itself and rejects any account not present
 in the `webconsole-allowed-emails` secret.
@@ -66,5 +74,6 @@ in the `webconsole-allowed-emails` secret.
 | `KESTRA_TENANT` | Kestra tenant (default `main`) |
 | `KESTRA_NAMESPACE` | Flow namespace (default `playground.ecommerce`) |
 | `KESTRA_FLOW_IDS` | Comma-separated flows the console may trigger |
+| `KESTRA_FLOW_BUNDLES` | Optional `flowId=path` pairs; the tar.gz is attached as that flow's `batch_bundle` FILE input |
 | `KESTRA_BASIC_AUTH_USERNAME` / `KESTRA_BASIC_AUTH_PASSWORD` | Kestra Basic Auth |
 | `PORT` | Listen port (Cloud Run injects 8080) |
