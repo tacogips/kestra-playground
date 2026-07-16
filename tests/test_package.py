@@ -378,10 +378,10 @@ def test_gke_routed_worker_queues_are_declared() -> None:
     app_config = yaml.safe_load(configmap["data"]["application.yaml"])
     routing = app_config["kestra"]["worker"]["routing"]
 
-    assert routing["groups"]["gke-small"]["queues"] == [
+    assert routing["groupQueueMappings"]["gke-small"]["queues"] == [
         {"workerQueueId": "gke-small", "reservedPercent": -1}
     ]
-    assert routing["groups"]["gke-large"]["queues"] == [
+    assert routing["groupQueueMappings"]["gke-large"]["queues"] == [
         {"workerQueueId": "gke-large", "reservedPercent": -1}
     ]
     assert routing["queues"]["gke-small"]["tags"] == ["gke-small"]

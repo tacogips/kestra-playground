@@ -50,7 +50,7 @@ data:
               - host: kestra-controller-grpc
                 port: 50051
         routing:
-          groups:
+          groupQueueMappings:
             controller:
               queues:
                 - workerQueueId: default

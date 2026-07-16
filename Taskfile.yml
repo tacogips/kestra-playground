@@ -241,6 +241,11 @@ tasks:
     cmds:
       - scripts/verify-local-remote-batch.sh "${BUSINESS_DATE:-}"
 
+  kestra:flows:run-batch-group-broadcast-local:
+    desc: Run the broadcast batch on two local workers using a built tacogips/kestra fork
+    cmds:
+      - scripts/verify-local-batch-group-broadcast.sh "${BUSINESS_DATE:-}"
+
   kestra:flows:audit-federated-topology:
     desc: Audit the OSS federated topology for GKE controller-only and two sticky GCE workers
     cmds:
@@ -290,6 +295,11 @@ tasks:
     desc: Register and run the OSS shared-backend worker routing verification flow
     cmds:
       - scripts/verify-live-routed.sh "${BUSINESS_DATE:-}"
+
+  kestra:live:run-batch-group-broadcast:
+    desc: Run one routed batch on every worker in a shared batch group
+    cmds:
+      - scripts/verify-live-batch-group-broadcast.sh "${BUSINESS_DATE:-}"
 
   kestra:live:run-gke-node-routing:
     desc: Register and run the OSS GKE placement-constrained worker routing verification flow

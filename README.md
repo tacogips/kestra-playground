@@ -312,8 +312,8 @@ workflow builds and pushes a commit-SHA tag plus `latest`, then passes the SHA-t
 Terraform through `KESTRA_IMAGE`. The GCE roots use that image in Docker Compose; the GKE apply
 helper applies the same image through Kustomize before `kubectl apply`.
 
-For the shared-backend routed target, the deployment workflow checks out
-`tacogips/kestra@feature/oss-worker-routing`, builds the custom Kestra executable, installs the GCS
+For the shared-backend routed target, the deployment workflow checks out the pinned
+`tacogips/kestra@bf0e3240580448a80c4fc4850883d88c50e484a7` revision from `main`, builds the custom Kestra executable, installs the GCS
 storage, shell, and Kubernetes plugins, pushes `kestra-oss-worker-routing` tags to Artifact
 Registry, and deploys the commit-SHA tag.
 
@@ -327,6 +327,11 @@ durable placement-domain test, use selector variables such as
 Autopilot shape, `nodeSelector: kubernetes.io/hostname` is rejected. Direct `spec.nodeName` is
 accepted by the API, but it bypasses normal scheduling, does not trigger Autopilot scale-up, and
 can fail if the chosen node lacks local free CPU or memory.
+
+The batch-group broadcast contract can also be proven locally without a container runtime after
+building a sibling `tacogips/kestra` checkout. `task kestra:flows:run-batch-group-broadcast-local`
+starts a temporary PostgreSQL database, a controller, and two workers in one group, then verifies
+that `verify_batch_group_broadcast` produces two worker-keyed outputs and logs both member names.
 
 The routed K8s workers can also run with access-driven scale-from-zero instead of fixed replicas.
 Setting `LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true` together with

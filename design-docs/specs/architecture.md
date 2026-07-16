@@ -221,7 +221,8 @@ The custom OSS worker-routing image enables a second, stronger shared-backend to
   `taskRunner: io.kestra.plugin.core.runner.Process`. Without that explicit task runner, script
   plugin defaults can try Docker execution and fail on a worker container that does not mount a
   Docker socket.
-- The live image is built from `tacogips/kestra@feature/oss-worker-routing` and pushed to Google
+- The live image is built from the pinned broadcast-capable
+  `tacogips/kestra@bf0e3240580448a80c4fc4850883d88c50e484a7` revision and pushed to Google
   Artifact Registry as
   `${REGION}-docker.pkg.dev/${PROJECT_ID}/kestra-playground/kestra-oss-worker-routing:<tag>`.
 
