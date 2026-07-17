@@ -68,11 +68,8 @@ def test_cutover_starts_only_gce_instances_that_it_stopped() -> None:
 def test_activator_accepts_whitespace_in_kubernetes_json() -> None:
     script = _read_text("scripts/apply-gke-dev.sh")
 
-    assert '\"readyReplicas\":[[:space:]]*1' in script
-    assert (
-        '\"(availableReplicas|readyReplicas|replicas)\":[[:space:]]*([1-9][0-9]*)'
-        in script
-    )
+    assert '"readyReplicas":[[:space:]]*1' in script
+    assert '"(availableReplicas|readyReplicas|replicas)":[[:space:]]*([1-9][0-9]*)' in script
 
 
 def test_routed_deployment_runs_full_stack_live_verification() -> None:
