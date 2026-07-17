@@ -39,7 +39,7 @@ Large features are split into multiple related plans with cross-references.
 
 | Plan | Status | Design Reference | Last Updated |
 |------|--------|------------------|--------------|
-| (No active plans yet) | - | - | - |
+| [GKE Full-Stack Scale-To-Zero](active/gke-full-stack-scale-to-zero.md) | IN_PROGRESS | `design-docs/specs/design-gke-full-stack-scale-to-zero.md` | 2026-07-17 |
 
 ## Completed Plans
 

@@ -3,6 +3,7 @@ resources:
   - service-account.yaml
   - configmap.yaml
   - secret.yaml
+  - postgres.yaml
   - service.yaml
   - controller-grpc-service.yaml
   - otel-collector.yaml

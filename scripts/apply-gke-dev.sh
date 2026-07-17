@@ -16,6 +16,9 @@ LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED="${LIVE_GKE_ROUTED_K8S_WORKER_AUTOS
 LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS="${LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS:-1800}"
 LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS="${LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS:-10}"
 LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED="${LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED:-false}"
+LIVE_GKE_DATABASE_AUTOSCALE_ENABLED="${LIVE_GKE_DATABASE_AUTOSCALE_ENABLED:-${LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED}}"
+GKE_POSTGRES_MIGRATE_FROM_CLOUD_SQL="${GKE_POSTGRES_MIGRATE_FROM_CLOUD_SQL:-true}"
+ZONE="${ZONE:-asia-northeast1-b}"
 
 if [[ "$LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED" == "true" && "$LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED" != "true" ]]; then
   echo "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true requires LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true" >&2
@@ -27,6 +30,10 @@ if [[ "$LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED" == "true" ]]; then
     echo "LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true requires LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true and LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true" >&2
     exit 1
   fi
+fi
+if [[ "$LIVE_GKE_DATABASE_AUTOSCALE_ENABLED" == "true" && "$LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED" != "true" ]]; then
+  echo "LIVE_GKE_DATABASE_AUTOSCALE_ENABLED=true requires LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true" >&2
+  exit 1
 fi
 GKE_MIN_COST_ENABLED="${GKE_MIN_COST_ENABLED:-false}"
 NAMESPACE="${NAMESPACE:-kestra-dev}"
@@ -58,7 +65,9 @@ tf_output() {
   jq -er "$1" "$outputs_json"
 }
 
-cloud_sql_instance="$(tf_output '.cloud_sql_instance.value')"
+postgres_internal_ip="$(tf_output '.postgres_internal_ip.value')"
+legacy_cloud_sql_connection_name="$(tf_output '.legacy_cloud_sql_connection_name.value')"
+legacy_cloud_sql_instance_name="$(tf_output '.legacy_cloud_sql_instance_name.value')"
 gcp_service_account="$(tf_output '.gcp_service_account.value')"
 project_id="$(tf_output '.project_id.value')"
 kestra_image="${KESTRA_IMAGE:-$(tf_output '.kestra_image.value')}"
@@ -116,21 +125,25 @@ if [[ -n "${cloud_armor_security_policy_name}" ]]; then
   CLOUD_ARMOR_SECURITY_POLICY_NAME="$cloud_armor_security_policy_name" \
     yq -i '.spec.securityPolicy.name = strenv(CLOUD_ARMOR_SECURITY_POLICY_NAME)' \
     "${work_overlay}/backendconfig.yaml"
+  CLOUD_ARMOR_SECURITY_POLICY_NAME="$cloud_armor_security_policy_name" \
+    yq -i '.spec.securityPolicy.name = strenv(CLOUD_ARMOR_SECURITY_POLICY_NAME)' \
+    "${work_overlay}/activator-backendconfig.yaml"
+else
+  yq -i 'del(.spec.securityPolicy)' "${work_overlay}/activator-backendconfig.yaml"
+fi
+
+POSTGRES_INTERNAL_IP="$postgres_internal_ip" \
+  yq -i '.spec.loadBalancerIP = strenv(POSTGRES_INTERNAL_IP)' \
+  "${work_overlay}/postgres-internal-service.yaml"
+
+if [[ "$LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED" == "true" ]]; then
+  yq -i '.spec.rules[0].http.paths[0].backend.service.name = "kestra-worker-activator" | .spec.rules[0].http.paths[0].backend.service.port.number = 80' \
+    "${work_overlay}/ingress.yaml"
 fi
 
 CONTROLLER_GRPC_IP_ADDRESS="$controller_grpc_ip_address" \
   yq -i '.spec.loadBalancerIP = strenv(CONTROLLER_GRPC_IP_ADDRESS)' \
   "${work_overlay}/controller-grpc-service.yaml"
-
-cat >"${work_overlay}/configmap.yaml" <<EOF
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: kestra-runtime-config
-  namespace: kestra
-data:
-  CLOUD_SQL_INSTANCE: ${cloud_sql_instance}
-EOF
 
 cat >"${work_overlay}/service-account.yaml" <<EOF
 apiVersion: v1
@@ -149,7 +162,7 @@ metadata:
   name: kestra-secrets
   namespace: kestra
 stringData:
-  KESTRA_DB_URL: $(runtime_secret_value KESTRA_DB_URL)
+  KESTRA_DB_URL: jdbc:postgresql://kestra-postgres:5432/kestra
   KESTRA_DB_USERNAME: $(runtime_secret_value KESTRA_DB_USERNAME)
   KESTRA_DB_PASSWORD: $(runtime_secret_value KESTRA_DB_PASSWORD)
   KESTRA_GCS_BUCKET: $(runtime_secret_value KESTRA_GCS_BUCKET)
@@ -157,7 +170,7 @@ stringData:
   KESTRA_BASIC_AUTH_PASSWORD: $(runtime_secret_value KESTRA_BASIC_AUTH_PASSWORD)
   KESTRA_SERVER_BASIC__AUTH_USERNAME: $(runtime_secret_value KESTRA_SERVER_BASIC__AUTH_USERNAME)
   KESTRA_SERVER_BASIC__AUTH_PASSWORD: $(runtime_secret_value KESTRA_SERVER_BASIC__AUTH_PASSWORD)
-  ENV_BATCH_DB_URL: $(runtime_secret_value ENV_BATCH_DB_URL)
+  ENV_BATCH_DB_URL: jdbc:postgresql://kestra-postgres:5432/ecommerce_ops
   ENV_BATCH_DB_USERNAME: $(runtime_secret_value ENV_BATCH_DB_USERNAME)
   ENV_BATCH_DB_PASSWORD: $(runtime_secret_value ENV_BATCH_DB_PASSWORD)
   ENV_RUNTIME_IMAGE: "${kestra_image}"
@@ -175,6 +188,225 @@ chmod 600 "$rendered"
 kustomize build "$work_overlay" >"$rendered"
 
 kubectl apply -f "$rendered"
+kubectl -n "$NAMESPACE" rollout status statefulset/kestra-postgres --timeout=10m
+
+cutover_stopped_instances=()
+
+postgres_migration_complete() {
+  local database=""
+  local marker=""
+
+  for database in kestra ecommerce_ops; do
+    marker="$(
+      kubectl -n "$NAMESPACE" exec statefulset/kestra-postgres -- \
+        psql --tuples-only --no-align --username=kestra --dbname="$database" \
+          --command "SELECT to_regclass('public._gke_cloud_sql_migration') IS NOT NULL" \
+        | tr -d '[:space:]'
+    )"
+    if [[ "$marker" != "t" ]]; then
+      return 1
+    fi
+  done
+}
+
+quiesce_gke_kestra() {
+  local deployment=""
+  local replicas=""
+  local attempts=""
+  local deployments=(
+    kestra-webserver
+    kestra-executor
+    kestra-scheduler
+    kestra-indexer
+    kestra-worker
+    kestra-gke-worker-small
+    kestra-gke-worker-large
+  )
+
+  kubectl -n "$NAMESPACE" delete hpa kestra-worker --ignore-not-found
+  for deployment in "${deployments[@]}"; do
+    if kubectl -n "$NAMESPACE" get deployment "$deployment" >/dev/null 2>&1; then
+      kubectl -n "$NAMESPACE" scale deployment "$deployment" --replicas=0 >/dev/null
+    fi
+  done
+
+  for deployment in "${deployments[@]}"; do
+    if kubectl -n "$NAMESPACE" get deployment "$deployment" >/dev/null 2>&1; then
+      for attempts in {1..120}; do
+        replicas="$(
+          kubectl -n "$NAMESPACE" get deployment "$deployment" -o json \
+            | jq -er '.status.replicas // 0'
+        )"
+        if [[ "$replicas" == "0" ]]; then
+          break
+        fi
+        if [[ "$attempts" == "120" ]]; then
+          echo "Timed out quiescing deployment/${deployment}." >&2
+          return 1
+        fi
+        sleep 5
+      done
+    fi
+  done
+}
+
+quiesce_gce_workers() {
+  local instance=""
+  local worker_instances=()
+  mapfile -t worker_instances < <(
+    jq -r '.gce_worker_instances.value[]?' "$outputs_json"
+  )
+
+  for instance in "${worker_instances[@]}"; do
+    if [[ "$(gcloud compute instances describe "$instance" --zone="$ZONE" --project="$project_id" --format='value(status)')" == "RUNNING" ]]; then
+      gcloud compute instances stop "$instance" \
+        --zone="$ZONE" \
+        --project="$project_id" \
+        --quiet
+      cutover_stopped_instances+=("$instance")
+    fi
+  done
+}
+
+render_cloud_sql_migration_job() {
+  cat <<EOF
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kestra-postgres-cloud-sql-migration
+  namespace: ${NAMESPACE}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kestra-postgres-cloud-sql-migration
+        app.kubernetes.io/component: database-migration
+        app.kubernetes.io/instance: kestra
+    spec:
+      restartPolicy: Never
+      serviceAccountName: kestra
+      initContainers:
+        - name: cloud-sql-proxy
+          image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1
+          restartPolicy: Always
+          args:
+            - --structured-logs
+            - --address=0.0.0.0
+            - --port=5433
+            - ${legacy_cloud_sql_connection_name}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+      containers:
+        - name: migrate
+          image: postgres:16.13-alpine
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for attempt in \$(seq 1 120); do
+                if pg_isready --host=127.0.0.1 --port=5433 --username="\$POSTGRES_USER" >/dev/null 2>&1; then
+                  break
+                fi
+                if [ "\$attempt" -eq 120 ]; then
+                  echo "Cloud SQL proxy did not become ready." >&2
+                  exit 1
+                fi
+                sleep 2
+              done
+
+              for database in kestra ecommerce_ops; do
+                existing_tables="\$(
+                  psql --host=kestra-postgres --username="\$POSTGRES_USER" --dbname="\$database" \
+                    --tuples-only --no-align \
+                    --command "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema') AND tablename <> '_gke_cloud_sql_migration'"
+                )"
+                if [ "\$existing_tables" -eq 0 ]; then
+                  echo "Migrating \$database from Cloud SQL."
+                  pg_dump --host=127.0.0.1 --port=5433 --username="\$POSTGRES_USER" \
+                    --dbname="\$database" --format=custom --no-owner --no-privileges \
+                    --file="/work/\$database.dump"
+                  pg_restore --host=kestra-postgres --username="\$POSTGRES_USER" \
+                    --dbname="\$database" --no-owner --no-privileges --exit-on-error \
+                    "/work/\$database.dump"
+                else
+                  echo "Destination \$database already has \$existing_tables user tables; preserving it."
+                fi
+                psql --host=kestra-postgres --username="\$POSTGRES_USER" --dbname="\$database" \
+                  --set ON_ERROR_STOP=1 \
+                  --command "CREATE TABLE IF NOT EXISTS _gke_cloud_sql_migration (source text PRIMARY KEY, migrated_at timestamptz NOT NULL DEFAULT now())" \
+                  --command "INSERT INTO _gke_cloud_sql_migration (source) VALUES ('${legacy_cloud_sql_connection_name}') ON CONFLICT (source) DO NOTHING"
+              done
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: kestra-secrets
+                  key: KESTRA_DB_USERNAME
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kestra-secrets
+                  key: KESTRA_DB_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: work
+              mountPath: /work
+      volumes:
+        - name: work
+          emptyDir: {}
+EOF
+}
+
+migrate_cloud_sql_to_gke_postgres() {
+  local migration_job="${tmpdir}/postgres-cloud-sql-migration.yaml"
+
+  if [[ "$GKE_POSTGRES_MIGRATE_FROM_CLOUD_SQL" != "true" ]]; then
+    return
+  fi
+  if postgres_migration_complete; then
+    echo "GKE PostgreSQL migration markers already exist; skipping Cloud SQL cutover."
+    return
+  fi
+
+  echo "Creating an on-demand Cloud SQL backup before the GKE PostgreSQL cutover."
+  gcloud sql backups create \
+    --instance="$legacy_cloud_sql_instance_name" \
+    --project="$project_id" \
+    --description="pre-gke-postgres-cutover-$(date -u +%Y%m%dT%H%M%SZ)" \
+    --quiet >/dev/null
+
+  echo "Quiescing GKE Kestra and GCE workers for a consistent database dump."
+  quiesce_gke_kestra
+  quiesce_gce_workers
+
+  render_cloud_sql_migration_job >"$migration_job"
+  kubectl -n "$NAMESPACE" delete job kestra-postgres-cloud-sql-migration --ignore-not-found
+  kubectl apply -f "$migration_job"
+  if ! kubectl -n "$NAMESPACE" wait \
+    --for=condition=complete \
+    job/kestra-postgres-cloud-sql-migration \
+    --timeout=30m; then
+    kubectl -n "$NAMESPACE" logs job/kestra-postgres-cloud-sql-migration -c migrate >&2 || true
+    exit 1
+  fi
+  kubectl -n "$NAMESPACE" logs job/kestra-postgres-cloud-sql-migration -c migrate
+  postgres_migration_complete
+}
+
+migrate_cloud_sql_to_gke_postgres
 
 image_repository="${kestra_image%:*}"
 image_tag="${kestra_image##*:}"
@@ -362,25 +594,6 @@ ${placement}      containers:
               subPath: worker-routing.yaml
             - name: tmp
               mountPath: /tmp/kestra-wd
-        - name: cloud-sql-proxy
-          image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1
-          args:
-            - --structured-logs
-            - --port=5432
-            - \$(CLOUD_SQL_INSTANCE)
-          env:
-            - name: CLOUD_SQL_INSTANCE
-              valueFrom:
-                configMapKeyRef:
-                  name: kestra-runtime-config
-                  key: CLOUD_SQL_INSTANCE
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 250m
-              memory: 256Mi
       volumes:
         - name: kestra-config
           configMap:
@@ -406,6 +619,8 @@ EOF
 }
 
 activator_scale_deployments="kestra-gke-worker-small kestra-gke-worker-large"
+activator_scale_statefulsets=""
+activator_statefulset_rbac=""
 activator_boot_state="cold"
 activator_scale_resource_names="      - kestra-gke-worker-small
       - kestra-gke-worker-large"
@@ -417,6 +632,19 @@ if [[ "$LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED" == "true" ]]; then
       - kestra-executor
       - kestra-scheduler
       - kestra-indexer"
+fi
+if [[ "$LIVE_GKE_DATABASE_AUTOSCALE_ENABLED" == "true" ]]; then
+  activator_scale_statefulsets="kestra-postgres"
+  activator_statefulset_rbac="  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+      - statefulsets/scale
+    resourceNames:
+      - kestra-postgres
+    verbs:
+      - get
+      - patch"
 fi
 
 render_routed_worker_activator() {
@@ -446,6 +674,12 @@ http {
   server {
     listen 8080;
 
+    location = /health {
+      access_log off;
+      add_header Content-Type text/plain;
+      return 200 'ok';
+    }
+
     location / {
       proxy_pass http://kestra-webserver;
       proxy_http_version 1.1;
@@ -454,6 +688,13 @@ http {
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection "upgrade";
       proxy_read_timeout 300s;
+      proxy_intercept_errors on;
+      error_page 502 503 504 = @warming;
+    }
+
+    location @warming {
+      add_header Retry-After 5 always;
+      return 503 'Kestra is starting; retry in 5 seconds.';
     }
   }
 }
@@ -469,27 +710,123 @@ log() {
   printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1"
 }
 
-scale_deployment() {
-  curl --fail --silent --show-error --output /dev/null \
-    --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
-    -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
-    -H "Content-Type: application/merge-patch+json" \
-    -X PATCH \
-    -d "{\"spec\":{\"replicas\":$2}}" \
-    "https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}/apis/apps/v1/namespaces/${POD_NAMESPACE}/deployments/$1/scale"
+api_request() {
+  method="$1"
+  path="$2"
+  data="${3:-}"
+  if [ -n "${data}" ]; then
+    curl --fail --silent --show-error \
+      --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+      -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
+      -H "Content-Type: application/merge-patch+json" \
+      -X "${method}" \
+      -d "${data}" \
+      "https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}${path}"
+  else
+    curl --fail --silent --show-error \
+      --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+      -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
+      -X "${method}" \
+      "https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}${path}"
+  fi
 }
 
-scale_all() {
+scale_resource() {
+  resource="$1"
+  name="$2"
+  replicas="$3"
+  api_request PATCH \
+    "/apis/apps/v1/namespaces/${POD_NAMESPACE}/${resource}/${name}/scale" \
+    "{\"spec\":{\"replicas\":${replicas}}}" \
+    >/dev/null
+}
+
+scale_deployments() {
   failed=0
   for deployment in ${SCALE_DEPLOYMENTS}; do
-    if scale_deployment "${deployment}" "$1"; then
-      log "scaled ${deployment} to replicas=$1"
+    if scale_resource deployments "${deployment}" "$1"; then
+      log "scaled deployment/${deployment} to replicas=$1"
     else
-      log "failed to scale ${deployment} to replicas=$1"
+      log "failed to scale deployment/${deployment} to replicas=$1"
       failed=1
     fi
   done
   return "${failed}"
+}
+
+scale_statefulsets() {
+  failed=0
+  for statefulset in ${SCALE_STATEFULSETS}; do
+    if scale_resource statefulsets "${statefulset}" "$1"; then
+      log "scaled statefulset/${statefulset} to replicas=$1"
+    else
+      log "failed to scale statefulset/${statefulset} to replicas=$1"
+      failed=1
+    fi
+  done
+  return "${failed}"
+}
+
+wait_for_statefulsets_ready() {
+  for statefulset in ${SCALE_STATEFULSETS}; do
+    attempts=0
+    while [ "${attempts}" -lt 180 ]; do
+      status="$(api_request GET "/apis/apps/v1/namespaces/${POD_NAMESPACE}/statefulsets/${statefulset}")"
+      if printf '%s' "${status}" | grep -q '"readyReplicas":1'; then
+        log "statefulset/${statefulset} is ready"
+        break
+      fi
+      attempts=$(( attempts + 1 ))
+      sleep 2
+    done
+    if [ "${attempts}" -ge 180 ]; then
+      log "timed out waiting for statefulset/${statefulset} readiness"
+      return 1
+    fi
+  done
+}
+
+wait_for_deployments_stopped() {
+  for deployment in ${SCALE_DEPLOYMENTS}; do
+    attempts=0
+    while [ "${attempts}" -lt 180 ]; do
+      status="$(api_request GET "/apis/apps/v1/namespaces/${POD_NAMESPACE}/deployments/${deployment}")"
+      if ! printf '%s' "${status}" | grep -Eq '"(availableReplicas|readyReplicas|replicas)":([1-9][0-9]*)'; then
+        log "deployment/${deployment} is stopped"
+        break
+      fi
+      attempts=$(( attempts + 1 ))
+      sleep 2
+    done
+    if [ "${attempts}" -ge 180 ]; then
+      log "timed out waiting for deployment/${deployment} to stop"
+      return 1
+    fi
+  done
+}
+
+wake_all() {
+  if [ -n "${SCALE_STATEFULSETS}" ]; then
+    scale_statefulsets 1 || return 1
+    wait_for_statefulsets_ready || return 1
+  fi
+  scale_deployments 1
+}
+
+park_all() {
+  scale_deployments 0 || return 1
+  wait_for_deployments_stopped || return 1
+  if [ -n "${SCALE_STATEFULSETS}" ]; then
+    scale_statefulsets 0 || return 1
+  fi
+}
+
+reconcile() {
+  if [ "$1" -eq 1 ]; then
+    wake_all
+  else
+    park_all
+  fi
 }
 
 last_size=0
@@ -500,7 +837,7 @@ else
 fi
 current=-1
 
-log "activator started boot_state=${BOOT_STATE} idle_seconds=${IDLE_SECONDS} poll_seconds=${POLL_SECONDS} deployments=${SCALE_DEPLOYMENTS}"
+log "activator started boot_state=${BOOT_STATE} idle_seconds=${IDLE_SECONDS} poll_seconds=${POLL_SECONDS} deployments=${SCALE_DEPLOYMENTS} statefulsets=${SCALE_STATEFULSETS}"
 
 while :; do
   now="$(date +%s)"
@@ -518,7 +855,7 @@ while :; do
     want=0
   fi
   if [ "${want}" -ne "${current}" ]; then
-    if scale_all "${want}"; then
+    if reconcile "${want}"; then
       current="${want}"
     fi
   fi
@@ -542,12 +879,14 @@ rules:
   - apiGroups:
       - apps
     resources:
+      - deployments
       - deployments/scale
     resourceNames:
 ${activator_scale_resource_names}
     verbs:
       - get
       - patch
+${activator_statefulset_rbac}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -594,6 +933,13 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 10
           resources:
             requests:
               cpu: 50m
@@ -619,6 +965,8 @@ spec:
                   fieldPath: metadata.namespace
             - name: SCALE_DEPLOYMENTS
               value: "${activator_scale_deployments}"
+            - name: SCALE_STATEFULSETS
+              value: "${activator_scale_statefulsets}"
             - name: BOOT_STATE
               value: "${activator_boot_state}"
             - name: ACCESS_LOG
@@ -656,6 +1004,9 @@ metadata:
     app.kubernetes.io/name: kestra-worker-activator
     app.kubernetes.io/component: activator
     app.kubernetes.io/instance: kestra
+  annotations:
+    cloud.google.com/backend-config: '{"default": "kestra-worker-activator"}'
+    cloud.google.com/neg: '{"ingress": true}'
 spec:
   type: ClusterIP
   selector:
@@ -664,7 +1015,7 @@ spec:
     app.kubernetes.io/instance: kestra
   ports:
     - name: http
-      port: 8080
+      port: 80
       targetPort: 8080
       protocol: TCP
 EOF
@@ -724,6 +1075,16 @@ else
     kestra-worker-routing-gke-large \
     --ignore-not-found
 fi
+
+for instance in "${cutover_stopped_instances[@]}"; do
+  if [[ "$(gcloud compute instances describe "$instance" --zone="$ZONE" --project="$project_id" --format='value(status)')" == "TERMINATED" ]]; then
+    echo "Starting cutover worker ${instance} against GKE PostgreSQL."
+    gcloud compute instances start "$instance" \
+      --zone="$ZONE" \
+      --project="$project_id" \
+      --quiet
+  fi
+done
 
 kubectl -n "$NAMESPACE" rollout status deployment/otel-collector --timeout=10m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-webserver --timeout=15m

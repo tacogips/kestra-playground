@@ -16,8 +16,7 @@ scale-from-zero / scale-to-zero of the whole fixed worker set:
 - each routed worker Deployment idles at `replicas: 0`;
 - a resident activator wakes all routed workers to `replicas: 1` on the first user access;
 - an idle reaper returns them to `replicas: 0` after a configurable idle window;
-- the control plane (webserver, executor, scheduler, indexer, controller gRPC, Cloud SQL proxy)
-  stays resident so the API remains reachable while workers are cold.
+- the worker-only mode leaves the control plane and PostgreSQL resident.
 
 ## Trigger Model
 
@@ -66,7 +65,7 @@ needed.
   the WorkerController. Executions triggered without any activator access (for example a schedule
   trigger firing while everything is idle) do not wake workers and wait until the next access.
 
-## Control-Plane Autoscale Mode
+## Control-Plane And Database Autoscale Mode
 
 `LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true` extends the same activator to the control plane:
 `kestra-webserver`, `kestra-executor`, `kestra-scheduler`, and `kestra-indexer` join the scaled
@@ -79,16 +78,17 @@ Differences from the worker-only mode:
   stays up for one full idle window before parking. This keeps the deploy pipeline's rollout waits
   and HTTPS health verification working, and matches "control plane up brings workers up" right
   after a deploy.
-- While parked, the first access through the activator returns 502 from nginx until the webserver
+- While parked, the first access through the activator returns HTTP 503 from nginx until the webserver
   JVM boots (roughly 1-3 minutes, plus possible Autopilot node scale-up). The access is still
   logged, so the wake-up proceeds; the user retries or the UI reloads.
 - The `kestra-controller-grpc` Service selects the webserver pods, so parking the webserver also
   removes the worker-controller gRPC endpoint. On wake, all deployments scale together and workers
   retry their outbound gRPC connect until the webserver answers.
-- While parked, the scheduler does not fire schedule triggers, the HTTPS Ingress and any external
-  health checks against the webserver fail, and nothing except activator access wakes the stack.
-- Cloud SQL and GCS remain running; the idle cost floor is the activator pod, the otel-collector,
-  and the managed backing services, not zero.
+- While parked, the scheduler does not fire schedule triggers. The HTTPS Ingress targets the
+  activator, whose `/health` endpoint stays healthy without refreshing the idle timer.
+- `LIVE_GKE_DATABASE_AUTOSCALE_ENABLED=true` wakes the PostgreSQL StatefulSet before the Kestra
+  Deployments and parks it only after the Deployments stop. The database PVC, GCS, activator,
+  load balancers, and cluster control plane remain billable.
 
 The flag requires `LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true` and
 `LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true`; `scripts/apply-gke-dev.sh` exits with an error
@@ -102,23 +102,24 @@ otherwise.
 | `LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS` | `1800` | Idle window before the reaper scales the managed set back to 0 |
 | `LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS` | `10` | Access-log poll interval |
 | `LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED` | `false` | Also park/wake the control plane deployments (warm boot) |
+| `LIVE_GKE_DATABASE_AUTOSCALE_ENABLED` | control-plane flag | Also park/wake PostgreSQL in dependency order |
 
 Access path while autoscale is enabled:
 
 ```bash
-kubectl -n kestra-dev port-forward svc/kestra-worker-activator 8080:8080
+kubectl -n kestra-dev port-forward svc/kestra-worker-activator 8080:80
 ```
 
-The existing HTTPS Ingress still points at `kestra-webserver` directly; requests through the
-Ingress do not wake workers. Repointing the Ingress at the activator is possible but is not done
-here because the GCE Ingress health check and Cloud Armor wiring target the webserver backend.
+With control-plane autoscaling enabled, the HTTPS Ingress points at `kestra-worker-activator` and
+uses its dedicated BackendConfig health check. See
+`design-docs/specs/design-gke-full-stack-scale-to-zero.md` for the complete public-access and
+PostgreSQL lifecycle.
 
 ## Cost Shape
 
-With autoscale enabled and no traffic, the routed worker pods (and, on GKE Standard worker node
-pools with cluster autoscaler, their nodes) disappear. What keeps running is the control plane and
-the activator pod, matching the on-prem simulation goal: the data-center-like worker capacity is
-elastic while the GCP-side controller remains available.
+With full-stack autoscale enabled and no traffic, routed workers, Kestra control-plane pods, and
+the PostgreSQL pod disappear. The retained PVC, activator, OTEL collector, load balancers, GCS, and
+GKE control plane remain.
 
 ## References
 

@@ -17,8 +17,8 @@ Deployments more naturally than request-driven Cloud Run services.
 
 Use this default runtime model:
 
-1. Run the Kestra control plane on GKE Autopilot with Cloud SQL for PostgreSQL and GCS for internal
-   storage.
+1. Run the Kestra control plane on GKE Autopilot with an in-cluster PostgreSQL StatefulSet on a
+   retained Persistent Disk and GCS for internal storage.
 2. Keep control-plane resource requests small and explicit so Autopilot bills only the resources
    that the running pods request.
 3. Scale non-production Kestra Deployments to zero outside active use windows when schedules do not
@@ -33,7 +33,7 @@ Use this default runtime model:
 Kestra's own Kubernetes guidance recommends separate component pods for production deployments to
 improve scalability and resource isolation. This matches the repository's GKE shape: the official
 Kestra Helm chart manages separate Kestra server roles, Kustomize manages supporting Kubernetes
-resources, and Terraform manages GKE, Cloud SQL, GCS, IAM, load balancing, DNS, and Cloud Armor.
+resources, and Terraform manages GKE, GCS, IAM, load balancing, DNS, and Cloud Armor.
 
 GKE Autopilot minimizes idle node cost better than GKE Standard because Google manages node
 provisioning and bills general-purpose Autopilot workloads primarily by requested pod resources.
@@ -55,7 +55,7 @@ of Cloud Run's cost advantage.
 
 | Option | Fit for Kestra control plane | Idle cost behavior | Operational notes |
 |--------|------------------------------|--------------------|-------------------|
-| GKE Autopilot | Strong | Can scale nodes to zero only when user workloads are gone | Best production-like fit; requires Kubernetes operations and Cloud SQL/GCS |
+| GKE Autopilot | Strong | Can scale nodes to zero only when user workloads are gone | Best production-like fit; this dev topology uses an in-cluster PostgreSQL StatefulSet and GCS |
 | Cloud Run Services | Weak | Very low for request-driven services, poor for always-on schedulers | Request/service model does not fit the full Kestra cluster well |
 | Cloud Run Jobs | Not a control-plane host | Very low for intermittent jobs | Good execution backend for batch tasks, not for managing Kestra itself |
 | Single GCE VM | Moderate for dev/small use | VM cost continues while running | Lowest operational complexity; weaker HA and scaling story |
@@ -68,10 +68,9 @@ management fee, but Google Cloud's GKE free tier can offset roughly one Autopilo
 monthly management fee. Application compute still depends on the requested CPU, memory, and
 ephemeral storage of running pods.
 
-The main non-compute cost driver is likely Cloud SQL, because Kestra requires a durable repository
-database and this repository's GKE design also uses PostgreSQL for the ecommerce batch workload. For
-development environments, stop Cloud SQL when the environment is not needed, if the operational
-workflow can tolerate startup delay and unavailable schedules.
+The PostgreSQL Persistent Disk remains allocated when its StatefulSet is at zero, but the database
+pod no longer consumes Autopilot compute. The activator, load balancers, GCS, telemetry, and cluster
+management also remain part of the idle cost floor.
 
 For a cost-conscious non-production environment:
 
@@ -80,7 +79,7 @@ For a cost-conscious non-production environment:
 3. Disable or scale down optional components such as the OTEL collector when not evaluating
    telemetry.
 4. Scale Kestra Deployments to zero outside active windows.
-5. Stop Cloud SQL outside active windows.
+5. Use the ordered activator to stop PostgreSQL after all Kestra Deployments reach zero.
 6. Prefer Cloud Run Jobs for infrequent heavy task execution instead of keeping large worker pods
    warm.
 
@@ -97,7 +96,7 @@ For production:
 The recommended GCP architecture is:
 
 - GKE Autopilot for Kestra webserver, scheduler, executor, indexer, and worker Deployments.
-- Cloud SQL for Kestra repository and queue state.
+- A PostgreSQL StatefulSet with a retained `standard-rwo` PVC for Kestra repository and queue state.
 - GCS for Kestra internal storage.
 - Secret Manager plus Workload Identity for sensitive configuration.
 - Google HTTPS load balancing, managed certificates, Cloud Armor, and DNS for UI/API ingress.
@@ -110,7 +109,7 @@ pay-per-use.
 
 - Do not run the full Kestra control plane on Cloud Run as the default design.
 - Do not rely on Autopilot scale-to-zero while Kestra schedules must continue firing.
-- Do not optimize only for the cluster management fee; Cloud SQL, load balancing, logging, and
+- Do not optimize only for the cluster management fee; persistent disks, load balancing, logging, and
   storage must be included in actual cost review.
 
 ## Open Questions

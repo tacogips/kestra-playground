@@ -131,7 +131,7 @@ variable "kestra_image" {
 variable "sql_tier" {
   type        = string
   default     = "db-g1-small"
-  description = "Small Cloud SQL tier with enough connection headroom for autoscaled Kestra services."
+  description = "Legacy Cloud SQL tier retained only until the GKE PostgreSQL migration is verified."
 }
 
 variable "domain_name" {

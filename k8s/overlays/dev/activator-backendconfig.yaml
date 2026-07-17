@@ -1,0 +1,12 @@
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: kestra-worker-activator
+  namespace: kestra-dev
+spec:
+  securityPolicy:
+    name: replace-with-cloud-armor-policy
+  healthCheck:
+    type: HTTP
+    port: 8080
+    requestPath: /health

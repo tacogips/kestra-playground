@@ -36,13 +36,12 @@ locals {
   }
 
   gke_runtime_secret_values = {
-    kestra-db-url      = "jdbc:postgresql://127.0.0.1:5432/${local.kestra_database_name}"
-    kestra-db-username = google_sql_user.kestra.name
+    kestra-db-url      = "jdbc:postgresql://${google_compute_address.postgres.address}:5432/${local.kestra_database_name}"
+    kestra-db-username = "kestra"
     kestra-db-password = random_password.db.result
-    batch-db-url       = "jdbc:postgresql://127.0.0.1:5432/${local.batch_database_name}"
-    batch-db-username  = google_sql_user.kestra.name
+    batch-db-url       = "jdbc:postgresql://${google_compute_address.postgres.address}:5432/${local.batch_database_name}"
+    batch-db-username  = "kestra"
     batch-db-password  = random_password.db.result
-    cloud-sql-instance = google_sql_database_instance.postgres.connection_name
     kestra-gcs-bucket  = google_storage_bucket.storage.name
   }
 
@@ -181,6 +180,16 @@ resource "google_storage_bucket_iam_member" "storage" {
   member = "serviceAccount:${google_service_account.kestra.email}"
 }
 
+resource "google_compute_address" "postgres" {
+  name         = "${var.name_prefix}-postgres"
+  region       = var.region
+  address_type = "INTERNAL"
+  subnetwork   = data.google_compute_subnetwork.default.id
+}
+
+# Retained only as the source for the one-time migration into the GKE
+# StatefulSet. Remove these Cloud SQL resources after the live dump/restore and
+# rollback verification are complete.
 resource "google_sql_database_instance" "postgres" {
   name             = "${var.name_prefix}-postgres"
   database_version = "POSTGRES_15"
@@ -397,8 +406,18 @@ output "project_id" {
   value = var.project_id
 }
 
-output "cloud_sql_instance" {
-  value = google_sql_database_instance.postgres.connection_name
+output "postgres_internal_ip" {
+  value = google_compute_address.postgres.address
+}
+
+output "legacy_cloud_sql_connection_name" {
+  description = "Temporary migration source; remove after the GKE PostgreSQL cutover is verified."
+  value       = google_sql_database_instance.postgres.connection_name
+}
+
+output "legacy_cloud_sql_instance_name" {
+  description = "Temporary migration source instance ID used for the pre-cutover backup."
+  value       = google_sql_database_instance.postgres.name
 }
 
 output "gcs_bucket" {
@@ -411,7 +430,6 @@ output "gcp_service_account" {
 
 output "kubernetes_secret_ids" {
   value = {
-    CLOUD_SQL_INSTANCE                 = google_secret_manager_secret.gke_runtime["cloud-sql-instance"].secret_id
     ENV_BATCH_DB_PASSWORD              = google_secret_manager_secret.gke_runtime["batch-db-password"].secret_id
     ENV_BATCH_DB_URL                   = google_secret_manager_secret.gke_runtime["batch-db-url"].secret_id
     ENV_BATCH_DB_USERNAME              = google_secret_manager_secret.gke_runtime["batch-db-username"].secret_id

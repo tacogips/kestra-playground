@@ -34,11 +34,15 @@ export GKE_WORKER_ENABLED=false
 # the controller, GCE-routed, or Kubernetes-routed workers it requires.
 export LIVE_GKE_CONTROLLER_WORKER_ENABLED=true
 export LIVE_GKE_ROUTED_WORKERS_ENABLED=true
-# Cloud Run reaches Kestra through the public HTTPS ingress, which bypasses the
-# scale-from-zero activator. Keep both routed Kubernetes worker groups resident
-# so gke-small and gke-large tasks submitted by the web console can be claimed.
+# Route the public HTTPS ingress through the resident activator. It wakes the
+# PostgreSQL StatefulSet first, then the Kestra control plane and routed workers,
+# and parks them in the reverse order after the idle window.
 export LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true
-export LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=false
+export LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true
+export LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true
+export LIVE_GKE_DATABASE_AUTOSCALE_ENABLED=true
+export LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS="${LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS:-300}"
+export LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS="${LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS:-5}"
 
 echo "Deploying shared-backend OSS routed Kestra on GKE with GCE workers"
 TARGET_ENVIRONMENT=k8s scripts/deploy-live-environments.sh

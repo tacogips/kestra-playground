@@ -154,13 +154,14 @@ the requested environment subdomain.
 
 GKE uses the official Kestra Helm chart for Kestra server components. `k8s/helm/kestra-values.yaml`
 disables standalone mode and enables separate `webserver`, `executor`, `scheduler`, `indexer`, and
-`worker` Deployments. The same values attach the Cloud SQL Auth Proxy sidecar, shared Secret and
+`worker` Deployments. A single-replica PostgreSQL StatefulSet owns the `kestra` metadata database
+and `ecommerce_ops` batch database on a retained `standard-rwo` PVC. The values attach the shared Secret and
 ConfigMap environment, OTEL environment, GCS/Postgres application configuration, and a
 `kestra-worker` HorizontalPodAutoscaler.
 
 Kustomize still owns support resources that are not part of the chart contract:
 `k8s/base` contains Namespace, ServiceAccount, Secret, ConfigMap, webserver LoadBalancer Service,
-controller gRPC internal LoadBalancer Service, and the OTEL collector. `k8s/overlays/dev` adds
+controller gRPC internal LoadBalancer Service, PostgreSQL StatefulSet and Services, and the OTEL collector. `k8s/overlays/dev` adds
 development namespace, labels, Workload Identity annotations, Ingress, ManagedCertificate,
 BackendConfig, and runtime patches rendered from Terraform outputs.
 
@@ -174,9 +175,11 @@ Live development HTTPS currently uses Cloudflare DNS records for `example.com`:
 - `https://gce-container.example.com`
 - `https://gce-compose.example.com`
 
-GKE Basic Auth and database connection values are stored in Secret Manager and rendered into
+GKE Basic Auth and database credentials are stored in Secret Manager and rendered into
 Kubernetes only through the temporary manifest path in `scripts/apply-gke-dev.sh`. Terraform exports
-Secret Manager IDs, not DB secret payloads, for the apply helper.
+Secret Manager IDs, not DB secret payloads, for the apply helper. GKE pods use the
+`kestra-postgres` ClusterIP endpoint; GCE workers use a reserved VPC-internal PostgreSQL
+LoadBalancer address.
 
 The production-like OSS hybrid path is federated rather than queue-shared:
 
@@ -206,7 +209,8 @@ The custom OSS worker-routing image enables a second, stronger shared-backend to
 
 - GKE deploys the official Kestra Helm chart with `k8s/helm/kestra-controller-only-values.yaml`, so
   only the webserver, scheduler, executor, and indexer roles run there.
-- GCE workers connect to the same GKE Cloud SQL queue/repository and GCS internal storage.
+- GCE workers connect to the same GKE PostgreSQL queue/repository through its VPC-internal
+  LoadBalancer and use the same GCS internal storage.
 - GCE workers connect outbound to an internal GKE LoadBalancer for Kestra controller gRPC; no worker
   port is exposed back to GKE.
 - The GKE controller config defines static queues `gce-a` and `gce-b` under
@@ -243,10 +247,10 @@ pod name and node name into task logs. The verification flow
 `workerSelector.tags` are claimed by the expected worker Deployment and therefore run in the worker
 pod's placement domain.
 
-The routed live deployment enables these two Kubernetes worker groups with fixed replicas in
-addition to the GCE groups. This is required by the public Cloud Run batch console: its remote-batch
-flows select `gke-small` and `gke-large`, and its requests reach the normal HTTPS ingress rather
-than the activator Service. The generic Helm `kestra-worker` remains disabled.
+The routed live deployment enables these two Kubernetes worker groups in addition to the GCE
+groups. The public Cloud Run batch console and normal browser access reach the resident activator
+through the HTTPS Ingress, so a cold request wakes the routed groups before queued work is claimed.
+The generic Helm `kestra-worker` remains disabled.
 
 Those routed worker Deployments must not be HPA targets, because a second replica of the same
 `workerGroupId` would compete for the same queue and break the one-worker-per-machine simulation.
@@ -257,12 +261,15 @@ plus a curl-based scaler sidecar). The first access through the activator Servic
 workers to one replica each, the woken workers subscribe to the controller gRPC endpoint and drain
 their queues, and an idle reaper returns them to zero after
 `LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS` without access. The wake trigger is user access, not
-control-plane startup: the control plane stays resident and never launches workers by itself. For
-dev cost reduction, `LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true` additionally parks the
-webserver, executor, scheduler, and indexer after the same idle window and wakes them on activator
-access, accepting JVM cold-start latency, no schedule-trigger evaluation while parked, and failing
-external health checks while parked. The mechanism is documented in
-`design-docs/specs/design-gke-routed-worker-activator.md`.
+control-plane startup. For dev cost reduction,
+`LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true` additionally parks the webserver, executor,
+scheduler, and indexer. `LIVE_GKE_DATABASE_AUTOSCALE_ENABLED=true` extends the ordered lifecycle
+to `statefulset/kestra-postgres`: wake PostgreSQL and wait for readiness before starting Kestra,
+then stop Kestra before scaling PostgreSQL to zero. The public Ingress points to the resident
+activator, whose health endpoint does not prevent idle scale-down. The retained PVC preserves data
+across zero-replica intervals. Cold access can return a temporary HTTP 503, schedule triggers do not
+run while parked, and clients retry until the JVMs are ready. The mechanism is documented in
+`design-docs/specs/design-gke-full-stack-scale-to-zero.md`.
 
 The renderer supports two Kubernetes placement modes for those routed workers. The normal
 Autopilot-compatible mode uses `LIVE_GKE_ROUTED_K8S_WORKER_*_NODE_SELECTOR_*` with an allowed label
@@ -400,8 +407,8 @@ development infrastructure; and performs HTTPS health verification. Scheduled an
 batch runs reuse the same verification helper so operational behavior stays close to local scripts.
 
 Terraform owns cloud infrastructure, DNS records, load balancing, service accounts, Secret Manager
-containers and versions, Cloud SQL, GCS, GCE, GKE cluster resources, and the shared Cloud Armor
-policy. Kustomize owns Kubernetes workloads under `k8s/`, with `scripts/apply-gke-dev.sh` bridging
+containers and versions, GCS, GCE, GKE cluster resources, the temporary migration-source Cloud SQL
+instance, and the shared Cloud Armor policy. Kustomize owns Kubernetes workloads under `k8s/`, with `scripts/apply-gke-dev.sh` bridging
 Terraform outputs into the dev overlay. Do not hand-edit live Kubernetes resources except for
 short-lived diagnostics; commit and apply manifest changes instead.
 
@@ -423,8 +430,8 @@ timeline can identify purge, insert, aggregation, and fetch steps separately. Co
 
 ### GCP Runtime Decision
 
-Use GKE Autopilot as the default production-like Kestra cluster runtime, with Cloud SQL and GCS for
-durable state, and use Cloud Run Jobs or the Kestra Cloud Run task runner only for selected
+Use GKE Autopilot as the default production-like Kestra cluster runtime, with a retained-disk
+PostgreSQL StatefulSet and GCS for durable state, and use Cloud Run Jobs or the Kestra Cloud Run task runner only for selected
 ephemeral task execution. Do not use Cloud Run as the default host for the full Kestra control
 plane, because Kestra's scheduler, executor, webserver, indexer, and workers are long-running
 components.
