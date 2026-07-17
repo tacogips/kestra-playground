@@ -287,6 +287,9 @@ jobs:
           else
             nix develop -c scripts/verify-live-environments.sh "$TARGET_ENVIRONMENT" "$BUSINESS_DATE" "$MODE"
           fi
+      - name: Verify routed full-stack scale-to-zero
+        if: ${{ inputs.target_environment == 'routed' }}
+        run: nix develop -c scripts/verify-live-gke-full-stack-scale-to-zero.sh
       - name: Run operation demo verification
         if: ${{ inputs.operation_demo != '' && inputs.operation_demo != 'none' }}
         env:

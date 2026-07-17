@@ -61,3 +61,14 @@ def test_cutover_starts_only_gce_instances_that_it_stopped() -> None:
     assert 'for instance in "${cutover_stopped_instances[@]}"' in script
     assert '== "TERMINATED"' in script
     assert "gcloud compute instances start" in script
+
+
+def test_routed_deployment_runs_full_stack_live_verification() -> None:
+    workflow = yaml.safe_load(_read_text(".github/workflows/deploy.yml"))
+    steps = workflow["jobs"]["deploy"]["steps"]
+    verifier = next(
+        step for step in steps if step["name"] == "Verify routed full-stack scale-to-zero"
+    )
+
+    assert verifier["if"] == "${{ inputs.target_environment == 'routed' }}"
+    assert verifier["run"] == "nix develop -c scripts/verify-live-gke-full-stack-scale-to-zero.sh"
