@@ -77,6 +77,7 @@ def test_routed_deployment_runs_full_stack_live_verification() -> None:
 def test_live_verifier_uses_observed_readiness_and_reports_http_diagnostics() -> None:
     script = _read_text("scripts/verify-live-gke-full-stack-scale-to-zero.sh")
 
+    assert "2?? | 3?? | 401 | 502 | 503 | 504" in script
     assert "status.readyReplicas" in script
     assert "diagnose_http_failure" in script
     assert "Deployment ${deployment} did not report one ready replica." in script

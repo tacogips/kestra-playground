@@ -140,7 +140,7 @@ trigger_public_wake() {
       "$url/" || true
   )"
   case "$status" in
-    200 | 401 | 502 | 503 | 504)
+    2?? | 3?? | 401 | 502 | 503 | 504)
       echo "Public wake request returned HTTP ${status}."
       ;;
     *)
