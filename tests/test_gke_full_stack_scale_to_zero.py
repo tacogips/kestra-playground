@@ -74,3 +74,13 @@ def test_routed_deployment_runs_full_stack_live_verification() -> None:
 
     assert verifier["if"] == "${{ inputs.target_environment == 'routed' }}"
     assert verifier["run"] == "nix develop -c scripts/verify-live-gke-full-stack-scale-to-zero.sh"
+
+
+def test_live_verifier_uses_observed_readiness_and_reports_http_diagnostics() -> None:
+    script = _read_text("scripts/verify-live-gke-full-stack-scale-to-zero.sh")
+
+    assert "status.readyReplicas" in script
+    assert "diagnose_http_failure" in script
+    assert "http://kestra-webserver/" in script
+    assert "logs deployment/kestra-webserver" in script
+    assert "logs deployment/kestra-worker-activator" in script

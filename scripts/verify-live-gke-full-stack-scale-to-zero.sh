@@ -93,10 +93,39 @@ wait_for_zero() {
 }
 
 wait_for_warm() {
+  local deadline=$((SECONDS + 1200))
+  local deployment=""
+  local ready_replicas=""
+
   kubectl -n "$NAMESPACE" rollout status statefulset/kestra-postgres --timeout=10m
   for deployment in "${MANAGED_DEPLOYMENTS[@]}"; do
-    kubectl -n "$NAMESPACE" rollout status deployment/"$deployment" --timeout=15m
+    while ((SECONDS < deadline)); do
+      ready_replicas="$(
+        kubectl -n "$NAMESPACE" get deployment "$deployment" \
+          -o jsonpath='{.status.readyReplicas}'
+      )"
+      if [[ "$ready_replicas" == "1" ]]; then
+        break
+      fi
+      sleep "$POLL_SECONDS"
+    done
+    if [[ "$ready_replicas" != "1" ]]; then
+      echo "Deployment ${deployment} did not report one ready replica." >&2
+      return 1
+    fi
   done
+}
+
+diagnose_http_failure() {
+  echo "Collecting GKE HTTP wake diagnostics." >&2
+  kubectl -n "$NAMESPACE" get deployment,statefulset,pod,service,endpoints -o wide >&2 || true
+  kubectl -n "$NAMESPACE" get endpointslice -o wide >&2 || true
+  kubectl -n "$NAMESPACE" describe pod -l app.kubernetes.io/component=webserver >&2 || true
+  kubectl -n "$NAMESPACE" logs deployment/kestra-webserver --all-containers --tail=300 >&2 || true
+  kubectl -n "$NAMESPACE" logs deployment/kestra-worker-activator --all-containers --tail=300 >&2 || true
+  kubectl -n "$NAMESPACE" exec deployment/kestra-worker-activator -c nginx -- \
+    wget --server-response --output-document=/dev/null http://kestra-webserver/ >&2 || true
+  kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp | tail -n 100 >&2 || true
 }
 
 trigger_public_wake() {
@@ -132,6 +161,7 @@ wait_for_http() {
     sleep "$POLL_SECONDS"
   done
   echo "Kestra did not become available through the public activator." >&2
+  diagnose_http_failure
   return 1
 }
 
