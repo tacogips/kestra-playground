@@ -301,6 +301,11 @@ tasks:
     cmds:
       - scripts/verify-live-batch-group-broadcast.sh "${BUSINESS_DATE:-}"
 
+  kestra:live:verify-gke-full-stack-scale-to-zero:
+    desc: Verify public wake-up, ordered idle parking, and PostgreSQL PVC persistence
+    cmds:
+      - scripts/verify-live-gke-full-stack-scale-to-zero.sh
+
   kestra:live:run-gke-node-routing:
     desc: Register and run the OSS GKE placement-constrained worker routing verification flow
     cmds:

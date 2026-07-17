@@ -35,11 +35,12 @@ read_secret() {
 
 KESTRA_DB_USERNAME="$(read_secret kestra-db-username)"
 KESTRA_DB_PASSWORD="$(read_secret kestra-db-password)"
+KESTRA_DB_URL="$(read_secret kestra-db-url)"
 KESTRA_BASIC_AUTH_USERNAME="$(read_secret kestra-basic-auth-username)"
 KESTRA_BASIC_AUTH_PASSWORD="$(read_secret kestra-basic-auth-password)"
 ENV_BATCH_DB_USERNAME="$(read_secret batch-db-username)"
 ENV_BATCH_DB_PASSWORD="$(read_secret batch-db-password)"
-CLOUD_SQL_INSTANCE="$(read_secret cloud-sql-instance)"
+ENV_BATCH_DB_URL="$(read_secret batch-db-url)"
 KESTRA_GCS_BUCKET="$(read_secret kestra-gcs-bucket)"
 
 cat >/opt/kestra-worker/config/application.yaml <<'YAML'
@@ -101,7 +102,7 @@ kestra:
 YAML
 
 cat >/opt/kestra-worker/.env <<EOF
-KESTRA_DB_URL=jdbc:postgresql://cloud-sql-proxy:5432/kestra
+KESTRA_DB_URL=$${KESTRA_DB_URL}
 KESTRA_DB_USERNAME=$${KESTRA_DB_USERNAME}
 KESTRA_DB_PASSWORD=$${KESTRA_DB_PASSWORD}
 KESTRA_DB_MAX_POOL_SIZE=2
@@ -109,25 +110,15 @@ KESTRA_BASIC_AUTH_USERNAME=$${KESTRA_BASIC_AUTH_USERNAME}
 KESTRA_BASIC_AUTH_PASSWORD=$${KESTRA_BASIC_AUTH_PASSWORD}
 KESTRA_GCS_BUCKET=$${KESTRA_GCS_BUCKET}
 KESTRA_WORKER_GROUP_ID=${worker_group_id}
-ENV_BATCH_DB_URL=jdbc:postgresql://cloud-sql-proxy:5432/ecommerce_ops
+ENV_BATCH_DB_URL=$${ENV_BATCH_DB_URL}
 ENV_BATCH_DB_USERNAME=$${ENV_BATCH_DB_USERNAME}
 ENV_BATCH_DB_PASSWORD=$${ENV_BATCH_DB_PASSWORD}
-CLOUD_SQL_INSTANCE=$${CLOUD_SQL_INSTANCE}
 KESTRA_IMAGE=${kestra_image}
 KESTRA_WORKER_THREADS=${worker_threads}
 EOF
 
 cat >/opt/kestra-worker/docker-compose.yml <<'YAML'
 services:
-  cloud-sql-proxy:
-    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1
-    command:
-      - "--structured-logs"
-      - "--address=0.0.0.0"
-      - "--port=5432"
-      - "$${CLOUD_SQL_INSTANCE}"
-    restart: unless-stopped
-
   kestra-worker:
     image: $${KESTRA_IMAGE}
     user: "root"
@@ -138,8 +129,6 @@ services:
     volumes:
       - /tmp/kestra-worker-wd:/tmp/kestra-wd
       - /opt/kestra-worker/config/application.yaml:/etc/kestra/application.yaml:ro
-    depends_on:
-      - cloud-sql-proxy
 YAML
 
 compose -f /opt/kestra-worker/docker-compose.yml --env-file /opt/kestra-worker/.env up -d --force-recreate

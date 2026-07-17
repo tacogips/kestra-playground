@@ -177,9 +177,8 @@ worker routing in a single shared Kestra backend:
 - GKE runs the Helm-rendered `webserver`, `scheduler`, `executor`, and `indexer` roles only;
 - `GKE_WORKER_ENABLED=false` adds `k8s/helm/kestra-controller-only-values.yaml`, so no
   generic `kestra-worker` Deployment or HPA is released in GKE;
-- the routed live entry point also keeps `kestra-gke-worker-small` and
-  `kestra-gke-worker-large` resident because Cloud Run submits the remote-batch flows through the
-  public HTTPS ingress, which bypasses the scale-from-zero activator;
+- the routed live entry point routes public HTTPS and Cloud Run access through the resident
+  activator, which wakes `kestra-gke-worker-small` and `kestra-gke-worker-large` from zero;
 - GCE `kestra-dev-controller-worker` subscribes to the default/system queues for lightweight
   unrouted work;
 - GCE `kestra-dev-gce-a` starts `kestra server worker` with `workerGroupId: gce-a`;
@@ -208,12 +207,11 @@ kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-routed
 
 The verification command checks that GKE has no generic worker Deployment/pods, that all GCE worker
 instances are `RUNNING`, and that the two routed tasks complete with different worker IDs. The
-dedicated `gke-small` and `gke-large` workers remain available for Cloud Run remote-batch requests.
+dedicated `gke-small` and `gke-large` workers wake for Cloud Run remote-batch requests.
 `scripts/deploy-routed-live.sh` uses `ZONE` for both the OpenTofu worker placement and subsequent
 instance resets; its live default is `asia-northeast1-b`. It forces
-`LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true` and
-`LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=false`; use the separate activator workflow when
-testing scale-from-zero through a port-forward.
+`LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true`, worker/control-plane/database autoscaling, and a
+five-minute live idle window.
 
 To prove batch-group broadcast on the routed fork, run:
 
@@ -327,7 +325,7 @@ LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true \
 scripts/apply-gke-dev.sh
 
 # Access Kestra through the activator so workers wake from replicas: 0.
-kubectl -n kestra-dev port-forward svc/kestra-worker-activator 8080:8080
+kubectl -n kestra-dev port-forward svc/kestra-worker-activator 8080:80
 
 # Observe wake-up and idle reaping.
 kubectl -n kestra-dev get deployment kestra-gke-worker-small kestra-gke-worker-large -w
@@ -335,12 +333,10 @@ kubectl -n kestra-dev logs deployment/kestra-worker-activator -c scaler -f
 ```
 
 Tune the idle window with `LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS` (default 1800 seconds) and the
-poll interval with `LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS` (default 10 seconds).
-Requests through the HTTPS Ingress bypass the activator and do not wake workers.
-
-The public Cloud Run batch console therefore uses the routed live deployment with fixed replicas,
-not this scale-from-zero mode. Otherwise executions selected for `gke-small` or `gke-large` remain
-`SUBMITTED` without a worker ID.
+poll interval with `LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS` (default 10 seconds). When
+control-plane autoscaling is enabled, the HTTPS Ingress targets the activator and public browser or
+Cloud Run requests wake the stack. The activator health endpoint is excluded from activity
+accounting.
 
 For the dev-only full parking mode, add `LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true` so the
 activator also parks `kestra-webserver`, `kestra-executor`, `kestra-scheduler`, and
@@ -350,13 +346,56 @@ activator also parks `kestra-webserver`, `kestra-executor`, `kestra-scheduler`, 
 LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true \
 LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true \
 LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true \
+LIVE_GKE_DATABASE_AUTOSCALE_ENABLED=true \
 scripts/apply-gke-dev.sh
 ```
 
-In this mode the scaler boots warm (everything stays up for one idle window after deploy), the
-first access to a parked stack returns 502 until the webserver JVM boots, schedule triggers do not
-fire while parked, and external HTTPS health checks fail while parked. See
-`design-docs/specs/design-gke-routed-worker-activator.md`.
+In this mode the scaler boots warm (everything stays up for one idle window after deploy). It wakes
+`statefulset/kestra-postgres`, waits for readiness, and then wakes the Kestra Deployments. On idle
+shutdown it stops the Deployments first and PostgreSQL last. The first access to a parked stack can
+return HTTP 503 with `Retry-After: 5` until the webserver JVM boots; schedule triggers do not fire
+while parked. The retained PVC survives PostgreSQL scale-to-zero. See
+`design-docs/specs/design-gke-full-stack-scale-to-zero.md`.
+
+Observe the full lifecycle with:
+
+```bash
+kubectl -n kestra-dev get statefulset/kestra-postgres \
+  deployment/kestra-webserver deployment/kestra-executor \
+  deployment/kestra-scheduler deployment/kestra-indexer \
+  deployment/kestra-gke-worker-small deployment/kestra-gke-worker-large -w
+kubectl -n kestra-dev get pvc data-kestra-postgres-0
+kubectl -n kestra-dev logs deployment/kestra-worker-activator -c scaler -f
+```
+
+Before the first Cloud SQL-to-StatefulSet cutover, create and verify an on-demand source backup:
+
+```bash
+gcloud sql backups create \
+  --project "${PROJECT_ID}" \
+  --instance kestra-dev-postgres \
+  --description pre-gke-postgres-cutover
+gcloud sql backups list \
+  --project "${PROJECT_ID}" \
+  --instance kestra-dev-postgres \
+  --limit 5
+```
+
+Do not remove the legacy Cloud SQL Terraform resources until the backup reports `SUCCESS` and the
+StatefulSet has passed two wake cycles with retained data. Run the end-to-end verifier with:
+
+```bash
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- \
+  task kestra:live:verify-gke-full-stack-scale-to-zero
+```
+
+On the first deployment, `scripts/apply-gke-dev.sh` detects missing migration markers, creates the
+Cloud SQL backup, scales existing GKE Kestra Deployments to zero, stops running GCE workers, and
+runs `kestra-postgres-cloud-sql-migration`. The Job uses Cloud SQL Auth Proxy as a native sidecar,
+restores only empty destination databases, and records `_gke_cloud_sql_migration` in both logical
+databases. Subsequent deploys see both markers and skip the cutover. A failed migration
+intentionally leaves writers stopped for investigation instead of restarting them against a
+partial database.
 
 ### OSS K8s Per-Batch Pod Resources
 
@@ -862,7 +901,6 @@ for secret in \
   kestra-dev-gke-batch-db-url \
   kestra-dev-gke-batch-db-username \
   kestra-dev-gke-batch-db-password \
-  kestra-dev-gke-cloud-sql-instance \
   kestra-dev-gke-kestra-gcs-bucket; do
   gcloud secrets versions list "$secret" \
     --project="$PROJECT_ID" \

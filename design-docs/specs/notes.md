@@ -6,6 +6,13 @@ This document contains research findings, investigations, and miscellaneous desi
 
 Notable items that do not fit into architecture or client categories.
 
+- GKE full-stack scale-to-zero uses a PostgreSQL StatefulSet rather than Cloud SQL. The StatefulSet
+  can reach zero compute replicas while its `standard-rwo` PVC remains allocated and billable. The
+  resident activator and load-balancer resources also remain; zero refers to Kestra and PostgreSQL
+  pods, not every GCP resource.
+- The legacy GKE Cloud SQL instance is temporarily retained as a migration/rollback source. It must
+  be backed up and any required data restored before Terraform removes it.
+
 ---
 
 ## Sections

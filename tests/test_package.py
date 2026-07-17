@@ -280,7 +280,10 @@ def test_routed_live_deploy_enables_controller_and_routed_workers() -> None:
     assert "export LIVE_GKE_CONTROLLER_WORKER_ENABLED=true" in script
     assert "export LIVE_GKE_ROUTED_WORKERS_ENABLED=true" in script
     assert "export LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true" in script
-    assert "export LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=false" in script
+    assert "export LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true" in script
+    assert "export LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true" in script
+    assert "export LIVE_GKE_DATABASE_AUTOSCALE_ENABLED=true" in script
+    assert "LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS:-300" in script
 
 
 def test_execution_pollers_and_webconsole_handle_cancelled_as_terminal() -> None:
@@ -427,10 +430,18 @@ def test_gke_apply_script_supports_access_driven_scale_to_zero() -> None:
 
     assert "routed_worker_replicas=0" in script
     assert "name: kestra-worker-activator" in script
-    assert "resources:\n      - deployments/scale" in script
+    assert "- deployments/scale" in script
+    assert "- statefulsets/scale" in script
     assert 'value: "${activator_scale_deployments}"' in script
+    assert 'value: "${activator_scale_statefulsets}"' in script
     assert 'value: "${activator_boot_state}"' in script
-    assert 'scale_all "${want}"' in script
+    assert 'reconcile "${want}"' in script
+    assert "wait_for_statefulsets_ready" in script
+    assert "wait_for_deployments_stopped" in script
+    assert "scale_statefulsets 1" in script
+    assert "scale_statefulsets 0" in script
+    assert "location = /health" in script
+    assert "Retry-After 5" in script
     assert "kestra-gke-worker-small kestra-gke-worker-large" in script
     for deployment in (
         "kestra-webserver",
@@ -439,6 +450,89 @@ def test_gke_apply_script_supports_access_driven_scale_to_zero() -> None:
         "kestra-indexer",
     ):
         assert deployment in script
+
+
+def test_gke_postgres_statefulset_retains_data_when_scaled_to_zero() -> None:
+    postgres = _yaml_document("k8s/base/postgres.yaml", kind="StatefulSet", name="kestra-postgres")
+    services = {
+        document["metadata"]["name"]: document
+        for document in yaml.safe_load_all(_read_text("k8s/base/postgres.yaml"))
+        if document["kind"] == "Service"
+    }
+
+    assert postgres["spec"]["replicas"] == 1
+    assert postgres["spec"]["persistentVolumeClaimRetentionPolicy"] == {
+        "whenDeleted": "Retain",
+        "whenScaled": "Retain",
+    }
+    claim = postgres["spec"]["volumeClaimTemplates"][0]["spec"]
+    assert claim["storageClassName"] == "standard-rwo"
+    assert claim["accessModes"] == ["ReadWriteOnce"]
+    assert claim["resources"]["requests"]["storage"] == "10Gi"
+    assert services["kestra-postgres"]["spec"]["type"] == "ClusterIP"
+    assert services["kestra-postgres-internal"]["spec"]["type"] == "LoadBalancer"
+    assert (
+        services["kestra-postgres-internal"]["metadata"]["annotations"][
+            "networking.gke.io/load-balancer-type"
+        ]
+        == "Internal"
+    )
+
+
+def test_gke_database_urls_use_postgres_service_without_cloud_sql_sidecars() -> None:
+    secret = _yaml_document("k8s/base/secret.yaml", kind="Secret", name="kestra-secrets")
+    helm_values = _yaml_load("k8s/helm/kestra-values.yaml")
+    apply_script = _read_text("scripts/apply-gke-dev.sh")
+
+    assert secret["stringData"]["KESTRA_DB_URL"] == (
+        "jdbc:postgresql://kestra-postgres:5432/kestra"
+    )
+    assert secret["stringData"]["ENV_BATCH_DB_URL"] == (
+        "jdbc:postgresql://kestra-postgres:5432/ecommerce_ops"
+    )
+    assert "extraContainers" not in helm_values["common"]
+    routed_worker_renderer = apply_script[
+        apply_script.index("render_routed_k8s_worker") : apply_script.index(
+            "activator_scale_deployments"
+        )
+    ]
+    assert "cloud-sql-proxy" not in routed_worker_renderer
+
+
+def test_routed_live_deploy_enables_public_full_stack_autoscaling() -> None:
+    script = _read_text("scripts/deploy-routed-live.sh")
+
+    assert "export LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true" in script
+    assert "export LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true" in script
+    assert "export LIVE_GKE_DATABASE_AUTOSCALE_ENABLED=true" in script
+
+
+def test_activator_backend_keeps_cloud_armor_and_independent_health_check() -> None:
+    backend = _yaml_load("k8s/overlays/dev/activator-backendconfig.yaml")
+    apply_script = _read_text("scripts/apply-gke-dev.sh")
+
+    assert backend["spec"]["securityPolicy"] == {"name": "replace-with-cloud-armor-policy"}
+    assert backend["spec"]["healthCheck"] == {
+        "type": "HTTP",
+        "port": 8080,
+        "requestPath": "/health",
+    }
+    assert '"${work_overlay}/activator-backendconfig.yaml"' in apply_script
+
+
+def test_full_stack_verifier_checks_two_wakes_and_persistent_data() -> None:
+    taskfile = _yaml_load("Taskfile.yml")
+    script = _read_text("scripts/verify-live-gke-full-stack-scale-to-zero.sh")
+
+    assert "kestra:live:verify-gke-full-stack-scale-to-zero" in taskfile["tasks"]
+    assert script.count("trigger_public_wake") == 3
+    assert script.count("wait_for_warm") == 3
+    assert "wait_for_zero" in script
+    assert "pvc_uid_before" in script
+    assert "pvc_uid_after" in script
+    assert "write_marker" in script
+    assert "assert_marker" in script
+    assert 'curl --fail --silent --show-error --max-time 30 "$url/health"' in script
 
 
 def test_gke_apply_script_rejects_invalid_autoscale_flag_combinations() -> None:
@@ -457,6 +551,15 @@ def test_gke_apply_script_rejects_invalid_autoscale_flag_combinations() -> None:
             "LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED": "true",
         },
     )
+    database_result = _run_bash(
+        "scripts/apply-gke-dev.sh",
+        env={
+            "LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED": "true",
+            "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED": "true",
+            "LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED": "false",
+            "LIVE_GKE_DATABASE_AUTOSCALE_ENABLED": "true",
+        },
+    )
 
     assert worker_result.returncode == 1
     assert (
@@ -469,6 +572,11 @@ def test_gke_apply_script_rejects_invalid_autoscale_flag_combinations() -> None:
         "LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true and "
         "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true"
     ) in control_plane_result.stderr
+    assert database_result.returncode == 1
+    assert (
+        "LIVE_GKE_DATABASE_AUTOSCALE_ENABLED=true requires "
+        "LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true"
+    ) in database_result.stderr
 
 
 def test_gke_terraform_supports_standard_autoscaled_worker_node_pools() -> None:

@@ -46,6 +46,10 @@ This directory contains reference materials for system design and implementation
 | GKE Cluster Autoscaler | https://cloud.google.com/kubernetes-engine/docs/concepts/cluster-autoscaler | Official GKE Standard cluster autoscaler behavior and node pool scaling guidance |
 | GKE Autopilot Workload Separation | https://cloud.google.com/kubernetes-engine/docs/how-to/workload-separation | Official node selection, node affinity, and workload separation guidance for GKE Autopilot and Standard clusters |
 | GKE Autopilot Troubleshooting | https://docs.cloud.google.com/kubernetes-engine/docs/troubleshooting/autopilot-clusters | Official Autopilot scale-to-zero and empty-cluster behavior notes |
+| Kubernetes StatefulSets | https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/ | Official StatefulSet identity, scaling, and PVC retention behavior |
+| Kubernetes StatefulSet Scaling | https://kubernetes.io/docs/tasks/run-application/scale-stateful-set/ | Official StatefulSet scale command and health caveats |
+| GKE Persistent Volumes | https://docs.cloud.google.com/kubernetes-engine/docs/concepts/persistent-volumes | Official GKE persistent disk, PVC, and `standard-rwo` guidance |
+| GKE Ingress Configuration | https://docs.cloud.google.com/kubernetes-engine/docs/how-to/ingress-configuration | Official BackendConfig and custom health-check behavior |
 | Cloud Run Pricing | https://cloud.google.com/run/pricing | Official Cloud Run service and job billing examples |
 | Cloud SQL Start and Stop | https://docs.cloud.google.com/sql/docs/postgres/start-stop-restart-instance | Official Cloud SQL PostgreSQL start, stop, and restart guidance |
 | Apple container command reference | https://github.com/apple/container/blob/main/docs/command-reference.md | Apple container CLI command, network, and volume reference |

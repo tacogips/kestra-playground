@@ -233,7 +233,7 @@ Terraform roots are split by phase:
 - `infra/terraform/gce-cluster`: multiple GCE VMs running separated Kestra components against shared
   Cloud SQL and GCS. The Cloud SQL instance contains separate `kestra` and `ecommerce_ops`
   databases, and each JDBC connection family has its own Secret Manager entries.
-- `infra/terraform/gke-dev`: GKE Autopilot, Cloud SQL, GCS, and Workload Identity inputs for the
+- `infra/terraform/gke-dev`: GKE Autopilot, a reserved VPC-internal PostgreSQL address, GCS, and Workload Identity inputs for the
   Kubernetes manifests. It stores GKE runtime DB connection values in Secret Manager, renders them
   into Kubernetes only during apply, and acts as the federated OSS controller.
 
@@ -253,8 +253,9 @@ System shape, at a high level:
   `kinko` provide runtime values.
 
 The GCE cluster root runs Cloud SQL Proxy as a Docker Compose service, so Kestra uses
-`cloud-sql-proxy:5432`. The GKE manifests run Cloud SQL Proxy as a sidecar in each Pod, so those
-JDBC URLs use `127.0.0.1:5432`.
+`cloud-sql-proxy:5432`. The GKE runtime instead uses `kestra-postgres:5432`, backed by a retained
+Persistent Disk through a PostgreSQL StatefulSet. GCE workers attached to the GKE controller use a
+VPC-internal LoadBalancer address for the same StatefulSet.
 
 For the OSS-compatible federated execution pattern, keep separate Kestra deployments instead of
 trying to attach remote workers to one OSS worker queue. In the live dev-as-prod topology:
@@ -338,15 +339,17 @@ Setting `LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true` together with
 `LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true` renders both worker Deployments at `replicas: 0` and
 deploys a resident `kestra-worker-activator` nginx proxy in front of `kestra-webserver`. The first
 request through `svc/kestra-worker-activator` (for example via
-`kubectl -n kestra-dev port-forward svc/kestra-worker-activator 8080:8080`) wakes all routed
+`kubectl -n kestra-dev port-forward svc/kestra-worker-activator 8080:80`) wakes all routed
 workers to one replica; after `LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS` (default 1800) without
 access an idle reaper scales them back to zero. HPA is intentionally not used because a second
 replica of one `workerGroupId` would break the one-worker-per-machine routing model. Adding
 `LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true` extends the same parking to the webserver,
-executor, scheduler, and indexer for a dev-only cost mode: the stack stays up for one idle window
-after each deploy, then parks entirely, and the next activator access boots it back (first request
-sees 502s during the JVM cold start, and schedule triggers do not fire while parked). See
-`design-docs/specs/design-gke-routed-worker-activator.md`.
+executor, scheduler, and indexer. Adding `LIVE_GKE_DATABASE_AUTOSCALE_ENABLED=true` also parks the
+in-cluster PostgreSQL StatefulSet while retaining its PVC. Wake-up starts PostgreSQL first; idle
+shutdown stops it last. In this dev-only cost mode the HTTPS Ingress targets the activator, the
+stack stays up for one idle window after each deploy, then parks, and the next public access boots
+it back. The first cold request can receive HTTP 503 during startup, and schedule triggers do not
+fire while parked. See `design-docs/specs/design-gke-full-stack-scale-to-zero.md`.
 
 For exact worker-class placement with autoscale, set `gke_autopilot_enabled=false` in the GKE
 Terraform root. That creates GKE Standard autoscaled node pools labeled by worker group, so routed

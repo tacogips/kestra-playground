@@ -50,27 +50,6 @@ common:
   extraVolumes:
     - name: tmp
       emptyDir: {}
-  extraContainers:
-    - name: cloud-sql-proxy
-      image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1
-      args:
-        - --structured-logs
-        - --port=5432
-        - $(CLOUD_SQL_INSTANCE)
-      env:
-        - name: CLOUD_SQL_INSTANCE
-          valueFrom:
-            configMapKeyRef:
-              name: kestra-runtime-config
-              key: CLOUD_SQL_INSTANCE
-      resources:
-        requests:
-          cpu: 50m
-          memory: 128Mi
-        limits:
-          cpu: 250m
-          memory: 256Mi
-
 deployments:
   standalone:
     enabled: false
