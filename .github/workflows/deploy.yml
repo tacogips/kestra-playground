@@ -18,6 +18,7 @@ on:
           - k8s
           - routed
           - routed-verify
+          - routed-diagnose
       run_batch:
         description: Execute the ecommerce batch after deployment
         required: true
@@ -90,7 +91,7 @@ jobs:
     timeout-minutes: 30
     needs:
       - validate
-    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.target_environment != 'routed' && inputs.target_environment != 'routed-verify' }}
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.target_environment != 'routed' && inputs.target_environment != 'routed-verify' && inputs.target_environment != 'routed-diagnose' }}
     permissions:
       contents: read
       id-token: write
@@ -237,7 +238,7 @@ jobs:
       - validate
       - build-image
       - build-routed-image
-    if: ${{ always() && needs.validate.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.target_environment != 'routed-verify' && ((inputs.target_environment == 'routed' && needs.build-routed-image.result == 'success') || ((inputs.target_environment || 'all') != 'routed' && needs.build-image.result == 'success')) }}
+    if: ${{ always() && needs.validate.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.target_environment != 'routed-verify' && inputs.target_environment != 'routed-diagnose' && ((inputs.target_environment == 'routed' && needs.build-routed-image.result == 'success') || ((inputs.target_environment || 'all') != 'routed' && needs.build-image.result == 'success')) }}
     environment:
       name: development
       url: ${{ vars.LIVE_K8S_URL }}
@@ -337,6 +338,34 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Verify routed full-stack scale-to-zero
         run: nix develop -c scripts/verify-live-gke-full-stack-scale-to-zero.sh
+
+  diagnose-routed:
+    name: Diagnose Routed Cold Start
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs:
+      - validate
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment == 'routed-diagnose' && needs.validate.result == 'success' }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: asia-northeast1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Collect routed cold-start diagnostics
+        run: nix develop -c scripts/diagnose-live-gke-cold-start.sh
 
   run-batch:
     name: Run Batch

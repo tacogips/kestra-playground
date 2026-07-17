@@ -111,6 +111,7 @@ wait_for_warm() {
     done
     if [[ "$ready_replicas" != "1" ]]; then
       echo "Deployment ${deployment} did not report one ready replica." >&2
+      diagnose_http_failure
       return 1
     fi
   done

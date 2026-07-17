@@ -81,6 +81,8 @@ def test_live_verifier_uses_observed_readiness_and_reports_http_diagnostics() ->
 
     assert "status.readyReplicas" in script
     assert "diagnose_http_failure" in script
+    assert "Deployment ${deployment} did not report one ready replica." in script
+    assert script.count("diagnose_http_failure") >= 3
     assert "http://kestra-webserver/" in script
     assert "logs deployment/kestra-webserver" in script
     assert "logs deployment/kestra-worker-activator" in script
@@ -98,3 +100,17 @@ def test_workflow_supports_verification_without_rebuilding_or_redeploying() -> N
     assert verify_job["permissions"] == {"contents": "read", "id-token": "write"}
     assert "inputs.target_environment != 'routed-verify'" in workflow["jobs"]["build-image"]["if"]
     assert "inputs.target_environment != 'routed-verify'" in workflow["jobs"]["deploy"]["if"]
+
+
+def test_workflow_supports_short_routed_diagnostics() -> None:
+    workflow = yaml.safe_load(_read_text(".github/workflows/deploy.yml"))
+    diagnose_job = workflow["jobs"]["diagnose-routed"]
+
+    assert (
+        "routed-diagnose"
+        in workflow[True]["workflow_dispatch"]["inputs"]["target_environment"]["options"]
+    )
+    assert "inputs.target_environment == 'routed-diagnose'" in diagnose_job["if"]
+    assert diagnose_job["permissions"] == {"contents": "read", "id-token": "write"}
+    assert "inputs.target_environment != 'routed-diagnose'" in workflow["jobs"]["build-image"]["if"]
+    assert "inputs.target_environment != 'routed-diagnose'" in workflow["jobs"]["deploy"]["if"]
