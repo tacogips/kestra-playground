@@ -780,7 +780,7 @@ wait_for_statefulsets_ready() {
     attempts=0
     while [ "${attempts}" -lt 180 ]; do
       status="$(api_request GET "/apis/apps/v1/namespaces/${POD_NAMESPACE}/statefulsets/${statefulset}")"
-      if printf '%s' "${status}" | grep -q '"readyReplicas":1'; then
+      if printf '%s' "${status}" | grep -Eq '"readyReplicas":[[:space:]]*1'; then
         log "statefulset/${statefulset} is ready"
         break
       fi
@@ -799,7 +799,7 @@ wait_for_deployments_stopped() {
     attempts=0
     while [ "${attempts}" -lt 180 ]; do
       status="$(api_request GET "/apis/apps/v1/namespaces/${POD_NAMESPACE}/deployments/${deployment}")"
-      if ! printf '%s' "${status}" | grep -Eq '"(availableReplicas|readyReplicas|replicas)":([1-9][0-9]*)'; then
+      if ! printf '%s' "${status}" | grep -Eq '"(availableReplicas|readyReplicas|replicas)":[[:space:]]*([1-9][0-9]*)'; then
         log "deployment/${deployment} is stopped"
         break
       fi

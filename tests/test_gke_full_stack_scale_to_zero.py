@@ -65,6 +65,16 @@ def test_cutover_starts_only_gce_instances_that_it_stopped() -> None:
     assert "gcloud compute instances start" in script
 
 
+def test_activator_accepts_whitespace_in_kubernetes_json() -> None:
+    script = _read_text("scripts/apply-gke-dev.sh")
+
+    assert '\"readyReplicas\":[[:space:]]*1' in script
+    assert (
+        '\"(availableReplicas|readyReplicas|replicas)\":[[:space:]]*([1-9][0-9]*)'
+        in script
+    )
+
+
 def test_routed_deployment_runs_full_stack_live_verification() -> None:
     workflow = yaml.safe_load(_read_text(".github/workflows/deploy.yml"))
     steps = workflow["jobs"]["deploy"]["steps"]
@@ -114,3 +124,17 @@ def test_workflow_supports_short_routed_diagnostics() -> None:
     assert diagnose_job["permissions"] == {"contents": "read", "id-token": "write"}
     assert "inputs.target_environment != 'routed-diagnose'" in workflow["jobs"]["build-image"]["if"]
     assert "inputs.target_environment != 'routed-diagnose'" in workflow["jobs"]["deploy"]["if"]
+
+
+def test_workflow_can_refresh_and_verify_the_routed_activator() -> None:
+    workflow = yaml.safe_load(_read_text(".github/workflows/deploy.yml"))
+    refresh_job = workflow["jobs"]["refresh-routed"]
+
+    assert (
+        "routed-refresh"
+        in workflow[True]["workflow_dispatch"]["inputs"]["target_environment"]["options"]
+    )
+    assert "inputs.target_environment == 'routed-refresh'" in refresh_job["if"]
+    assert refresh_job["permissions"] == {"contents": "read", "id-token": "write"}
+    assert "inputs.target_environment != 'routed-refresh'" in workflow["jobs"]["build-image"]["if"]
+    assert "inputs.target_environment != 'routed-refresh'" in workflow["jobs"]["deploy"]["if"]
