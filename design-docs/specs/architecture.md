@@ -407,8 +407,9 @@ development infrastructure; and performs HTTPS health verification. Scheduled an
 batch runs reuse the same verification helper so operational behavior stays close to local scripts.
 
 Terraform owns cloud infrastructure, DNS records, load balancing, service accounts, Secret Manager
-containers and versions, GCS, GCE, GKE cluster resources, the temporary migration-source Cloud SQL
-instance, and the shared Cloud Armor policy. Kustomize owns Kubernetes workloads under `k8s/`, with `scripts/apply-gke-dev.sh` bridging
+containers and versions, GCS, GCE, GKE cluster resources, and the shared Cloud Armor policy. The GKE
+database is a retained PostgreSQL StatefulSet; its completed migration-source Cloud SQL instance is
+no longer managed. Kustomize owns Kubernetes workloads under `k8s/`, with `scripts/apply-gke-dev.sh` bridging
 Terraform outputs into the dev overlay. Do not hand-edit live Kubernetes resources except for
 short-lived diagnostics; commit and apply manifest changes instead.
 

@@ -187,52 +187,6 @@ resource "google_compute_address" "postgres" {
   subnetwork   = data.google_compute_subnetwork.default.id
 }
 
-# Retained only as the source for the one-time migration into the GKE
-# StatefulSet. Remove these Cloud SQL resources after the live dump/restore and
-# rollback verification are complete.
-resource "google_sql_database_instance" "postgres" {
-  name             = "${var.name_prefix}-postgres"
-  database_version = "POSTGRES_15"
-  region           = var.region
-
-  settings {
-    tier              = var.sql_tier
-    availability_type = "ZONAL"
-    disk_size         = 10
-    disk_type         = "PD_HDD"
-    backup_configuration {
-      enabled = false
-    }
-    ip_configuration {
-      ipv4_enabled = true
-    }
-  }
-
-  deletion_protection = false
-}
-
-resource "google_sql_database" "kestra" {
-  name     = local.kestra_database_name
-  instance = google_sql_database_instance.postgres.name
-}
-
-resource "google_sql_database" "batch" {
-  name     = local.batch_database_name
-  instance = google_sql_database_instance.postgres.name
-}
-
-resource "google_sql_user" "kestra" {
-  name     = "kestra"
-  instance = google_sql_database_instance.postgres.name
-  password = random_password.db.result
-}
-
-resource "google_project_iam_member" "cloudsql_client" {
-  project = var.project_id
-  role    = "roles/cloudsql.client"
-  member  = "serviceAccount:${google_service_account.kestra.email}"
-}
-
 resource "google_project_iam_member" "artifact_registry_reader" {
   project = var.project_id
   role    = "roles/artifactregistry.reader"
@@ -285,7 +239,6 @@ resource "google_compute_instance" "controller_worker" {
 
   depends_on = [
     google_project_iam_member.artifact_registry_reader,
-    google_project_iam_member.cloudsql_client,
     google_secret_manager_secret_iam_member.gke_runtime_reader,
     google_secret_manager_secret_iam_member.kestra_basic_auth_reader,
     google_storage_bucket_iam_member.storage,
@@ -332,7 +285,6 @@ resource "google_compute_instance" "routed_worker" {
 
   depends_on = [
     google_project_iam_member.artifact_registry_reader,
-    google_project_iam_member.cloudsql_client,
     google_secret_manager_secret_iam_member.gke_runtime_reader,
     google_secret_manager_secret_iam_member.kestra_basic_auth_reader,
     google_storage_bucket_iam_member.storage,
@@ -408,16 +360,6 @@ output "project_id" {
 
 output "postgres_internal_ip" {
   value = google_compute_address.postgres.address
-}
-
-output "legacy_cloud_sql_connection_name" {
-  description = "Temporary migration source; remove after the GKE PostgreSQL cutover is verified."
-  value       = google_sql_database_instance.postgres.connection_name
-}
-
-output "legacy_cloud_sql_instance_name" {
-  description = "Temporary migration source instance ID used for the pre-cutover backup."
-  value       = google_sql_database_instance.postgres.name
 }
 
 output "gcs_bucket" {

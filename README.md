@@ -235,7 +235,8 @@ Terraform roots are split by phase:
   databases, and each JDBC connection family has its own Secret Manager entries.
 - `infra/terraform/gke-dev`: GKE Autopilot, a reserved VPC-internal PostgreSQL address, GCS, and Workload Identity inputs for the
   Kubernetes manifests. It stores GKE runtime DB connection values in Secret Manager, renders them
-  into Kubernetes only during apply, and acts as the federated OSS controller.
+  into Kubernetes only during apply, and acts as the federated OSS controller. The former GKE
+  migration-source Cloud SQL instance has been removed after verified cutover.
 
 System shape, at a high level:
 

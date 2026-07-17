@@ -64,17 +64,11 @@ Credentials remain in Secret Manager and are rendered into `kestra-secrets`; no 
 are committed. GKE pods use the ClusterIP hostname. GCE workers use the VPC-internal LoadBalancer
 address stored in their Secret Manager JDBC URLs.
 
-The existing Cloud SQL instance is retained only during the live migration window. It must not be
-removed from Terraform until a backup or dump has been captured, any required history has been
-restored into the StatefulSet, and the new endpoint has passed cold-wake and persistence checks.
-
-The first apply detects `_gke_cloud_sql_migration` in both destination databases. When either
-marker is absent, the apply helper creates an on-demand Cloud SQL backup, scales existing GKE
-Kestra Deployments to zero, stops currently running GCE workers, and runs a one-shot migration Job.
-The Job uses Cloud SQL Auth Proxy as a native sidecar and PostgreSQL 16 `pg_dump`/`pg_restore`.
-It restores only an empty destination database; a populated destination is preserved and marked,
-so repeated applies are idempotent. GCE workers are restarted only after the migration and Helm
-rollout path succeeds.
+The Cloud SQL migration source was removed after the StatefulSet passed two cold-wake cycles with
+the same PVC and persistent marker. Finalization captures PostgreSQL custom-format dumps for both
+logical databases under `gs://<gke-storage-bucket>/postgres-finalization/<timestamp>/` before
+Terraform deletes the legacy instance. Normal GKE applies no longer contain migration-sidecar or
+Cloud SQL cutover logic.
 
 ## Failure Behavior
 
@@ -109,7 +103,7 @@ Completion requires live evidence for all of the following:
 3. Kestra becomes accessible and existing database state is readable after wake-up.
 4. After the idle window, all managed Deployments and PostgreSQL return to zero.
 5. The PostgreSQL PVC remains Bound and the same data is readable after a second wake-up.
-6. The legacy Cloud SQL instance is backed up and removed only after the cutover is proven.
+6. Portable dumps exist in GCS and the legacy Cloud SQL instance is absent after the proven cutover.
 
 ## References
 

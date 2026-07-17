@@ -368,34 +368,25 @@ kubectl -n kestra-dev get pvc data-kestra-postgres-0
 kubectl -n kestra-dev logs deployment/kestra-worker-activator -c scaler -f
 ```
 
-Before the first Cloud SQL-to-StatefulSet cutover, create and verify an on-demand source backup:
+The Cloud SQL-to-StatefulSet cutover is complete. Before applying legacy-source removal, the
+finalization helper captures portable custom-format dumps of both live databases in GCS:
 
 ```bash
-gcloud sql backups create \
-  --project "${PROJECT_ID}" \
-  --instance kestra-dev-postgres \
-  --description pre-gke-postgres-cutover
-gcloud sql backups list \
-  --project "${PROJECT_ID}" \
-  --instance kestra-dev-postgres \
-  --limit 5
+nix develop -c scripts/finalize-live-gke-postgres.sh
 ```
 
-Do not remove the legacy Cloud SQL Terraform resources until the backup reports `SUCCESS` and the
-StatefulSet has passed two wake cycles with retained data. Run the end-to-end verifier with:
+The helper uploads `kestra.dump` and `ecommerce_ops.dump` beneath
+`gs://<gke-storage-bucket>/postgres-finalization/<timestamp>/`, applies Terraform removal using the
+currently deployed image, and resets routed workers onto the reconciled configuration. Run the
+end-to-end verifier with:
 
 ```bash
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- \
   task kestra:live:verify-gke-full-stack-scale-to-zero
 ```
 
-On the first deployment, `scripts/apply-gke-dev.sh` detects missing migration markers, creates the
-Cloud SQL backup, scales existing GKE Kestra Deployments to zero, stops running GCE workers, and
-runs `kestra-postgres-cloud-sql-migration`. The Job uses Cloud SQL Auth Proxy as a native sidecar,
-restores only empty destination databases, and records `_gke_cloud_sql_migration` in both logical
-databases. Subsequent deploys see both markers and skip the cutover. A failed migration
-intentionally leaves writers stopped for investigation instead of restarting them against a
-partial database.
+Normal `scripts/apply-gke-dev.sh` runs now target only the in-cluster PostgreSQL StatefulSet; the
+completed one-time Cloud SQL migration path is no longer part of deployment.
 
 ### OSS K8s Per-Batch Pod Resources
 

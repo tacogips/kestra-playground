@@ -17,8 +17,6 @@ LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS="${LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECON
 LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS="${LIVE_GKE_ROUTED_K8S_WORKER_ACTIVATOR_POLL_SECONDS:-10}"
 LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED="${LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED:-false}"
 LIVE_GKE_DATABASE_AUTOSCALE_ENABLED="${LIVE_GKE_DATABASE_AUTOSCALE_ENABLED:-${LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED}}"
-GKE_POSTGRES_MIGRATE_FROM_CLOUD_SQL="${GKE_POSTGRES_MIGRATE_FROM_CLOUD_SQL:-true}"
-ZONE="${ZONE:-asia-northeast1-a}"
 
 if [[ "$LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED" == "true" && "$LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED" != "true" ]]; then
   echo "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true requires LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true" >&2
@@ -66,8 +64,6 @@ tf_output() {
 }
 
 postgres_internal_ip="$(tf_output '.postgres_internal_ip.value')"
-legacy_cloud_sql_connection_name="$(tf_output '.legacy_cloud_sql_connection_name.value')"
-legacy_cloud_sql_instance_name="$(tf_output '.legacy_cloud_sql_instance_name.value')"
 gcp_service_account="$(tf_output '.gcp_service_account.value')"
 project_id="$(tf_output '.project_id.value')"
 kestra_image="${KESTRA_IMAGE:-$(tf_output '.kestra_image.value')}"
@@ -197,224 +193,6 @@ if ! kubectl -n "$NAMESPACE" rollout status statefulset/kestra-postgres --timeou
   kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp | tail -n 100 >&2 || true
   exit 1
 fi
-
-cutover_stopped_instances=()
-
-postgres_migration_complete() {
-  local database=""
-  local marker=""
-
-  for database in kestra ecommerce_ops; do
-    marker="$(
-      kubectl -n "$NAMESPACE" exec statefulset/kestra-postgres -- \
-        psql --tuples-only --no-align --username=kestra --dbname="$database" \
-          --command "SELECT to_regclass('public._gke_cloud_sql_migration') IS NOT NULL" \
-        | tr -d '[:space:]'
-    )"
-    if [[ "$marker" != "t" ]]; then
-      return 1
-    fi
-  done
-}
-
-quiesce_gke_kestra() {
-  local deployment=""
-  local replicas=""
-  local attempts=""
-  local deployments=(
-    kestra-webserver
-    kestra-executor
-    kestra-scheduler
-    kestra-indexer
-    kestra-worker
-    kestra-gke-worker-small
-    kestra-gke-worker-large
-  )
-
-  kubectl -n "$NAMESPACE" delete hpa kestra-worker --ignore-not-found
-  for deployment in "${deployments[@]}"; do
-    if kubectl -n "$NAMESPACE" get deployment "$deployment" >/dev/null 2>&1; then
-      kubectl -n "$NAMESPACE" scale deployment "$deployment" --replicas=0 >/dev/null
-    fi
-  done
-
-  for deployment in "${deployments[@]}"; do
-    if kubectl -n "$NAMESPACE" get deployment "$deployment" >/dev/null 2>&1; then
-      for attempts in {1..120}; do
-        replicas="$(
-          kubectl -n "$NAMESPACE" get deployment "$deployment" -o json \
-            | jq -er '.status.replicas // 0'
-        )"
-        if [[ "$replicas" == "0" ]]; then
-          break
-        fi
-        if [[ "$attempts" == "120" ]]; then
-          echo "Timed out quiescing deployment/${deployment}." >&2
-          return 1
-        fi
-        sleep 5
-      done
-    fi
-  done
-}
-
-quiesce_gce_workers() {
-  local instance=""
-  local worker_instances=()
-  mapfile -t worker_instances < <(
-    jq -r '.gce_worker_instances.value[]?' "$outputs_json"
-  )
-
-  for instance in "${worker_instances[@]}"; do
-    if [[ "$(gcloud compute instances describe "$instance" --zone="$ZONE" --project="$project_id" --format='value(status)')" == "RUNNING" ]]; then
-      gcloud compute instances stop "$instance" \
-        --zone="$ZONE" \
-        --project="$project_id" \
-        --quiet
-      cutover_stopped_instances+=("$instance")
-    fi
-  done
-}
-
-render_cloud_sql_migration_job() {
-  cat <<EOF
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: kestra-postgres-cloud-sql-migration
-  namespace: ${NAMESPACE}
-spec:
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 3600
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: kestra-postgres-cloud-sql-migration
-        app.kubernetes.io/component: database-migration
-        app.kubernetes.io/instance: kestra
-    spec:
-      restartPolicy: Never
-      serviceAccountName: kestra
-      initContainers:
-        - name: cloud-sql-proxy
-          image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1
-          restartPolicy: Always
-          args:
-            - --structured-logs
-            - --address=0.0.0.0
-            - --port=5433
-            - ${legacy_cloud_sql_connection_name}
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 250m
-              memory: 256Mi
-      containers:
-        - name: migrate
-          image: postgres:16.13-alpine
-          command:
-            - /bin/sh
-            - -ec
-            - |
-              for attempt in \$(seq 1 120); do
-                if pg_isready --host=127.0.0.1 --port=5433 --username="\$POSTGRES_USER" >/dev/null 2>&1; then
-                  break
-                fi
-                if [ "\$attempt" -eq 120 ]; then
-                  echo "Cloud SQL proxy did not become ready." >&2
-                  exit 1
-                fi
-                sleep 2
-              done
-
-              for database in kestra ecommerce_ops; do
-                existing_tables="\$(
-                  psql --host=kestra-postgres --username="\$POSTGRES_USER" --dbname="\$database" \
-                    --tuples-only --no-align \
-                    --command "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema') AND tablename <> '_gke_cloud_sql_migration'"
-                )"
-                if [ "\$existing_tables" -eq 0 ]; then
-                  echo "Migrating \$database from Cloud SQL."
-                  pg_dump --host=127.0.0.1 --port=5433 --username="\$POSTGRES_USER" \
-                    --dbname="\$database" --format=custom --no-owner --no-privileges \
-                    --file="/work/\$database.dump"
-                  pg_restore --host=kestra-postgres --username="\$POSTGRES_USER" \
-                    --dbname="\$database" --no-owner --no-privileges --exit-on-error \
-                    "/work/\$database.dump"
-                else
-                  echo "Destination \$database already has \$existing_tables user tables; preserving it."
-                fi
-                psql --host=kestra-postgres --username="\$POSTGRES_USER" --dbname="\$database" \
-                  --set ON_ERROR_STOP=1 \
-                  --command "CREATE TABLE IF NOT EXISTS _gke_cloud_sql_migration (source text PRIMARY KEY, migrated_at timestamptz NOT NULL DEFAULT now())" \
-                  --command "INSERT INTO _gke_cloud_sql_migration (source) VALUES ('${legacy_cloud_sql_connection_name}') ON CONFLICT (source) DO NOTHING"
-              done
-          env:
-            - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: kestra-secrets
-                  key: KESTRA_DB_USERNAME
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: kestra-secrets
-                  key: KESTRA_DB_PASSWORD
-          resources:
-            requests:
-              cpu: 250m
-              memory: 512Mi
-            limits:
-              cpu: "1"
-              memory: 1Gi
-          volumeMounts:
-            - name: work
-              mountPath: /work
-      volumes:
-        - name: work
-          emptyDir: {}
-EOF
-}
-
-migrate_cloud_sql_to_gke_postgres() {
-  local migration_job="${tmpdir}/postgres-cloud-sql-migration.yaml"
-
-  if [[ "$GKE_POSTGRES_MIGRATE_FROM_CLOUD_SQL" != "true" ]]; then
-    return
-  fi
-  if postgres_migration_complete; then
-    echo "GKE PostgreSQL migration markers already exist; skipping Cloud SQL cutover."
-    return
-  fi
-
-  echo "Creating an on-demand Cloud SQL backup before the GKE PostgreSQL cutover."
-  gcloud sql backups create \
-    --instance="$legacy_cloud_sql_instance_name" \
-    --project="$project_id" \
-    --description="pre-gke-postgres-cutover-$(date -u +%Y%m%dT%H%M%SZ)" \
-    --quiet >/dev/null
-
-  echo "Quiescing GKE Kestra and GCE workers for a consistent database dump."
-  quiesce_gke_kestra
-  quiesce_gce_workers
-
-  render_cloud_sql_migration_job >"$migration_job"
-  kubectl -n "$NAMESPACE" delete job kestra-postgres-cloud-sql-migration --ignore-not-found
-  kubectl apply -f "$migration_job"
-  if ! kubectl -n "$NAMESPACE" wait \
-    --for=condition=complete \
-    job/kestra-postgres-cloud-sql-migration \
-    --timeout=30m; then
-    kubectl -n "$NAMESPACE" logs job/kestra-postgres-cloud-sql-migration -c migrate >&2 || true
-    exit 1
-  fi
-  kubectl -n "$NAMESPACE" logs job/kestra-postgres-cloud-sql-migration -c migrate
-  postgres_migration_complete
-}
-
-migrate_cloud_sql_to_gke_postgres
 
 image_repository="${kestra_image%:*}"
 image_tag="${kestra_image##*:}"
@@ -1083,16 +861,6 @@ else
     kestra-worker-routing-gke-large \
     --ignore-not-found
 fi
-
-for instance in "${cutover_stopped_instances[@]}"; do
-  if [[ "$(gcloud compute instances describe "$instance" --zone="$ZONE" --project="$project_id" --format='value(status)')" == "TERMINATED" ]]; then
-    echo "Starting cutover worker ${instance} against GKE PostgreSQL."
-    gcloud compute instances start "$instance" \
-      --zone="$ZONE" \
-      --project="$project_id" \
-      --quiet
-  fi
-done
 
 kubectl -n "$NAMESPACE" rollout status deployment/otel-collector --timeout=10m
 kubectl -n "$NAMESPACE" rollout status deployment/kestra-webserver --timeout=15m

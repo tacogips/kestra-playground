@@ -128,12 +128,6 @@ variable "kestra_image" {
   default     = "kestra/kestra:latest"
 }
 
-variable "sql_tier" {
-  type        = string
-  default     = "db-g1-small"
-  description = "Legacy Cloud SQL tier retained only until the GKE PostgreSQL migration is verified."
-}
-
 variable "domain_name" {
   type        = string
   description = "Parent DNS domain for HTTPS access, for example example.com. Leave empty to skip HTTPS/domain resources."

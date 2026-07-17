@@ -10,8 +10,9 @@ Notable items that do not fit into architecture or client categories.
   can reach zero compute replicas while its `standard-rwo` PVC remains allocated and billable. The
   resident activator and load-balancer resources also remain; zero refers to Kestra and PostgreSQL
   pods, not every GCP resource.
-- The legacy GKE Cloud SQL instance is temporarily retained as a migration/rollback source. It must
-  be backed up and any required data restored before Terraform removes it.
+- The legacy GKE Cloud SQL instance was removed after the live StatefulSet passed two cold-wake
+  cycles. Portable finalization dumps for both logical databases are retained in the GKE storage
+  bucket.
 
 ---
 

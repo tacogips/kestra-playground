@@ -11,58 +11,47 @@ def _read_text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_cloud_sql_cutover_is_backup_first_and_idempotent() -> None:
+def test_gke_apply_no_longer_contains_the_completed_cloud_sql_migration() -> None:
     script = _read_text("scripts/apply-gke-dev.sh")
 
-    backup = script.index("gcloud sql backups create")
-    quiesce_gke = script.index("quiesce_gke_kestra", backup)
-    quiesce_gce = script.index("quiesce_gce_workers", quiesce_gke)
-    migration_job = script.index("render_cloud_sql_migration_job", quiesce_gce)
-
-    assert backup < quiesce_gke < quiesce_gce < migration_job
-    assert "postgres_migration_complete" in script
-    assert "_gke_cloud_sql_migration" in script
-    assert (
-        "Destination \\$database already has \\$existing_tables user tables; preserving it."
-        in script
-    )
-    assert "GKE_POSTGRES_MIGRATE_FROM_CLOUD_SQL" in script
+    assert "gcloud sql backups create" not in script
+    assert "cloud-sql-proxy" not in script
+    assert "GKE_POSTGRES_MIGRATE_FROM_CLOUD_SQL" not in script
     assert "PostgreSQL StatefulSet did not become ready; collecting diagnostics." in script
     assert "describe pod -l app.kubernetes.io/name=kestra-postgres" in script
 
 
-def test_cloud_sql_migration_uses_native_sidecar_and_retained_destination() -> None:
-    script = _read_text("scripts/apply-gke-dev.sh")
+def test_postgres_statefulset_retains_its_destination_volume() -> None:
     postgres = list(yaml.safe_load_all(_read_text("k8s/base/postgres.yaml")))
     statefulset = next(document for document in postgres if document["kind"] == "StatefulSet")
 
-    assert "restartPolicy: Always" in script
-    assert "gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1" in script
-    assert "pg_dump" in script
-    assert "pg_restore" in script
-    assert "--exit-on-error" in script
     assert statefulset["spec"]["persistentVolumeClaimRetentionPolicy"] == {
         "whenDeleted": "Retain",
         "whenScaled": "Retain",
     }
 
 
-def test_terraform_keeps_explicit_migration_source_outputs() -> None:
+def test_gke_terraform_removes_the_legacy_cloud_sql_source() -> None:
     terraform = _read_text("infra/terraform/gke-dev/main.tf")
+    variables = _read_text("infra/terraform/gke-dev/variables.tf")
 
-    assert 'output "legacy_cloud_sql_connection_name"' in terraform
-    assert 'output "legacy_cloud_sql_instance_name"' in terraform
-    assert 'resource "google_sql_database_instance" "postgres"' in terraform
-    assert "Temporary migration source" in terraform
+    assert "google_sql_" not in terraform
+    assert "cloudsql_client" not in terraform
+    assert "legacy_cloud_sql" not in terraform
+    assert 'variable "sql_tier"' not in variables
 
 
-def test_cutover_starts_only_gce_instances_that_it_stopped() -> None:
-    script = _read_text("scripts/apply-gke-dev.sh")
+def test_finalization_creates_portable_backups_before_deploying_removal() -> None:
+    finalizer = _read_text("scripts/finalize-live-gke-postgres.sh")
+    backup = _read_text("scripts/backup-live-gke-postgres.sh")
 
-    assert 'cutover_stopped_instances+=("$instance")' in script
-    assert 'for instance in "${cutover_stopped_instances[@]}"' in script
-    assert '== "TERMINATED"' in script
-    assert "gcloud compute instances start" in script
+    assert finalizer.index("scripts/backup-live-gke-postgres.sh") < finalizer.index(
+        "scripts/deploy-routed-live.sh"
+    )
+    assert "pg_dump" in backup
+    assert "kestra ecommerce_ops" in backup
+    assert "gcloud storage cp" in backup
+    assert "PostgreSQL backup for ${database} is empty." in backup
 
 
 def test_activator_accepts_whitespace_in_kubernetes_json() -> None:
@@ -135,3 +124,17 @@ def test_workflow_can_refresh_and_verify_the_routed_activator() -> None:
     assert refresh_job["permissions"] == {"contents": "read", "id-token": "write"}
     assert "inputs.target_environment != 'routed-refresh'" in workflow["jobs"]["build-image"]["if"]
     assert "inputs.target_environment != 'routed-refresh'" in workflow["jobs"]["deploy"]["if"]
+
+
+def test_workflow_can_finalize_and_verify_the_postgres_cutover() -> None:
+    workflow = yaml.safe_load(_read_text(".github/workflows/deploy.yml"))
+    finalize_job = workflow["jobs"]["finalize-routed"]
+
+    assert (
+        "routed-finalize"
+        in workflow[True]["workflow_dispatch"]["inputs"]["target_environment"]["options"]
+    )
+    assert "inputs.target_environment == 'routed-finalize'" in finalize_job["if"]
+    assert finalize_job["permissions"] == {"contents": "read", "id-token": "write"}
+    assert "inputs.target_environment != 'routed-finalize'" in workflow["jobs"]["build-image"]["if"]
+    assert "inputs.target_environment != 'routed-finalize'" in workflow["jobs"]["deploy"]["if"]
