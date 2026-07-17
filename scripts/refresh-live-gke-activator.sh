@@ -23,11 +23,11 @@ kubectl -n "$NAMESPACE" get configmap kestra-worker-activator \
   -o jsonpath='{.data.nginx\.conf}' >"${temporary_directory}/nginx.conf"
 
 sed -i \
-  -e 's/grep -q '\''"readyReplicas":1'\''/grep -Eq '\''"readyReplicas":[[:space:]]*1'\''/' \
-  -e 's/"(availableReplicas|readyReplicas|replicas)":([1-9][0-9]*)/"(availableReplicas|readyReplicas|replicas)":[[:space:]]*([1-9][0-9]*)/' \
+  -e 's/"readyReplicas":1/"readyReplicas":[[:space:]]*1/g' \
+  -e 's/"(availableReplicas|readyReplicas|replicas)":(\[1-9\]\[0-9\]\*)/"(availableReplicas|readyReplicas|replicas)":[[:space:]]*([1-9][0-9]*)/' \
   "${temporary_directory}/activator.sh"
 
-grep -Fq 'grep -Eq '"'"'"readyReplicas":[[:space:]]*1'"'"'' \
+grep -Fq '"readyReplicas":[[:space:]]*1' \
   "${temporary_directory}/activator.sh"
 grep -Fq '"(availableReplicas|readyReplicas|replicas)":[[:space:]]*([1-9][0-9]*)' \
   "${temporary_directory}/activator.sh"
