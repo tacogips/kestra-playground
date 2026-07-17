@@ -1,8 +1,8 @@
 # GKE Full-Stack Scale-To-Zero Plan
 
-**Status**: IN_PROGRESS  
-**Design Reference**: `design-docs/specs/design-gke-full-stack-scale-to-zero.md`  
-**Created**: 2026-07-17  
+**Status**: COMPLETE
+**Design Reference**: `design-docs/specs/design-gke-full-stack-scale-to-zero.md`
+**Created**: 2026-07-17
 **Last Updated**: 2026-07-17
 
 ## Scope
@@ -21,10 +21,10 @@ cutover. This plan does not claim PostgreSQL high availability.
 | Architecture | Design and runbook updates | COMPLETE | Requirements and ordering documented |
 | GKE database | PostgreSQL Services, StatefulSet, PVC | COMPLETE | Kustomize render and schema tests pass |
 | Activator | Public ingress and ordered scaler | COMPLETE | Generated YAML and script tests pass |
-| Terraform wiring | Internal address and secrets | IN_PROGRESS | Validation passes; live plan awaits reauthentication |
-| Live migration | Automated backup and idempotent restore path | IN_PROGRESS | Local render passes; live execution awaits authentication |
-| Live verification | Cold wake, idle park, second wake | NOT_STARTED | Runtime verifier output |
-| Cloud SQL retirement | Remove legacy resources | NOT_STARTED | Post-cutover plan and apply |
+| Terraform wiring | Internal address and secrets | COMPLETE | OpenTofu validation and live no-op apply pass |
+| Live migration | Automated backup and idempotent restore path | COMPLETE | Portable dumps uploaded before retirement |
+| Live verification | Cold wake, idle park, second wake | COMPLETE | Run `29578095529` passed both cycles |
+| Cloud SQL retirement | Remove legacy resources | COMPLETE | Legacy instance, databases, IAM, and desired-state resources removed |
 
 ## Workstreams
 
@@ -101,24 +101,27 @@ cutover. This plan does not claim PostgreSQL high availability.
 
 ## Completion Criteria
 
-- [ ] All six workstreams are complete.
-- [ ] Repository CI and infrastructure rendering pass.
-- [ ] Live public access proves ordered zero-to-one wake-up.
-- [ ] Live idle state proves PostgreSQL and all managed Kestra workloads at zero.
-- [ ] The same PVC and database data survive a second wake-up.
-- [ ] Legacy Cloud SQL is backed up and retired.
-- [ ] Operations documentation reflects the final topology.
+- [x] All six workstreams are complete.
+- [x] Repository CI and infrastructure rendering pass.
+- [x] Live public access proves ordered zero-to-one wake-up.
+- [x] Live idle state proves PostgreSQL and all managed Kestra workloads at zero.
+- [x] The same PVC and database data survive a second wake-up.
+- [x] Legacy Cloud SQL is backed up and retired.
+- [x] Operations documentation reflects the final topology.
 
 ## Progress Log
 
 ### Session: 2026-07-17
 
-**Completed**: Audited the existing Cloud SQL and activator topology; documented the ordered
-full-stack design; added initial StatefulSet, Ingress, activator, Terraform, and test changes.
+**Completed**: Implemented and deployed the retained PostgreSQL StatefulSet, internal routing for
+GCE workers, resident public activator, ordered full-stack scale-to-zero, portable backup tooling,
+and Cloud SQL retirement. GitHub Actions run `29578095529` validated the repository and
+infrastructure, uploaded final backups under
+`gs://kestra-playground-260625-kestra-dev-storage-0fd43c76/postgres-finalization/20260717T115717Z/`,
+confirmed a no-op desired-state apply, and passed two public wake cycles. Marker
+`scale-zero-20260717T115941Z` survived the second wake on PVC UID
+`1b67764d-7216-44c0-9722-69e2ba2811cc`.
 
-**In Progress**: Live OpenTofu plan, execution of the implemented Cloud SQL backup/migration,
-deployment, and runtime proof.
-
-**Blockers**: Local `gcloud` credentials require interactive reauthentication before remote state,
-Cloud SQL backup, GKE deployment, or live verification can proceed. Live deletion of Cloud SQL
-also remains intentionally gated on backup/cutover evidence.
+**Blockers**: None for implementation or live automated verification. Visible Brave UI inspection
+was unavailable in the final session because the required Computer Use MCP was not exposed; the
+public HTTPS verifier exercised the same routed Kestra endpoint successfully.
