@@ -45,9 +45,11 @@ def test_finalization_creates_portable_backups_before_deploying_removal() -> Non
     finalizer = _read_text("scripts/finalize-live-gke-postgres.sh")
     backup = _read_text("scripts/backup-live-gke-postgres.sh")
 
-    assert finalizer.index("scripts/backup-live-gke-postgres.sh") < finalizer.index(
-        "scripts/deploy-routed-live.sh"
-    )
+    backup_step = finalizer.index("scripts/backup-live-gke-postgres.sh")
+    untrack_owner = finalizer.index("state rm google_sql_user.kestra")
+    deploy_step = finalizer.index("scripts/deploy-routed-live.sh")
+
+    assert backup_step < untrack_owner < deploy_step
     assert "pg_dump" in backup
     assert "kestra ecommerce_ops" in backup
     assert "gcloud storage cp" in backup

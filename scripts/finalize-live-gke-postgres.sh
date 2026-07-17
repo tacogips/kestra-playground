@@ -18,5 +18,13 @@ backup_bucket="$(tofu -chdir=infra/terraform/gke-dev output -raw gcs_bucket)"
 
 BACKUP_BUCKET="$backup_bucket" scripts/backup-live-gke-postgres.sh
 
+# Cloud SQL refuses to drop an owner user while its objects still exist. The
+# instance deletion removes that user atomically, so stop managing the child
+# user separately before applying removal of the parent instance.
+if tofu -chdir=infra/terraform/gke-dev state list \
+  | grep -Fxq 'google_sql_user.kestra'; then
+  tofu -chdir=infra/terraform/gke-dev state rm google_sql_user.kestra
+fi
+
 export KESTRA_IMAGE="$current_image"
 scripts/deploy-routed-live.sh
