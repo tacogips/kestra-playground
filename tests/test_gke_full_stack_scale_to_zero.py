@@ -84,3 +84,17 @@ def test_live_verifier_uses_observed_readiness_and_reports_http_diagnostics() ->
     assert "http://kestra-webserver/" in script
     assert "logs deployment/kestra-webserver" in script
     assert "logs deployment/kestra-worker-activator" in script
+
+
+def test_workflow_supports_verification_without_rebuilding_or_redeploying() -> None:
+    workflow = yaml.safe_load(_read_text(".github/workflows/deploy.yml"))
+    verify_job = workflow["jobs"]["verify-routed"]
+
+    assert (
+        "routed-verify"
+        in workflow[True]["workflow_dispatch"]["inputs"]["target_environment"]["options"]
+    )
+    assert "inputs.target_environment == 'routed-verify'" in verify_job["if"]
+    assert verify_job["permissions"] == {"contents": "read", "id-token": "write"}
+    assert "inputs.target_environment != 'routed-verify'" in workflow["jobs"]["build-image"]["if"]
+    assert "inputs.target_environment != 'routed-verify'" in workflow["jobs"]["deploy"]["if"]
