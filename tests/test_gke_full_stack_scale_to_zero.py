@@ -27,6 +27,8 @@ def test_cloud_sql_cutover_is_backup_first_and_idempotent() -> None:
         in script
     )
     assert "GKE_POSTGRES_MIGRATE_FROM_CLOUD_SQL" in script
+    assert "PostgreSQL StatefulSet did not become ready; collecting diagnostics." in script
+    assert "describe pod -l app.kubernetes.io/name=kestra-postgres" in script
 
 
 def test_cloud_sql_migration_uses_native_sidecar_and_retained_destination() -> None:

@@ -188,7 +188,15 @@ chmod 600 "$rendered"
 kustomize build "$work_overlay" >"$rendered"
 
 kubectl apply -f "$rendered"
-kubectl -n "$NAMESPACE" rollout status statefulset/kestra-postgres --timeout=10m
+if ! kubectl -n "$NAMESPACE" rollout status statefulset/kestra-postgres --timeout=10m; then
+  echo "PostgreSQL StatefulSet did not become ready; collecting diagnostics." >&2
+  kubectl -n "$NAMESPACE" get statefulset kestra-postgres -o wide >&2 || true
+  kubectl -n "$NAMESPACE" get pods,pvc -l app.kubernetes.io/name=kestra-postgres -o wide >&2 || true
+  kubectl -n "$NAMESPACE" describe pod -l app.kubernetes.io/name=kestra-postgres >&2 || true
+  kubectl -n "$NAMESPACE" logs statefulset/kestra-postgres --all-containers --tail=200 >&2 || true
+  kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp | tail -n 100 >&2 || true
+  exit 1
+fi
 
 cutover_stopped_instances=()
 
