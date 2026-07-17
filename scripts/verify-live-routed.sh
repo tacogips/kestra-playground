@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ID="${PROJECT_ID:-${GCP_PROJECT_ID:-}}"
 REGION="${REGION:-asia-northeast1}"
-ZONE="${ZONE:-asia-northeast1-b}"
+ZONE="${ZONE:-asia-northeast1-a}"
 NAMESPACE="${NAMESPACE:-kestra-dev}"
 BUSINESS_DATE_INPUT="${1:-${BUSINESS_DATE:-}}"
 LIVE_DOMAIN_NAME="${LIVE_DOMAIN_NAME:-}"

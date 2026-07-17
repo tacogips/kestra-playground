@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-${GCP_PROJECT_ID:-}}"
 REGION="${REGION:-asia-northeast1}"
-ZONE="${ZONE:-asia-northeast1-b}"
+ZONE="${ZONE:-asia-northeast1-a}"
 KESTRA_IMAGE="${KESTRA_IMAGE:-}"
 
 if [[ -z "${PROJECT_ID}" ]]; then

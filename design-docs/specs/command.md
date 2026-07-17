@@ -209,7 +209,7 @@ The verification command checks that GKE has no generic worker Deployment/pods, 
 instances are `RUNNING`, and that the two routed tasks complete with different worker IDs. The
 dedicated `gke-small` and `gke-large` workers wake for Cloud Run remote-batch requests.
 `scripts/deploy-routed-live.sh` uses `ZONE` for both the OpenTofu worker placement and subsequent
-instance resets; its live default is `asia-northeast1-b`. It forces
+instance resets; its live default is `asia-northeast1-a`. It forces
 `LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true`, worker/control-plane/database autoscaling, and a
 five-minute live idle window.
 
