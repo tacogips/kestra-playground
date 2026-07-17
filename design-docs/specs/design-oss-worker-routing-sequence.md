@@ -14,9 +14,10 @@ queue over their worker-opened gRPC stream.
 ## Kestra Fork
 
 This mechanism depends on the custom Kestra fork at
-`https://github.com/tacogips/kestra/tree/feature/oss-worker-routing`.
+`https://github.com/tacogips/kestra/tree/bf0e3240580448a80c4fc4850883d88c50e484a7`.
 
-The repository workflow checks out `tacogips/kestra` at branch `feature/oss-worker-routing`, builds
+The repository workflow checks out `tacogips/kestra` at the pinned broadcast-capable revision
+`bf0e3240580448a80c4fc4850883d88c50e484a7`, builds
 the custom Kestra executable, installs the GCS, shell, and Kubernetes plugins, and publishes the
 result as:
 
@@ -138,6 +139,6 @@ does not mount a Docker socket.
 
 - `design-docs/specs/architecture.md`
 - `design-docs/specs/command.md`
-- `https://github.com/tacogips/kestra/tree/feature/oss-worker-routing`
+- `https://github.com/tacogips/kestra/tree/bf0e3240580448a80c4fc4850883d88c50e484a7`
 - `kestra/flows-worker-routing/verify_gcp_worker_routing.yaml`
 - `k8s/base/configmap.yaml`

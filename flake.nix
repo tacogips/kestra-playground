@@ -39,6 +39,7 @@
         devShells.default = pkgs.mkShell {
           packages = (with pkgs; [
             python
+            jdk25
             uv
             go-task
             gh
@@ -66,6 +67,7 @@
 
             echo "Python development environment ready"
             echo "Python version: $(python --version)"
+            echo "Java version: $(java -version 2>&1 | head -n 1)"
             echo "uv version: $(uv --version)"
             echo "Task version: $(task --version 2>/dev/null || echo 'not available')"
             echo "Gitleaks version: $(gitleaks version 2>/dev/null || echo 'not available')"

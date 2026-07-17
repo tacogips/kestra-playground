@@ -189,7 +189,8 @@ worker routing in a single shared Kestra backend:
 - all components use
   `${REGION}-docker.pkg.dev/${PROJECT_ID}/kestra-playground/kestra-oss-worker-routing:<tag>`
   unless `KESTRA_IMAGE` is explicitly overridden;
-- GitHub Actions builds this routed image from `tacogips/kestra@feature/oss-worker-routing`,
+- GitHub Actions builds this routed image from the pinned broadcast-capable
+  `tacogips/kestra@bf0e3240580448a80c4fc4850883d88c50e484a7` revision,
   installs GCS storage plus the shell, Kubernetes, and PostgreSQL JDBC runtime plugins, pushes it
   to Artifact Registry, and deploys the commit-SHA tag;
 - `kestra/flows-worker-routing/verify_gcp_worker_routing.yaml` is registered on the GKE controller
@@ -213,6 +214,36 @@ instance resets; its live default is `asia-northeast1-b`. It forces
 `LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true` and
 `LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=false`; use the separate activator workflow when
 testing scale-from-zero through a port-forward.
+
+To prove batch-group broadcast on the routed fork, run:
+
+```bash
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- task kestra:live:run-batch-group-broadcast
+```
+
+For a container-free local proof using a sibling `tacogips/kestra` checkout, first build that fork's
+executable, then run the verifier from this repository's Nix shell (which includes Java 25):
+
+```bash
+task kestra:flows:run-batch-group-broadcast-local
+```
+
+The local verifier starts an isolated PostgreSQL instance, one standalone controller, and two worker
+processes in the `broadcast-batch` worker group. Both subscribe to the `gke-small` Worker Queue. It
+then registers and executes `verify_batch_group_broadcast`, requires a successful single task run,
+requires exactly two worker-keyed outputs, and requires logs from `batch-worker-a` and
+`batch-worker-b`. All temporary processes and data are removed afterward. Override the fork paths
+with `KESTRA_SOURCE_DIR`, `KESTRA_EXECUTABLE`, or `KESTRA_PLUGIN_SOURCE_DIR` when the sibling checkout
+uses a different layout.
+
+During the live proof, the verifier temporarily scales `kestra-gke-worker-small` to two replicas,
+restarts that Deployment, and waits for every active pod to log its gRPC connection to the current
+controller. Kubernetes readiness alone is insufficient because a worker can become Ready before it
+registers for its Worker Queue. The verifier then runs `verify_batch_group_broadcast` with an
+explicit `workerSelector.broadcast: true` and requires the single visible task run to expose two
+worker-keyed output maps. It also compares the batch log's `batch_group_member` values with the two
+ready, non-terminating `gke-small` pods. The original replica count is restored on success or
+failure. Override the test size with `BROADCAST_WORKER_REPLICAS`; it must be at least two.
 
 ### Shared-Backend OSS GKE Routed Workers
 

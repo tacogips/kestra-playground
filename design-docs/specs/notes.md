@@ -58,10 +58,16 @@ Notable items that do not fit into architecture or client categories.
   Kestra APIs and waits for child execution state. This keeps local/staging and production workflow
   contracts closer than the DB-backed agent wrapper.
 - The shared-backend routed GCP path uses the custom image built from
-  `tacogips/kestra@feature/oss-worker-routing` and pushed to Google Artifact Registry as
+  `tacogips/kestra@bf0e3240580448a80c4fc4850883d88c50e484a7` and pushed to Google Artifact Registry as
   `kestra-playground/kestra-oss-worker-routing`. Do not verify that path with upstream
   `kestra/kestra:latest`: the static `kestra.worker.routing` queue/group configuration only has
   routing semantics in the forked image.
+- Live GKE broadcast verification on 2026-07-15 proved execution
+  `4ObzrngkaE8xk1sRJxudB2` completed on two `gke-small` pods with two worker-keyed output maps. The
+  investigation also showed that Kubernetes pod readiness can precede gRPC Worker Queue
+  registration and that terminating rollout pods can retain `Ready=True`. The live verifier now
+  restarts the test worker Deployment, waits for each active pod's controller-connection log, and
+  excludes pods with a deletion timestamp before dispatch.
 - The GKE routed-worker verification has two separate placement facts:
   - `workerSelector.tags` plus the custom routing fork correctly routes tasks to the matching
     always-on worker Deployment. Live execution `7ZIs6V4XlUZWS1ztUAQzlT` proved `gke-small` and

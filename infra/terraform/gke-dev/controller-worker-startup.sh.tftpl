@@ -75,7 +75,7 @@ kestra:
             port: 50051
     routing:
       workerGroupId: $${KESTRA_WORKER_GROUP_ID}
-      groups:
+      groupQueueMappings:
         controller:
           queues:
             - workerQueueId: default
