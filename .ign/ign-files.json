@@ -24,10 +24,6 @@
     "impl-plans/templates/plan-template.md",
     "mise.toml",
     "pyproject.toml",
-    "src/kestra-playground/__init__.py",
-    "src/kestra-playground/__main__.py",
-    "src/kestra-playground/cli.py",
-    "src/kestra-playground/py.typed",
     "tests/test_package.py"
   ]
 }

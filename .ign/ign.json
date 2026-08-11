@@ -6,10 +6,10 @@
   },
   "hash": "37fba7df7cb3cf56c5ff08aed3b255c61882130100cd1a406db22e13e16aec4c",
   "metadata": {
-    "generated_at": "2026-08-10T20:09:47.681212+09:00",
+    "generated_at": "2026-08-12T02:32:32.667219+09:00",
     "generated_by": "ign update",
     "template_name": "python-v1",
     "template_version": "1.0.0",
-    "ign_version": "0.1.20"
+    "ign_version": "0.1.25"
   }
 }
