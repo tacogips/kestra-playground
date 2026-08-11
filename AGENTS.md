@@ -27,17 +27,16 @@ This is kestra-playground, a modern Python project managed with `uv`.
 - **Language**: Python
 - **Package Manager**: uv
 - **Build Backend**: hatchling
-- **Environment Manager**: Nix flakes + direnv
-- **Development Shell**: Run `nix develop` or use direnv to activate
+- **Environment Manager**: mise
+- **Tool Setup**: Run `mise install`
 
 ## Project Structure
 
 ```text
 .
 ├── .agents/          # Codex repo-scoped skills
-├── flake.nix          # Nix flake configuration for Python development
+├── mise.toml          # Tool versions and project tasks
 ├── pyproject.toml     # Project metadata and tool configuration
-├── .envrc             # direnv configuration
 ├── .gitignore         # Git ignore patterns
 ├── src/               # Package source code
 │   └── kestra-playground/

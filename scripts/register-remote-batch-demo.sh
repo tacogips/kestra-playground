@@ -35,7 +35,7 @@ upload_namespace_file() {
 
   response_file="$(mktemp)"
   status="$(
-    curl "${CURL_AUTH[@]}" --silent --show-error \
+    curl ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} --silent --show-error \
       -o "${response_file}" \
       -w "%{http_code}" \
       -X POST \

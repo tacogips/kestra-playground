@@ -30,7 +30,7 @@ wait_for_execution() {
 
   for _ in {1..60}; do
     execution_json="$(
-      curl "${CURL_AUTH[@]}" --fail --silent --show-error \
+      curl ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} --fail --silent --show-error \
         "${KESTRA_URL%/}/api/v1/main/executions/${execution_id}"
     )"
     state="$(jq -r '.state.current // empty' <<<"${execution_json}")"

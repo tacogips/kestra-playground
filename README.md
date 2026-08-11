@@ -105,12 +105,12 @@ Apple container path:
 cp local/docker/.env.example local/docker/.env
 cp batch-groups/ec/config/envs/local.env.example batch-groups/ec/config/envs/local.env
 cp batch-groups/affiliate/config/envs/local.env.example batch-groups/affiliate/config/envs/local.env
-task kestra:local:apple:start
-task kestra:flows:register
-task kestra:flows:generate
-task kestra:flows:report
-task kestra:flows:segments
-task kestra:local:apple:stop
+mise run kestra:local:apple:start
+mise run kestra:flows:register
+mise run kestra:flows:generate
+mise run kestra:flows:report
+mise run kestra:flows:segments
+mise run kestra:local:apple:stop
 ```
 
 Docker Compose fallback:
@@ -119,12 +119,12 @@ Docker Compose fallback:
 cp local/docker/.env.example local/docker/.env
 cp batch-groups/ec/config/envs/local.env.example batch-groups/ec/config/envs/local.env
 cp batch-groups/affiliate/config/envs/local.env.example batch-groups/affiliate/config/envs/local.env
-task kestra:local:docker:start
-task kestra:flows:register
-task kestra:flows:generate
-task kestra:flows:report
-task kestra:flows:segments
-task kestra:local:docker:stop
+mise run kestra:local:docker:start
+mise run kestra:flows:register
+mise run kestra:flows:generate
+mise run kestra:flows:report
+mise run kestra:flows:segments
+mise run kestra:local:docker:stop
 ```
 
 Both start paths boot the two batch groups side by side against one PostgreSQL container: the EC
@@ -132,10 +132,10 @@ Kestra UI defaults to `http://localhost:8080` and the affiliate Kestra UI to
 `http://localhost:8082`. The affiliate flows have their own task entry points:
 
 ```bash
-task kestra:affiliate:flows:register
-task kestra:affiliate:flows:generate
-task kestra:affiliate:flows:report
-task kestra:affiliate:flows:rankings
+mise run kestra:affiliate:flows:register
+mise run kestra:affiliate:flows:generate
+mise run kestra:affiliate:flows:report
+mise run kestra:affiliate:flows:rankings
 ```
 
 Flow helper scripts can load credentials, URL settings, and default batch date settings from an env
@@ -148,7 +148,7 @@ KESTRA_ENV_FILE=batch-groups/affiliate/config/envs/local.env scripts/register-fl
   http://localhost:8082 batch-groups/affiliate/flows
 ```
 
-The `task kestra:flows:*` commands use `KESTRA_ENV_FILE` when provided. Otherwise EC commands load
+The `mise run kestra:flows:*` commands use `KESTRA_ENV_FILE` when provided. Otherwise EC commands load
 `batch-groups/ec/config/envs/local.env` and affiliate commands load
 `batch-groups/affiliate/config/envs/local.env`, falling back to the corresponding checked-in
 `.example` file. `local/docker/.env` contains only shared PostgreSQL provisioning values; it is not
@@ -184,9 +184,9 @@ Two one-task caller flows demonstrate the pattern:
 Run both success cases plus an expected remote failure with Docker Compose:
 
 ```bash
-task kestra:local:docker:start
-task kestra:flows:run-remote-batch-examples
-task kestra:local:docker:stop
+mise run kestra:local:docker:start
+mise run kestra:flows:run-remote-batch-examples
+mise run kestra:local:docker:stop
 ```
 
 The local `remote-worker` container models an arbitrary batch machine. Production workers do not
@@ -204,7 +204,7 @@ that every runtime path is absent, and preserves the business process exit statu
 cold-start, success, failure, cleanup, and scale-to-zero verification with:
 
 ```bash
-task kestra:live:run-remote-batch-routed
+mise run kestra:live:run-remote-batch-routed
 ```
 
 ## Web Console on Cloud Run
@@ -331,7 +331,7 @@ accepted by the API, but it bypasses normal scheduling, does not trigger Autopil
 can fail if the chosen node lacks local free CPU or memory.
 
 The batch-group broadcast contract can also be proven locally without a container runtime after
-building a sibling `tacogips/kestra` checkout. `task kestra:flows:run-batch-group-broadcast-local`
+building a sibling `tacogips/kestra` checkout. `mise run kestra:flows:run-batch-group-broadcast-local`
 starts a temporary PostgreSQL database, a controller, and two workers in one group, then verifies
 that `verify_batch_group_broadcast` produces two worker-keyed outputs and logs both member names.
 
@@ -385,7 +385,7 @@ TARGET_ENVIRONMENT=gce-container BUSINESS_DATE=2026-06-25 task kestra:live:run-b
 ```
 
 Direct batch execution is disabled for `TARGET_ENVIRONMENT=k8s`; use
-`task kestra:live:run-federated` for the GKE controller path.
+`mise run kestra:live:run-federated` for the GKE controller path.
 
 GitHub Actions deploys on push to `main`, supports manual dispatch for selected environments, and
 runs the ecommerce batch on a daily cron. The workflow uses GitHub OIDC for Google Cloud auth and
@@ -435,8 +435,8 @@ EC system may deploy onto `tacogips/kestra` fork builds such as the routed-worke
 The same deploys can be run manually:
 
 ```bash
-task kestra:batch-groups:deploy:ec
-task kestra:batch-groups:deploy:affiliate
+mise run kestra:batch-groups:deploy:ec
+mise run kestra:batch-groups:deploy:affiliate
 ```
 
 ## Operations Flow
@@ -444,7 +444,7 @@ task kestra:batch-groups:deploy:affiliate
 The normal operating path is:
 
 1. Change flows, fixtures, app source, Terraform, Kubernetes manifests, or docs.
-2. Run local validation through `task ci` and targeted infrastructure checks.
+2. Run local validation through `mise run ci` and targeted infrastructure checks.
 3. Push to `main`; GitHub Actions builds and publishes the runtime image.
 4. Deploy the selected live targets with the SHA-tagged image.
 5. Verify HTTPS readiness and register the checked-in flows.
@@ -564,7 +564,7 @@ collector spans back to specific granular batch tasks.
 Apply the live GKE overlay with Terraform outputs without writing real secrets into the repository:
 
 ```bash
-task k8s:apply:dev
+mise run k8s:apply:dev
 ```
 
 For the live GKE environment, Kestra Basic Auth and database connection values are stored in Secret
@@ -575,17 +575,17 @@ temporary rendered manifest before updating the Kubernetes Secret.
 ## Common Commands
 
 ```bash
-task sync
-task run
-task test
-task lint
-task typecheck
-task fmt
-task build
-task scripts:check
-task kestra:local:apple:start
-task kestra:flows:register
-task infra:fmt
-task k8s:build:dev
-task k8s:apply:dev
+mise run sync
+mise run run
+mise run test
+mise run lint
+mise run typecheck
+mise run fmt
+mise run build
+mise run scripts:check
+mise run kestra:local:apple:start
+mise run kestra:flows:register
+mise run infra:fmt
+mise run k8s:build:dev
+mise run k8s:apply:dev
 ```

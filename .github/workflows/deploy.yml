@@ -62,30 +62,30 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Install mise tools
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
       - name: Run project checks
-        run: nix develop -c task ci
+        run: mise run ci
       - name: Run infrastructure checks
         run: |
-          nix develop -c task scripts:check
-          nix develop -c tofu fmt -check -recursive infra/terraform
-          nix develop -c kubectl version --client=true
-          nix develop -c tofu -chdir=infra/terraform/cloud-armor init -backend=false -input=false
-          nix develop -c tofu -chdir=infra/terraform/cloud-armor validate
-          nix develop -c tofu -chdir=infra/terraform/gce-single init -backend=false -input=false
-          nix develop -c tofu -chdir=infra/terraform/gce-single validate
-          nix develop -c tofu -chdir=infra/terraform/gce-cluster init -backend=false -input=false
-          nix develop -c tofu -chdir=infra/terraform/gce-cluster validate
-          nix develop -c tofu -chdir=infra/terraform/gke-dev init -backend=false -input=false
-          nix develop -c tofu -chdir=infra/terraform/gke-dev validate
-          nix develop -c tofu -chdir=infra/terraform/github-actions init -backend=false -input=false
-          nix develop -c tofu -chdir=infra/terraform/github-actions validate
-          nix develop -c bash -lc 'kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev-support.yaml'
-          nix develop -c bash -lc 'helm repo add kestra https://helm.kestra.io/ >/dev/null 2>&1 || true'
-          nix develop -c bash -lc 'helm repo update kestra'
-          nix develop -c bash -lc 'helm template kestra kestra/kestra --version 1.0.54 --namespace kestra-dev --values k8s/helm/kestra-values.yaml >/tmp/kestra-gke-dev-helm.yaml'
-          nix develop -c bash -lc 'helm template kestra kestra/kestra --version 1.0.54 --namespace kestra-dev --values k8s/helm/kestra-values.yaml --values k8s/helm/kestra-controller-only-values.yaml >/tmp/kestra-gke-controller-only-helm.yaml'
+          mise run scripts:check
+          mise exec -- tofu fmt -check -recursive infra/terraform
+          mise exec -- kubectl version --client=true
+          mise exec -- tofu -chdir=infra/terraform/cloud-armor init -backend=false -input=false
+          mise exec -- tofu -chdir=infra/terraform/cloud-armor validate
+          mise exec -- tofu -chdir=infra/terraform/gce-single init -backend=false -input=false
+          mise exec -- tofu -chdir=infra/terraform/gce-single validate
+          mise exec -- tofu -chdir=infra/terraform/gce-cluster init -backend=false -input=false
+          mise exec -- tofu -chdir=infra/terraform/gce-cluster validate
+          mise exec -- tofu -chdir=infra/terraform/gke-dev init -backend=false -input=false
+          mise exec -- tofu -chdir=infra/terraform/gke-dev validate
+          mise exec -- tofu -chdir=infra/terraform/github-actions init -backend=false -input=false
+          mise exec -- tofu -chdir=infra/terraform/github-actions validate
+          mise exec -- bash -lc 'kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev-support.yaml'
+          mise exec -- bash -lc 'helm repo add kestra https://helm.kestra.io/ >/dev/null 2>&1 || true'
+          mise exec -- bash -lc 'helm repo update kestra'
+          mise exec -- bash -lc 'helm template kestra kestra/kestra --version 1.0.54 --namespace kestra-dev --values k8s/helm/kestra-values.yaml >/tmp/kestra-gke-dev-helm.yaml'
+          mise exec -- bash -lc 'helm template kestra kestra/kestra --version 1.0.54 --namespace kestra-dev --values k8s/helm/kestra-values.yaml --values k8s/helm/kestra-controller-only-values.yaml >/tmp/kestra-gke-controller-only-helm.yaml'
 
   build-image:
     name: Build Runtime Image
@@ -106,22 +106,22 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Install mise tools
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Configure Artifact Registry Docker auth
-        run: nix develop -c gcloud auth configure-docker asia-northeast1-docker.pkg.dev --quiet
+        run: mise exec -- gcloud auth configure-docker asia-northeast1-docker.pkg.dev --quiet
       - name: Build and push runtime image
         id: image
         run: |
           IMAGE="${IMAGE_REPOSITORY}:${GITHUB_SHA}"
           LATEST_IMAGE="${IMAGE_REPOSITORY}:latest"
 
-          nix develop -c docker build \
+          mise exec -- docker build \
             --build-arg "KESTRA_BASE_IMAGE=kestra/kestra:v1.3.15" \
             --build-arg "REVISION=${GITHUB_SHA}" \
             --build-arg "SOURCE_REPOSITORY=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
@@ -129,8 +129,8 @@ jobs:
             --tag "$IMAGE" \
             --tag "$LATEST_IMAGE" \
             .
-          nix develop -c docker push "$IMAGE"
-          nix develop -c docker push "$LATEST_IMAGE"
+          mise exec -- docker push "$IMAGE"
+          mise exec -- docker push "$LATEST_IMAGE"
           printf 'image=%s\n' "$IMAGE" >>"$GITHUB_OUTPUT"
 
   build-routed-image:
@@ -160,8 +160,8 @@ jobs:
           ref: ${{ env.KESTRA_SOURCE_REF }}
           path: kestra-source
           persist-credentials: false
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Install mise tools
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
       - name: Set up Java
         uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
         with:
@@ -206,7 +206,7 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Configure Artifact Registry Docker auth
-        run: nix develop -c gcloud auth configure-docker asia-northeast1-docker.pkg.dev --quiet
+        run: mise exec -- gcloud auth configure-docker asia-northeast1-docker.pkg.dev --quiet
       - name: Build and push routed image
         id: image
         working-directory: kestra-source
@@ -267,8 +267,8 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Install mise tools
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
@@ -277,9 +277,9 @@ jobs:
       - name: Apply live environments
         run: |
           if [ "$TARGET_ENVIRONMENT" = "routed" ]; then
-            nix develop -c scripts/deploy-routed-live.sh
+            mise exec -- scripts/deploy-routed-live.sh
           else
-            nix develop -c scripts/deploy-live-environments.sh "$TARGET_ENVIRONMENT"
+            mise exec -- scripts/deploy-live-environments.sh "$TARGET_ENVIRONMENT"
           fi
       - name: Register flows and check HTTPS
         env:
@@ -287,13 +287,13 @@ jobs:
           MODE: health
         run: |
           if [ "$TARGET_ENVIRONMENT" = "routed" ]; then
-            nix develop -c scripts/verify-live-routed.sh "$BUSINESS_DATE"
+            mise exec -- scripts/verify-live-routed.sh "$BUSINESS_DATE"
           else
-            nix develop -c scripts/verify-live-environments.sh "$TARGET_ENVIRONMENT" "$BUSINESS_DATE" "$MODE"
+            mise exec -- scripts/verify-live-environments.sh "$TARGET_ENVIRONMENT" "$BUSINESS_DATE" "$MODE"
           fi
       - name: Verify routed full-stack scale-to-zero
         if: ${{ inputs.target_environment == 'routed' }}
-        run: nix develop -c scripts/verify-live-gke-full-stack-scale-to-zero.sh
+        run: mise exec -- scripts/verify-live-gke-full-stack-scale-to-zero.sh
       - name: Run operation demo verification
         if: ${{ inputs.operation_demo != '' && inputs.operation_demo != 'none' }}
         env:
@@ -301,10 +301,10 @@ jobs:
         run: |
           case "$OPERATION_DEMO" in
             gke-pod-resources)
-              nix develop -c scripts/verify-live-operation-demo-gke-pod-resources.sh
+              mise exec -- scripts/verify-live-operation-demo-gke-pod-resources.sh
               ;;
             routed-workers)
-              nix develop -c scripts/verify-live-operation-demo-routed.sh "$BUSINESS_DATE"
+              mise exec -- scripts/verify-live-operation-demo-routed.sh "$BUSINESS_DATE"
               ;;
             *)
               echo "Unknown operation demo mode: $OPERATION_DEMO" >&2
@@ -331,15 +331,15 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Install mise tools
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Verify routed full-stack scale-to-zero
-        run: nix develop -c scripts/verify-live-gke-full-stack-scale-to-zero.sh
+        run: mise exec -- scripts/verify-live-gke-full-stack-scale-to-zero.sh
 
   diagnose-routed:
     name: Diagnose Routed Cold Start
@@ -359,15 +359,15 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Install mise tools
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Collect routed cold-start diagnostics
-        run: nix develop -c scripts/diagnose-live-gke-cold-start.sh
+        run: mise exec -- scripts/diagnose-live-gke-cold-start.sh
 
   refresh-routed:
     name: Refresh and Verify Routed Activator
@@ -388,17 +388,17 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Install mise tools
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Refresh routed activator
-        run: nix develop -c scripts/refresh-live-gke-activator.sh
+        run: mise exec -- scripts/refresh-live-gke-activator.sh
       - name: Verify routed full-stack scale-to-zero
-        run: nix develop -c scripts/verify-live-gke-full-stack-scale-to-zero.sh
+        run: mise exec -- scripts/verify-live-gke-full-stack-scale-to-zero.sh
 
   finalize-routed:
     name: Finalize Routed PostgreSQL Cutover
@@ -423,17 +423,17 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Install mise tools
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Back up PostgreSQL and remove the legacy Cloud SQL source
-        run: nix develop -c scripts/finalize-live-gke-postgres.sh
+        run: mise exec -- scripts/finalize-live-gke-postgres.sh
       - name: Verify routed full-stack scale-to-zero
-        run: nix develop -c scripts/verify-live-gke-full-stack-scale-to-zero.sh
+        run: mise exec -- scripts/verify-live-gke-full-stack-scale-to-zero.sh
 
   run-batch:
     name: Run Batch
@@ -458,8 +458,8 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Install mise tools
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
@@ -468,4 +468,4 @@ jobs:
       - name: Execute ecommerce batch
         env:
           MODE: run-batch
-        run: nix develop -c scripts/verify-live-environments.sh "$TARGET_ENVIRONMENT" "$BUSINESS_DATE" "$MODE"
+        run: mise exec -- scripts/verify-live-environments.sh "$TARGET_ENVIRONMENT" "$BUSINESS_DATE" "$MODE"

@@ -1,6 +1,7 @@
 import datetime
 import os
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -521,10 +522,10 @@ def test_activator_backend_keeps_cloud_armor_and_independent_health_check() -> N
 
 
 def test_full_stack_verifier_checks_two_wakes_and_persistent_data() -> None:
-    taskfile = _yaml_load("Taskfile.yml")
+    mise_config = _toml_load("mise.toml")
     script = _read_text("scripts/verify-live-gke-full-stack-scale-to-zero.sh")
 
-    assert "kestra:live:verify-gke-full-stack-scale-to-zero" in taskfile["tasks"]
+    assert "kestra:live:verify-gke-full-stack-scale-to-zero" in mise_config["tasks"]
     assert script.count("trigger_public_wake") == 3
     assert script.count("wait_for_warm") == 3
     assert "wait_for_zero" in script
@@ -599,10 +600,10 @@ def test_gke_terraform_supports_standard_autoscaled_worker_node_pools() -> None:
 
 
 def test_gke_node_routing_verifier_registers_and_checks_flow() -> None:
-    taskfile = _yaml_load("Taskfile.yml")
+    mise_config = _toml_load("mise.toml")
     script = _read_text("scripts/verify-live-gke-node-routing.sh")
 
-    assert "kestra:live:run-gke-node-routing" in taskfile["tasks"]
+    assert "kestra:live:run-gke-node-routing" in mise_config["tasks"]
     assert "verify_gke_node_worker_routing" in script
     assert "kestra/flows-worker-routing" in script
     assert "app.kubernetes.io/name=kestra-gke-routed-worker" in script
@@ -643,10 +644,10 @@ def test_k8s_pod_resource_flow_uses_distinct_pod_resources_without_node_pin() ->
 
 
 def test_k8s_pod_resource_verifier_registers_resource_flow() -> None:
-    taskfile = _yaml_load("Taskfile.yml")
+    mise_config = _toml_load("mise.toml")
     script = _read_text("scripts/verify-live-k8s-pod-resources.sh")
 
-    assert "kestra:live:run-k8s-pod-resources" in taskfile["tasks"]
+    assert "kestra:live:run-k8s-pod-resources" in mise_config["tasks"]
     assert "kestra/flows-k8s-pod-resources" in script
     assert 'FLOW_NAMESPACE="playground.k8s_pod_resources"' in script
     assert '-F "kubernetes_namespace=${NAMESPACE}"' in script
@@ -718,7 +719,7 @@ def test_operation_demo_uses_one_batch_source_with_environment_specific_flows() 
 
 
 def test_operation_demo_runtime_image_and_ci_entrypoints_are_configured() -> None:
-    taskfile = _yaml_load("Taskfile.yml")
+    mise_config = _toml_load("mise.toml")
     workflow = _yaml_load(".github/workflows/deploy.yml")
     apply_script = _read_text("scripts/apply-gke-dev.sh")
 
@@ -734,7 +735,7 @@ def test_operation_demo_runtime_image_and_ci_entrypoints_are_configured() -> Non
         "kestra:live:run-operation-demo-gke-pod-resources",
         "kestra:live:run-operation-demo-routed",
     ):
-        assert task_name in taskfile["tasks"]
+        assert task_name in mise_config["tasks"]
 
     operation_demo = workflow[True]["workflow_dispatch"]["inputs"]["operation_demo"]
     assert operation_demo["options"] == ["none", "gke-pod-resources", "routed-workers"]
@@ -905,14 +906,19 @@ def test_live_batch_verification_rejects_invalid_business_date_before_commands()
 
 
 def test_scripts_check_syntax_validates_each_shell_script() -> None:
-    taskfile = _yaml_load("Taskfile.yml")
-    scripts_check_commands = taskfile["tasks"]["scripts:check"]["cmds"]
+    mise_config = _toml_load("mise.toml")
+    scripts_check_commands = mise_config["tasks"]["scripts:check"]["run"]
 
-    assert "xargs -0 -n 1 bash -n" in scripts_check_commands[0]
+    assert "xargs -0 -n 1 bash -n" in scripts_check_commands
 
 
 def _read_text(path: str) -> str:
     return Path(path).read_text(encoding="utf-8").rstrip()
+
+
+def _toml_load(path: str) -> dict[str, Any]:
+    with Path(path).open("rb") as handle:
+        return tomllib.load(handle)
 
 
 def _flow_task_sql(path: str, task_id: str) -> str:

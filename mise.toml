@@ -1,0 +1,502 @@
+min_version = "2026.8.3"
+
+[[hooks.enter]]
+shell = "bash"
+script = '''
+if command -v kinko >/dev/null 2>&1 && kinko hook --help >/dev/null 2>&1; then
+  eval "$(kinko --path "$MISE_PROJECT_ROOT" hook enter bash)"
+fi
+'''
+
+[[hooks.leave]]
+shell = "bash"
+script = '''
+if command -v kinko >/dev/null 2>&1 && kinko hook --help >/dev/null 2>&1; then
+  eval "$(kinko hook leave bash)"
+fi
+'''
+
+[tools]
+python = "3.12"
+uv = "latest"
+java = "25"
+github-cli = "latest"
+gcloud = "latest"
+opentofu = "latest"
+kubectl = "latest"
+helm = "latest"
+kustomize = "latest"
+"github:theseus-rs/postgresql-binaries" = "16.14.0"
+jq = "latest"
+yq = "latest"
+shellcheck = "latest"
+"github:docker/compose" = "latest"
+gitleaks = "latest"
+pre-commit = "latest"
+
+[tasks."default"]
+description = "Show available tasks"
+run = '''
+mise tasks ls
+'''
+
+[tasks."sync"]
+description = "Sync project dependencies with uv"
+run = '''
+uv sync --dev
+'''
+
+[tasks."lock"]
+description = "Refresh uv.lock"
+run = '''
+uv lock
+'''
+
+[tasks."run"]
+description = "Run the application"
+run = '''
+uv run python -m kestra_playground
+'''
+
+[tasks."test"]
+description = "Run tests"
+run = '''
+uv run pytest
+'''
+
+[tasks."test-verbose"]
+description = "Run tests with verbose output"
+run = '''
+uv run pytest -vv
+'''
+
+[tasks."test-cov"]
+description = "Run tests with coverage"
+run = '''
+uv run pytest --cov=kestra_playground --cov-report=term-missing
+'''
+
+[tasks."lint"]
+description = "Run Ruff lint checks"
+run = '''
+uv run ruff check .
+'''
+
+[tasks."typecheck"]
+description = "Run ty type checks"
+run = '''
+uv run ty check .
+'''
+
+[tasks."fmt"]
+description = "Format code with Ruff"
+run = '''
+uv run ruff format .
+'''
+
+[tasks."fmt-check"]
+description = "Check formatting without modifying files"
+run = '''
+uv run ruff format --check .
+'''
+
+[tasks."build"]
+description = "Build the package"
+run = '''
+uv build
+'''
+
+[tasks."gitleaks"]
+description = "Scan staged changes for secrets before commit"
+run = '''
+gitleaks git --pre-commit --redact --staged --verbose
+'''
+
+[tasks."kestra:local:apple:start"]
+description = "Start local Kestra and PostgreSQL with Apple container"
+run = '''
+local/apple-container/start.sh
+'''
+
+[tasks."kestra:local:apple:stop"]
+description = "Stop local Apple container Kestra services"
+run = '''
+local/apple-container/stop.sh
+'''
+
+[tasks."kestra:local:docker:start"]
+description = "Start local Kestra and PostgreSQL with Docker Compose fallback"
+run = '''
+local/docker/start.sh
+'''
+
+[tasks."kestra:local:docker:stop"]
+description = "Stop local Docker Compose Kestra services"
+run = '''
+local/docker/stop.sh
+'''
+
+[tasks."kestra:flows:register"]
+description = "Register local EC Kestra flows against KESTRA_URL or localhost"
+run = '''
+env_file="${KESTRA_ENV_FILE:-}"
+if [ -z "$env_file" ]; then
+  if [ -f batch-groups/ec/config/envs/local.env ]; then
+    env_file=batch-groups/ec/config/envs/local.env
+  else
+    env_file=batch-groups/ec/config/envs/local.env.example
+  fi
+fi
+set -a
+. "$env_file"
+set +a
+KESTRA_ENV_FILE="$env_file" scripts/register-flows.sh "${KESTRA_URL:-http://localhost:8080}" batch-groups/ec/flows
+
+'''
+
+[tasks."kestra:affiliate:flows:register"]
+description = "Register local affiliate flows against AFFILIATE_KESTRA_URL, its group env, or localhost"
+run = '''
+env_file="${KESTRA_ENV_FILE:-}"
+if [ -z "$env_file" ]; then
+  if [ -f batch-groups/affiliate/config/envs/local.env ]; then
+    env_file=batch-groups/affiliate/config/envs/local.env
+  else
+    env_file=batch-groups/affiliate/config/envs/local.env.example
+  fi
+fi
+set -a
+. "$env_file"
+set +a
+KESTRA_ENV_FILE="$env_file" scripts/register-flows.sh "${AFFILIATE_KESTRA_URL:-${KESTRA_URL:-http://localhost:8082}}" batch-groups/affiliate/flows
+
+'''
+
+[tasks."kestra:affiliate:flows:generate"]
+description = "Execute the affiliate mock data generator flow"
+run = '''
+env_file="${KESTRA_ENV_FILE:-}"
+if [ -z "$env_file" ]; then
+  if [ -f batch-groups/affiliate/config/envs/local.env ]; then
+    env_file=batch-groups/affiliate/config/envs/local.env
+  else
+    env_file=batch-groups/affiliate/config/envs/local.env.example
+  fi
+fi
+set -a
+. "$env_file"
+set +a
+NAMESPACE=playground.affiliate KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh generate_affiliate_mock_data "${BUSINESS_DATE:-}" "${AFFILIATE_KESTRA_URL:-${KESTRA_URL:-http://localhost:8082}}"
+
+'''
+
+[tasks."kestra:affiliate:flows:report"]
+description = "Execute the affiliate daily report flow"
+run = '''
+env_file="${KESTRA_ENV_FILE:-}"
+if [ -z "$env_file" ]; then
+  if [ -f batch-groups/affiliate/config/envs/local.env ]; then
+    env_file=batch-groups/affiliate/config/envs/local.env
+  else
+    env_file=batch-groups/affiliate/config/envs/local.env.example
+  fi
+fi
+set -a
+. "$env_file"
+set +a
+NAMESPACE=playground.affiliate KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_affiliate_daily_report "${BUSINESS_DATE:-}" "${AFFILIATE_KESTRA_URL:-${KESTRA_URL:-http://localhost:8082}}"
+
+'''
+
+[tasks."kestra:affiliate:flows:rankings"]
+description = "Execute the affiliate partner rankings flow"
+run = '''
+env_file="${KESTRA_ENV_FILE:-}"
+if [ -z "$env_file" ]; then
+  if [ -f batch-groups/affiliate/config/envs/local.env ]; then
+    env_file=batch-groups/affiliate/config/envs/local.env
+  else
+    env_file=batch-groups/affiliate/config/envs/local.env.example
+  fi
+fi
+set -a
+. "$env_file"
+set +a
+NAMESPACE=playground.affiliate KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_affiliate_partner_rankings "${BUSINESS_DATE:-}" "${AFFILIATE_KESTRA_URL:-${KESTRA_URL:-http://localhost:8082}}"
+
+'''
+
+[tasks."kestra:flows:generate"]
+description = "Execute the ecommerce mock data generator flow"
+run = '''
+env_file="${KESTRA_ENV_FILE:-}"
+if [ -z "$env_file" ]; then
+  if [ -f batch-groups/ec/config/envs/local.env ]; then
+    env_file=batch-groups/ec/config/envs/local.env
+  else
+    env_file=batch-groups/ec/config/envs/local.env.example
+  fi
+fi
+set -a
+. "$env_file"
+set +a
+KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh generate_ecommerce_mock_data "${BUSINESS_DATE:-}" "${KESTRA_URL:-http://localhost:8080}"
+
+'''
+
+[tasks."kestra:flows:report"]
+description = "Execute the ecommerce daily report flow"
+run = '''
+env_file="${KESTRA_ENV_FILE:-}"
+if [ -z "$env_file" ]; then
+  if [ -f batch-groups/ec/config/envs/local.env ]; then
+    env_file=batch-groups/ec/config/envs/local.env
+  else
+    env_file=batch-groups/ec/config/envs/local.env.example
+  fi
+fi
+set -a
+. "$env_file"
+set +a
+KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_ecommerce_daily_report "${BUSINESS_DATE:-}" "${KESTRA_URL:-http://localhost:8080}"
+
+'''
+
+[tasks."kestra:flows:segments"]
+description = "Execute the ecommerce customer segments flow"
+run = '''
+env_file="${KESTRA_ENV_FILE:-}"
+if [ -z "$env_file" ]; then
+  if [ -f batch-groups/ec/config/envs/local.env ]; then
+    env_file=batch-groups/ec/config/envs/local.env
+  else
+    env_file=batch-groups/ec/config/envs/local.env.example
+  fi
+fi
+set -a
+. "$env_file"
+set +a
+KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_ecommerce_customer_segments "${BUSINESS_DATE:-}" "${KESTRA_URL:-http://localhost:8080}"
+
+'''
+
+[tasks."kestra:flows:run-federated-local"]
+description = "Register server namespaces and run the OSS federated ecommerce batch locally"
+run = '''
+scripts/verify-local-federated.sh "${BUSINESS_DATE:-}"
+'''
+
+[tasks."kestra:flows:run-operation-demo-local"]
+description = "Unit-check the shared operation demo batch source and run its local Kestra flow"
+run = '''
+scripts/verify-local-operation-demo.sh "${BUSINESS_DATE:-}"
+'''
+
+[tasks."kestra:flows:run-remote-batch-examples"]
+description = "Run two Python batches on the local SSH worker and verify Kestra failure propagation"
+run = '''
+scripts/verify-local-remote-batch.sh "${BUSINESS_DATE:-}"
+'''
+
+[tasks."kestra:flows:run-batch-group-broadcast-local"]
+description = "Run the broadcast batch on two local workers using a built tacogips/kestra fork"
+run = '''
+scripts/verify-local-batch-group-broadcast.sh "${BUSINESS_DATE:-}"
+'''
+
+[tasks."kestra:flows:audit-federated-topology"]
+description = "Audit the OSS federated topology for GKE controller-only and two sticky GCE workers"
+run = '''
+scripts/audit-federated-topology.sh
+'''
+
+[tasks."kestra:batch-groups:deploy:ec"]
+description = "Register EC batch group flows against a target Kestra (local by default)"
+run = '''
+scripts/deploy-batch-group.sh ec "${KESTRA_DEPLOY_URL:-}"
+'''
+
+[tasks."kestra:batch-groups:deploy:affiliate"]
+description = "Register affiliate batch group flows against a target Kestra (local by default)"
+run = '''
+scripts/deploy-batch-group.sh affiliate "${KESTRA_DEPLOY_URL:-}"
+'''
+
+[tasks."kestra:live:deploy"]
+description = "Deploy live GCP environments from kinko-backed generated tfvars"
+run = '''
+scripts/deploy-live-environments.sh "${TARGET_ENVIRONMENT:-all}"
+'''
+
+[tasks."kestra:live:deploy:federated"]
+description = "Deploy the OSS federated live topology with GCE child Kestra and GKE controller/child Kestra"
+run = '''
+scripts/deploy-federated-live.sh
+'''
+
+[tasks."kestra:live:deploy:routed"]
+description = "Deploy the OSS shared-backend routed live topology with GKE control plane and GCE workers"
+run = '''
+scripts/deploy-routed-live.sh
+'''
+
+[tasks."kestra:live:verify"]
+description = "Register flows and verify live HTTPS endpoints without running the batch"
+run = '''
+scripts/verify-live-environments.sh "${TARGET_ENVIRONMENT:-all}" "${BUSINESS_DATE:-}" health
+'''
+
+[tasks."kestra:live:run-batch"]
+description = "Register flows and run the ecommerce batch against live environments"
+run = '''
+scripts/verify-live-environments.sh "${TARGET_ENVIRONMENT:-all}" "${BUSINESS_DATE:-}" run-batch
+'''
+
+[tasks."kestra:live:run-federated"]
+description = "Register child/controller flows and run the OSS federated ecommerce batch"
+run = '''
+scripts/verify-live-federated.sh "${BUSINESS_DATE:-}"
+'''
+
+[tasks."kestra:live:run-routed"]
+description = "Register and run the OSS shared-backend worker routing verification flow"
+run = '''
+scripts/verify-live-routed.sh "${BUSINESS_DATE:-}"
+'''
+
+[tasks."kestra:live:run-batch-group-broadcast"]
+description = "Run one routed batch on every worker in a shared batch group"
+run = '''
+scripts/verify-live-batch-group-broadcast.sh "${BUSINESS_DATE:-}"
+'''
+
+[tasks."kestra:live:verify-gke-full-stack-scale-to-zero"]
+description = "Verify public wake-up, ordered idle parking, and PostgreSQL PVC persistence"
+run = '''
+scripts/verify-live-gke-full-stack-scale-to-zero.sh
+'''
+
+[tasks."kestra:live:run-gke-node-routing"]
+description = "Register and run the OSS GKE placement-constrained worker routing verification flow"
+run = '''
+scripts/verify-live-gke-node-routing.sh "${BUSINESS_DATE:-}"
+'''
+
+[tasks."kestra:live:run-k8s-pod-resources"]
+description = "Register and run the OSS K8s per-batch pod resource verification flow"
+run = '''
+scripts/verify-live-k8s-pod-resources.sh
+'''
+
+[tasks."kestra:live:run-operation-demo-gke-pod-resources"]
+description = "Run the shared operation demo batch source in GKE PodCreate pods with different resources"
+run = '''
+scripts/verify-live-operation-demo-gke-pod-resources.sh
+'''
+
+[tasks."kestra:live:run-operation-demo-routed"]
+description = "Run the shared operation demo batch source on selected routed GCE/on-prem-style workers"
+run = '''
+scripts/verify-live-operation-demo-routed.sh "${BUSINESS_DATE:-}"
+'''
+
+[tasks."kestra:live:run-remote-batch-routed"]
+description = "Run Namespace File Python batches on scale-from-zero GKE routed workers"
+run = '''
+scripts/verify-live-remote-batch-routed.sh "${BUSINESS_DATE:-}"
+'''
+
+[tasks."infra:fmt"]
+description = "Format Terraform/OpenTofu files"
+run = '''
+tofu fmt -recursive infra/terraform
+'''
+
+[tasks."scripts:check"]
+description = "Run syntax and ShellCheck validation for repository shell scripts"
+run = '''
+{
+  git ls-files -z -- '*.sh'
+  git ls-files -z --others --exclude-standard -- '*.sh'
+} | xargs -0 -n 1 bash -n
+
+{
+  git ls-files -z -- '*.sh'
+  git ls-files -z --others --exclude-standard -- '*.sh'
+} | xargs -0 shellcheck -x
+
+'''
+
+[tasks."k8s:build:dev"]
+description = "Render the dev Kustomize overlay"
+run = '''
+kustomize build k8s/overlays/dev
+'''
+
+[tasks."k8s:apply:dev"]
+description = "Apply the dev GKE overlay using Terraform outputs for live secrets"
+run = '''
+scripts/apply-gke-dev.sh
+'''
+
+[tasks."webconsole:install"]
+description = "Install web console dependencies with bun"
+dir = "webconsole"
+run = '''
+bun install
+'''
+
+[tasks."webconsole:build"]
+description = "Build the web console frontend"
+dir = "webconsole"
+run = '''
+bun run build
+'''
+
+[tasks."webconsole:typecheck"]
+description = "Typecheck the web console TypeScript sources"
+dir = "webconsole"
+run = '''
+bunx tsc --noEmit
+'''
+
+[tasks."webconsole:serve"]
+description = "Run the web console server locally (uses webconsole/.env or exported vars)"
+dir = "webconsole"
+run = '''
+bun run serve
+'''
+
+[tasks."webconsole:secrets"]
+description = "Register web console runtime values in Secret Manager (values from env/kinko)"
+run = '''
+scripts/setup-webconsole-secrets.sh
+'''
+
+[tasks."webconsole:deploy"]
+description = "Deploy the web console to Cloud Run"
+run = '''
+scripts/deploy-webconsole.sh
+'''
+
+[tasks."install-git-hooks"]
+description = "Install the mise-managed pre-commit hook configuration"
+run = '''
+pre-commit install --install-hooks
+'''
+
+[tasks."clean"]
+description = "Remove generated artifacts"
+run = '''
+rm -rf build dist htmlcov .coverage .pytest_cache .ruff_cache src/*.egg-info
+'''
+
+[tasks."ci"]
+description = "Run the standard CI checks"
+run = '''
+mise run fmt-check
+mise run lint
+mise run typecheck
+mise run test
+mise run build
+'''

@@ -4,12 +4,12 @@
     "path": "python-v1",
     "ref": "main"
   },
-  "hash": "143d2577230fb79ef604e82f3bb4b2aabd1b1dea7309c831b6ed911bd1969a50",
+  "hash": "37fba7df7cb3cf56c5ff08aed3b255c61882130100cd1a406db22e13e16aec4c",
   "metadata": {
-    "generated_at": "2026-06-25T16:34:24.753731+09:00",
-    "generated_by": "ign checkout",
+    "generated_at": "2026-08-10T20:09:47.681212+09:00",
+    "generated_by": "ign update",
     "template_name": "python-v1",
     "template_version": "1.0.0",
-    "ign_version": "0.1.17"
+    "ign_version": "0.1.20"
   }
 }

@@ -20,7 +20,7 @@ fi
 
 echo "Waiting for Kestra at ${KESTRA_URL}"
 for _ in {1..60}; do
-  if curl "${CURL_AUTH[@]}" --silent --fail "${KESTRA_URL%/}/" >/dev/null 2>&1; then
+  if curl ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} --silent --fail "${KESTRA_URL%/}/" >/dev/null 2>&1; then
     break
   fi
   sleep 2
@@ -44,7 +44,7 @@ post_flow() {
   local status
 
   status="$(
-    curl "${CURL_AUTH[@]}" --silent --show-error \
+    curl ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} --silent --show-error \
       -o "${response_file}" \
       -w "%{http_code}" \
       -X POST \
@@ -68,7 +68,7 @@ put_flow() {
   local status
 
   status="$(
-    curl "${CURL_AUTH[@]}" --silent --show-error \
+    curl ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} --silent --show-error \
       -o "${response_file}" \
       -w "%{http_code}" \
       -X PUT \

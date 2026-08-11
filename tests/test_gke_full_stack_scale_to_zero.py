@@ -71,7 +71,7 @@ def test_routed_deployment_runs_full_stack_live_verification() -> None:
     )
 
     assert verifier["if"] == "${{ inputs.target_environment == 'routed' }}"
-    assert verifier["run"] == "nix develop -c scripts/verify-live-gke-full-stack-scale-to-zero.sh"
+    assert verifier["run"] == "mise exec -- scripts/verify-live-gke-full-stack-scale-to-zero.sh"
 
 
 def test_live_verifier_uses_observed_readiness_and_reports_http_diagnostics() -> None:

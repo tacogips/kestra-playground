@@ -40,7 +40,7 @@ submit_flow() {
     form_args+=(-F "${item}")
   done
 
-  curl "${CURL_AUTH[@]}" --fail --silent --show-error \
+  curl ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} --fail --silent --show-error \
     -X POST \
     "${form_args[@]}" \
     "${KESTRA_URL%/}/api/v1/main/executions/${NAMESPACE}/${flow_id}"
@@ -55,7 +55,7 @@ wait_for_execution() {
 
   for _ in {1..90}; do
     execution_json="$(
-      curl "${CURL_AUTH[@]}" --fail --silent --show-error \
+      curl ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} --fail --silent --show-error \
         "${KESTRA_URL%/}/api/v1/main/executions/${execution_id}"
     )"
     state="$(jq -r '.state.current // empty' <<<"${execution_json}")"
@@ -100,7 +100,7 @@ fetch_child_execution() {
     jq -er '.taskRunList[] | select(.taskId == "run_remote_batch") | .outputs.executionId' \
       "${parent_file}"
   )"
-  curl "${CURL_AUTH[@]}" --fail --silent --show-error \
+  curl ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} --fail --silent --show-error \
     "${KESTRA_URL%/}/api/v1/main/executions/${child_execution_id}" >"${child_file}"
   printf '%s' "${child_execution_id}"
 }
@@ -109,7 +109,7 @@ fetch_execution_logs() {
   local execution_id="$1"
   local destination="$2"
 
-  curl "${CURL_AUTH[@]}" --fail --silent --show-error \
+  curl ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} --fail --silent --show-error \
     "${KESTRA_URL%/}/api/v1/main/logs/${execution_id}" \
     | jq '(if type == "array" then . else (.results // []) end)' >"${destination}"
 }

@@ -70,7 +70,7 @@ wait_for_execution() {
 
   for _ in {1..120}; do
     execution_json="$(
-      curl "${CURL_AUTH[@]}" --fail --silent --show-error "${status_url}"
+      curl ${CURL_AUTH[@]+"${CURL_AUTH[@]}"} --fail --silent --show-error "${status_url}"
     )"
     state="$(jq -r '.state.current // empty' <<<"${execution_json}")"
 
