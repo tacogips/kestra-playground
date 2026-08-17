@@ -7,7 +7,6 @@
     ".agents/skills/python-coding-standards/SKILL.md",
     ".agents/skills/python-coding-standards/agents/openai.yaml",
     ".gitignore",
-    ".pre-commit-config.yaml",
     "AGENTS.md",
     "CLAUDE.md",
     "README.md",

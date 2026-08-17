@@ -31,8 +31,6 @@ jq = "latest"
 yq = "latest"
 shellcheck = "latest"
 "github:docker/compose" = "latest"
-gitleaks = "latest"
-pre-commit = "latest"
 
 [tasks."default"]
 description = "Show available tasks"
@@ -104,12 +102,6 @@ uv run ruff format --check .
 description = "Build the package"
 run = '''
 uv build
-'''
-
-[tasks."gitleaks"]
-description = "Scan staged changes for secrets before commit"
-run = '''
-gitleaks git --pre-commit --redact --staged --verbose
 '''
 
 [tasks."kestra:local:apple:start"]
@@ -477,12 +469,6 @@ scripts/setup-webconsole-secrets.sh
 description = "Deploy the web console to Cloud Run"
 run = '''
 scripts/deploy-webconsole.sh
-'''
-
-[tasks."install-git-hooks"]
-description = "Install the mise-managed pre-commit hook configuration"
-run = '''
-pre-commit install --install-hooks
 '''
 
 [tasks."clean"]
