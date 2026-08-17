@@ -1,5 +1,6 @@
 {
   "files": [
+    ".pre-commit-config.yaml",
     ".agents/skills/design-doc/SKILL.md",
     ".agents/skills/design-doc/agents/openai.yaml",
     ".agents/skills/impl-plan/SKILL.md",
