@@ -75,6 +75,17 @@ services:
       timeout: 3s
       retries: 12
 
+  remote-worker-b:
+    build:
+      context: ./remote-worker
+    env_file:
+      - ../../batch-groups/ec/config/envs/local.env
+    healthcheck:
+      test: ["CMD-SHELL", "ssh-keyscan -4 -T 2 127.0.0.1 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
 volumes:
   postgres-data:
   kestra-ec-data:

@@ -1,0 +1,42 @@
+id: parse_application_logs_multi_target
+namespace: playground.remote_batch
+description: Run the same application-log batch on multiple SSH targets with isolated retries.
+
+labels:
+  pattern: remote-python-batch
+  example: multi-target-log-parse
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+
+  - id: targets
+    type: JSON
+    required: true
+
+  - id: log_path
+    type: STRING
+    defaults: /opt/batch-inputs/application.jsonl
+
+tasks:
+  - id: run_remote_batch_targets
+    type: io.kestra.plugin.core.flow.Subflow
+    namespace: playground.remote_batch
+    flowId: multi_target_remote_batch_runner
+    wait: true
+    transmitFailed: true
+    inputs:
+      targets: "{{ inputs.targets }}"
+      script_name: batches/log_parse/parse_logs.py
+      config_json: >-
+        {"input_path":"{{ inputs.log_path }}","business_date":"{{ inputs.business_date }}"}
+      output_file: "log-summary-{{ inputs.business_date }}.json"
+
+outputs:
+  - id: target_executions
+    type: JSON
+    value: >-
+      {{ outputs.run_remote_batch_targets.outputs is defined ?
+      outputs.run_remote_batch_targets.outputs.target_executions : '{}' }}

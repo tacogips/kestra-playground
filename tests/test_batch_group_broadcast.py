@@ -69,4 +69,4 @@ def test_routed_image_uses_the_merged_broadcast_revision() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8"))
     routed_env = workflow["jobs"]["build-routed-image"]["env"]
 
-    assert routed_env["KESTRA_SOURCE_REF"] == "bf0e3240580448a80c4fc4850883d88c50e484a7"
+    assert routed_env["KESTRA_SOURCE_REF"] == "6f6012b5e0d8f302b894d465672d8dda5222515f"

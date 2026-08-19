@@ -292,6 +292,18 @@ run = '''
 scripts/verify-local-remote-batch.sh "${BUSINESS_DATE:-}"
 '''
 
+[tasks."kestra:flows:run-remote-batch-multi-target"]
+description = "Run one SSH batch on two workers and verify isolated target retry"
+run = '''
+scripts/verify-local-remote-batch-multi-target.sh "${BUSINESS_DATE:-}"
+'''
+
+[tasks."kestra:local:build-latest-fork"]
+description = "Build the current tacogips/kestra main revision with the SSH/SFTP plugin"
+run = '''
+scripts/build-latest-tacogips-kestra.sh
+'''
+
 [tasks."kestra:flows:run-batch-group-broadcast-local"]
 description = "Run the broadcast batch on two local workers using a built tacogips/kestra fork"
 run = '''
@@ -398,6 +410,18 @@ scripts/verify-live-operation-demo-routed.sh "${BUSINESS_DATE:-}"
 description = "Run Namespace File Python batches on scale-from-zero GKE routed workers"
 run = '''
 scripts/verify-live-remote-batch-routed.sh "${BUSINESS_DATE:-}"
+'''
+
+[tasks."kestra:live:remote-batch-ssh-targets"]
+description = "Provision or start two GCP SSH batch target servers"
+run = '''
+scripts/provision-live-remote-batch-targets.sh "${REMOTE_BATCH_TARGET_ACTION:-up}"
+'''
+
+[tasks."kestra:live:run-remote-batch-ssh"]
+description = "Run and retry one SSH batch across two GCP target servers"
+run = '''
+scripts/verify-live-remote-batch-ssh.sh "${BUSINESS_DATE:-}"
 '''
 
 [tasks."infra:fmt"]
