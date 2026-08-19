@@ -31,6 +31,10 @@ This directory contains reference materials for system design and implementation
 | Kestra Script Input And Output Files | https://kestra.io/docs/scripts/input-output-files | Official guidance for localizing task inputs and persisting generated artifacts in internal storage |
 | Kestra Execution FILE Inputs | https://kestra.io/docs/workflow-components/execution#execute-a-flow-with-file-type-inputs | Official multipart FILE input contract; uploaded files become internal-storage objects available to tasks |
 | Kestra Subflows | https://kestra.io/docs/workflow-components/subflows | Official reusable-flow composition and parent/child execution guidance |
+| Kestra Loop | https://kestra.io/plugins/core/flow/io.kestra.plugin.core.flow.loop | Kestra 2.0 bounded-concurrency fan-out task using `item.value` iteration context |
+| Kestra Retries | https://kestra.io/docs/workflow-components/retries | Official task-level retry strategies, attempts, duration, restart, and replay semantics |
+| Kestra Dynamic Outputs | https://kestra.io/docs/workflow-components/outputs | Official dynamic task and flow output guidance |
+| tacogips/kestra verified revision | https://github.com/tacogips/kestra/commit/6f6012b5e0d8f302b894d465672d8dda5222515f | Latest `main` revision resolved and built for the 2026-08-17 workerless GCE retry verification |
 | Kestra Script Outputs And Metrics | https://kestra.io/docs/scripts/outputs-metrics | Official structured stdout marker format for variables and metrics |
 | Kestra Flow Outputs | https://kestra.io/docs/workflow-components/outputs | Official typed flow outputs, Subflow output access, and conditional output guidance |
 | Kestra Secrets | https://kestra.io/docs/concepts/secret | Official OSS `SECRET_` environment convention and `secret()` lookup guidance |
@@ -54,6 +58,26 @@ This directory contains reference materials for system design and implementation
 | Cloud SQL Start and Stop | https://docs.cloud.google.com/sql/docs/postgres/start-stop-restart-instance | Official Cloud SQL PostgreSQL start, stop, and restart guidance |
 | Apple container command reference | https://github.com/apple/container/blob/main/docs/command-reference.md | Apple container CLI command, network, and volume reference |
 | pytest Documentation | https://docs.pytest.org/ | Python testing framework documentation |
+| GitHub Actions Matrix Strategy | https://docs.github.com/en/actions/using-jobs/using-a-matrix-for-your-jobs | Official job matrix, dynamic `fromJSON` matrices, and `fail-fast` behavior |
+| GitHub Actions Concurrency | https://docs.github.com/en/actions/using-jobs/using-concurrency | Official concurrency group and queueing semantics used for per-batch-group deploy isolation |
+| GitHub Actions Environments | https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment | Official deployment environment, required reviewer, and environment secret guidance |
+| GitHub Actions Security Hardening | https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions | Official guidance on action SHA pinning, minimal permissions, and untrusted-input handling |
+| GitHub CODEOWNERS | https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners | Official per-directory ownership and required-review configuration |
+| GitHub Tag Rulesets | https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets | Official ruleset guidance for restricting who may push tags matching a pattern |
+| Kestra Namespaces | https://kestra.io/docs/concepts/namespace | Official hierarchical namespace, namespace-scoped secrets, KV, and plugin defaults guidance |
+| Kestra Flow API | https://kestra.io/docs/api-reference/open-source | Official flow API reference including namespace-scoped bulk update and validation endpoints |
+| GitFlow original post and 2020 reflection | https://nvie.com/posts/a-successful-git-branching-model/ | Vincent Driessen's 2010 git-flow model plus his 2020-03-05 note scoping it to versioned software and recommending GitHub flow for continuous delivery |
+| DORA Trunk-Based Development | https://dora.dev/devops-capabilities/technical/trunk-based-development/ | DORA research capability page; elite performers 3.1x more likely to practice trunk-based development, fewer than three active branches, daily merges, no code freezes |
+| Trunk Based Development: Branch For Release | https://trunkbaseddevelopment.com/branch-for-release/ | Canonical guidance that release branches are cut late and only on incompatible policy, and that fixes flow trunk to branch by cherry-pick, never branch to trunk |
+| release-please | https://github.com/googleapis/release-please | Google tool generating per-component versions, changelogs, and tags from Conventional Commits; manifest mode with monorepo tags |
+| release-please Manifest Releaser | https://github.com/googleapis/release-please/blob/main/docs/manifest-releaser.md | Manifest-driven configuration for independently released components in one repository |
+| Monorepo With Independent Release Cycles | https://devblogs.microsoft.com/ise/streamlining-development-through-monorepo-with-independent-release-cycles/ | Microsoft ISE case study: per-project directories, manifest release-please, per-project deploy workflows keyed off per-component release outputs |
+| Kestra deploy-action | https://github.com/kestra-io/deploy-action | Official deploy action; namespace, directory, resource, and server inputs, one namespace per call, `delete` defaulting to true |
+| Kestra validate-action | https://github.com/kestra-io/validate-action | Official action for validating flows and namespace files before deployment |
+| Martin Fowler: Feature Toggles | https://martinfowler.com/articles/feature-toggles.html | Canonical feature-flag taxonomy by lifetime and ownership, and the basis for decoupling deployment from release |
+| Kargo Continuous Promotion | https://akuity.io/blog/how-kargo-fixes-gitops-with-promotion | GitOps promotion as a layer distinct from deployment, with immutable artifact snapshots promoted between stages |
+| Nx Affected | https://nx.dev/ci/features/affected | Dependency-graph-based computation of which projects a change affects, the graph-based alternative to path filters |
+| Kestra CI/CD | https://kestra.io/docs/version-control-cicd/cicd | Official guidance for deploying flows from a Git repository through CI, including namespace-scoped deployment |
 
 ## Reference Documents
 

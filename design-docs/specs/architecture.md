@@ -353,6 +353,16 @@ copies it through SFTP, executes it through SSH, downloads one artifact, and cle
 directory. That machine must run an SSH server with SFTP plus Python, but does not join the Kestra
 worker queue.
 
+`multi_target_remote_batch_runner` adds a bounded orchestration layer above that single-target
+adapter. The latest `tacogips/kestra` 2.0 `Loop` creates one child execution per target. The business
+contract is split into `validate_input`, `execute_batch`, and `validate_output` SSH tasks between
+source staging and artifact collection. Each task owns a granular retry, so an execute failure
+preserves completed preparation, staging, and input validation and retries only execute. The direct
+Subflow retains a final target-level retry boundary for exhausted or orchestration-level failures.
+Successful targets retain one child execution and are not replayed. GCE targets run only
+OpenSSH/SFTP and Python; verification rejects a Kestra binary, server process, or container on those
+machines.
+
 For the GKE scale-from-zero/on-prem simulation, `routed_batch_runner` routes one Process task with
 `workerSelector.tags`, localizes a controller-stored FILE bundle through `inputFiles`, invokes Python
 through `uv`, and persists `outputFiles` to internal storage. The routed worker does not expose
@@ -398,6 +408,32 @@ local/staging and production workflows diverge too much.
 
 For the Enterprise routing mechanism, component communication model, and authentication boundaries,
 see `design-docs/specs/design-kestra-enterprise-worker-group-mechanism.md`.
+
+### Per-Category Batch Group CI/CD
+
+When one EC site's batches are split by category (food, electronics, and so on) with a different
+development team owning each category, a single repository can still release one category at a time.
+The boundary is one directory equals one Kestra namespace equals one deploy job equals one owning
+team, with a `group.yaml` manifest per deploy unit driving a change-detection matrix in GitHub
+Actions.
+
+The design separates two layers. The git strategy is platform-neutral and trunk-based: one `main`,
+short-lived per-category branches, per-category release tags, and no long-lived branch per category,
+because a branch is repository-wide while the release unit is a directory. A separate enforcement
+mapping binds each git-level rule to the GitHub mechanism that makes it mechanical rather than
+conventional (`CODEOWNERS`, branch protection, tag rulesets, Environments, deployment records).
+Release scope is derived from the trigger, not selected at run time. A push to `main` deploys the
+changed groups to staging, which is the only post-merge environment and always reflects the tip of
+`main`; production is triggered by a per-category git tag (`<group-id>/v*`) that names exactly one
+group at one immutable ref, does not use change detection, and must pass a staged-content gate.
+Environments are kept distinct by what ref they receive and what substrate they run, not by name, so
+pre-merge iteration uses the local Kestra runtimes rather than a second deployed copy of staging.
+Flow deployment uses the official Kestra deploy action, which takes one namespace per invocation and
+removes server-side flows absent from the directory by default, and CI rejects any flow whose
+namespace falls outside its group's prefix, so a food release is structurally unable to affect
+electronics.
+
+The detailed design is in `design-docs/specs/design-per-category-batch-group-cicd.md`.
 
 ### Operational Boundaries
 

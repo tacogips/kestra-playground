@@ -154,6 +154,29 @@ Notable items that do not fit into architecture or client categories.
   `5SiYk5YQ3h5usHNaY3Wm69` / `3E4No3T5vnjjiwZSSl4bPQ` proved failure propagation and verified
   error cleanup. After every case, a direct destination-container scan found no execution
   directory below `/home/batch/kestra-runs`.
+- Multi-target SSH fan-out and failed-step retry were reverified on 2026-08-17 with the then-current
+  `tacogips/kestra` `main` revision `6f6012b5e0d8f302b894d465672d8dda5222515f`, reported by the
+  runtime as `2.0.0-SNAPSHOT`. Local baseline `3raectlQzoNjERiZibLzFu` gave A and B one execute
+  attempt each; local fault execution `79SWnUIO4RB0jup860UFP9` kept A at one and recorded failed
+  plus successful execute attempts only on B. Live GCP baseline `4mt1mU5SOQhCYWgRa41jsv` gave both
+  targets one execute attempt; live fault execution `20xWDrLr7mN31DYUBsDSc7` kept GCP A at one and
+  recorded the execute retry only on GCP B. Each target retained one child execution and one
+  prepare/stage attempt, every artifact had a SHA-256 checksum, workspaces were empty, and direct
+  scans found no Kestra binary, server process, or container on either GCE target.
+- The same fork revision replaces `ForEach` with the Kestra 2.0 `Loop` task and `item.value`
+  context. Loop iterations are stored as internal sub-executions, so verification resolves children
+  by `system.correlationId` plus `target_id` instead of relying on 1.3 nested task outputs. Its UI
+  `package.json` and committed lockfile were out of sync for `@vueuse`; the repeatable build task
+  falls back from `npm ci` to `npm install` inside an isolated temporary checkout and labels the
+  resulting image with the resolved source SHA.
+- The SSH batch business lifecycle was split into `validate_input`, `execute_batch`, and
+  `validate_output` tasks and reverified on 2026-08-18. Local baseline
+  `LzrjTbLWQ7cAiRNGd8y0H` had `1/1/1` attempt records for both targets; local fault execution
+  `7OGX6eZNlQ17VqzQsMAjLy` kept A at `1/1/1` and recorded B at `1/3/1`. Live GCP baseline
+  `2PZav3nG5psPq8bWeQmp70` and fault execution `7YfUJH9kLuJziKP0zMlg0k` produced the same result.
+  The live verifier also proved no target Kestra runtime, valid artifact checksums, and empty remote
+  workspace roots. After success, `kestra-remote-batch-a` and `kestra-remote-batch-b` were stopped
+  and verified `TERMINATED`; their reserved external addresses still exist.
 - The remote batch routed adapter was verified live against the full-parking
   `fix/gke-scale-to-zero` GKE topology on 2026-07-13. Export parent/runner executions
   `5j7sL3tbIDEc3bmqDdZbir` / `2xVMqy5OqujuXAUEFUEKDm` ran on `gke-small`; parse executions
@@ -173,3 +196,20 @@ Notable items that do not fit into architecture or client categories.
 - In full control-plane parking mode, a terminating webserver can briefly answer the activator root
   before the replacement JVM is stable. The live verifier keeps activator traffic alive while all
   managed Deployments become ready and retries flow registration and transient execution reads.
+
+## Monorepo Multi-Team Release Methodology Survey
+
+Surveyed on 2026-08-19 to validate the per-category batch group CI/CD design against industry
+practice. The convergent mainstream model is: one trunk, one directory per component with
+`CODEOWNERS`, automated change scoping, generated per-component tags, immutable artifacts promoted
+between environments, declarative scoped deployment, and roll-forward or rollback ahead of release
+branches.
+
+The survey produced four corrections to the design. Two were substantive: the hotfix fix-direction
+was backwards (fixes must originate on trunk and be cherry-picked into a release branch, not fixed
+on the branch and forward-ported), and Kestra's namespace deployment deletes absent resources by
+default rather than through an opt-in flag, with official `kestra-io/validate-action` and
+`kestra-io/deploy-action` replacing hand-rolled `curl`.
+
+Full survey, fit assessment, and deliberate divergences:
+`design-docs/specs/design-monorepo-release-methodology-survey.md`.
