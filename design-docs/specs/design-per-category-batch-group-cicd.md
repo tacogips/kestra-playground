@@ -25,6 +25,125 @@ team. Path filters, CODEOWNERS, GitHub Environments, concurrency keys, and cloud
 derive from that single alignment. When those four drift apart, category-scoped release stops being
 safe, because a change reviewed by one team can be applied to another team's runtime scope.
 
+## Why A Single Repository
+
+The design assumes one repository because the requirement says so, but the assumption deserves an
+argument rather than an assertion, and the argument is measurable rather than aesthetic.
+
+### Shared Main Is Not Shared Release
+
+The usual objection is that every category's code merges into one `main`. That is true, and it is
+also not the expensive thing. What teams actually fear from a shared trunk is **release** coupling:
+having to ship together, being blocked by another team's unfinished work, inheriting a neighbour's
+bug. This design removes all of that at the directory level. Food merging to `main` does not put food
+into electronics' production, does not block electronics from tagging, and cannot deploy anything
+outside `playground.ec.food`.
+
+Once release scope is per-directory, a shared `main` costs shared *integration*, not shared
+*delivery*. Integration is the part trunk-based development says you want frequent anyway.
+
+### The Measured Trade
+
+Counting git-tracked files in this repository as of 2026-08-19:
+
+| Surface | Files | Lines |
+|---------|-------|-------|
+| `batch-groups/` — per-category code that a split would isolate | 18 | 1,840 |
+| `scripts/`, `k8s/`, `infra/`, `local/`, `kestra/`, `.github/`, `mise.toml`, `pyproject.toml` — shared platform that a split would duplicate | 128 | 12,094 |
+
+The shared platform is roughly six and a half times the size of the code a per-category split would
+separate. Splitting would copy 12,000 lines of deploy scripts, Terraform, Kubernetes manifests,
+Kestra configuration, local runtimes, and tool pinning into every category repository, and every copy
+would then drift, in order to isolate under 2,000 lines of category code that the namespace boundary
+already isolates at deploy time.
+
+That ratio, not a preference about repository style, is the argument.
+
+### What The Single Repository Buys
+
+- **The platform exists once.** One set of deploy scripts, one Terraform state layout, one `mise.toml`
+  pinning tool versions, one Kestra configuration. Version skew between categories is not possible
+  because there is only one version.
+- **Cross-cutting changes are atomic.** A `_shared/` change and every consumer update land in one
+  reviewed pull request, with tests, in one commit. The polyrepo equivalent is publish a version, then
+  bump it in each consumer repository in sequence, with a window in which the categories disagree.
+- **One deployment target stays consistent with its deployer.** Every category deploys into the same
+  Kestra instance, GCP project, and secret store. Splitting the repositories does not split that
+  target; it only splits the code that manages it, so N repositories would need their deploy
+  machinery kept in lockstep with one shared runtime by convention rather than by construction.
+- **Discovery and refactoring are one operation.** "Which categories call this subflow" is one search
+  and one pull request rather than N of each.
+- **Splitting later is easy; merging later is not.** Extracting a category from this layout is
+  mechanical, because the directory boundary already matches the release boundary.
+
+### When Each Category Has Its Own Kestra Instance
+
+A reasonable objection to the shared-platform argument is that it assumes one shared runtime. If each
+category deploys to its own Kestra instance, does the single repository still pay?
+
+It pays more, not less, and this repository already demonstrates it. The `affiliate` batch group
+already targets a **separate Kestra instance**: its own container (`kestra-affiliate`), its own port
+(8082), its own database (`AFFILIATE_KESTRA_DB`), its own deploy URL
+(`AFFILIATE_KESTRA_DEPLOY_URL`), and even a different distribution, since affiliate must run the
+official `kestra/kestra` image while the EC group may run a `tacogips/kestra` fork build.
+
+Despite running different distributions on different instances, both groups share
+`kestra/config/application.yaml`, one `docker-compose.yml`, one `scripts/deploy-batch-group.sh`, one
+`scripts/register-flows.sh`, and one deploy workflow. The instance difference is expressed as a
+handful of environment variables, not as duplicated platform code.
+
+The reasoning generalizes: **separate runtimes multiply the provisioning surface, and shared
+provisioning code is what keeps those runtimes consistent with each other.** With N repositories
+there would be N copies of the compose definitions, Terraform, Helm values, and Kestra configuration,
+each free to drift, and a Kestra version upgrade would become N independent migrations in N
+repositories instead of one reviewed pull request.
+
+The argument that weakens is the one about a shared deployment target. It does not disappear; it
+transforms from "one target stays consistent with its deployer" into "N targets stay consistent with
+each other", which is the harder problem and the one shared code is better at.
+
+#### What Separate Instances Simplify
+
+Honesty requires noting that separate instances make parts of this design less load-bearing:
+
+| Control | With one shared instance | With per-category instances |
+|---------|--------------------------|-----------------------------|
+| Namespace-prefix lint | The primary isolation guarantee | A correctness check only; a food deploy cannot physically reach another category's instance |
+| Per-category worker groups | Needed to stop one category starving another | Unnecessary; separate instances isolate compute by construction |
+| Namespace-scoped deploy with deletion | Prevents cross-category damage | Still required for drift removal, but no longer a blast-radius control |
+
+The enforcement burden therefore falls with separate instances, while the platform-sharing benefit
+rises. Both movements favour the single repository.
+
+#### What Separate Instances Cost
+
+This is a runtime decision with a real price, independent of repository topology: N always-on Kestra
+instances multiply infrastructure cost and upgrade toil. Given that this repository maintains an
+entire scale-to-zero design to control the cost of one cluster, per-category instances should be
+justified by a genuine isolation requirement rather than adopted by default.
+
+The single repository would only stop paying if the instances diverged permanently across clouds,
+versions, compliance regimes, and operating teams, at which point the shared platform shrinks and the
+measured ratio flips. The existing affiliate constraint, "never use the fork image", is a mild
+version of that divergence, and it is currently handled by one environment variable and one comment
+rather than by a repository split.
+
+### What It Costs, Honestly
+
+- A broken merge to `main` affects every category's staging until fixed. Mitigated but not eliminated:
+  per-group staging deploys are independent, and tag-based production means a broken `main` never
+  blocks another team's release.
+- Change scoping needs tooling. The `detect` matrix exists only because the repository is shared; a
+  polyrepo gets per-component CI for free.
+- Boundaries need enforcement. `CODEOWNERS`, the namespace-prefix lint, and tag rulesets exist to
+  reconstruct isolation that separate repositories would provide by default.
+- Access control is coarse. One repository cannot easily hide one category's code from another team.
+
+The trade is symmetrical and worth stating plainly: **a monorepo pays for boundary enforcement, a
+polyrepo pays for platform duplication.** Choose whichever bill is smaller. Here the platform is
+6.6 times the category code, so duplication is clearly the larger bill, and the enforcement it buys
+is roughly a dozen configuration rules plus one detection script.
+
 ## Repository Layout
 
 The deploy unit is any directory containing a `group.yaml` marker. Discovery by marker file instead
@@ -1157,16 +1276,54 @@ cherry-picked into the release branch, never the reverse.
 - Hand-cutting a production tag.
 - Changing another category's directory without its owners' review.
 
+## Current Implementation Baseline
+
+This design is not greenfield. `.github/workflows/deploy-batch-groups.yml` already implements a
+substantial part of it, and the design should extend that workflow rather than replace it.
+
+What already exists and matches this design:
+
+| Existing behaviour | Design section it satisfies |
+|--------------------|-----------------------------|
+| A `resolve` job computing which groups to deploy from `git diff --name-only`, skipping `.md`-only changes | Change detection |
+| Per-group release tags `EC-x.y.z` and `AFFILIATE-x.y.z`, validated by strict regex, with an unrecognized tag failing the job | Tag-triggered production, and refusal to proceed on an ambiguous scope |
+| Separate `deploy-ec` and `deploy-affiliate` jobs, each conditional on its own resolve output | Per-group deploy isolation |
+| Per-group Kestra endpoints through `EC_KESTRA_DEPLOY_URL` and `AFFILIATE_KESTRA_DEPLOY_URL` | Per-category instances |
+| `scripts/deploy-batch-group.sh <group>` as the single deploy entry point for CI and humans | One deploy path |
+
+What diverges and is the actual work of this design:
+
+| Gap | Effect |
+|-----|--------|
+| Groups are hardcoded as two jobs and two output flags rather than a matrix over discovered manifests | Adding a category requires editing the workflow, the resolve script, and the deploy script |
+| `concurrency: kestra-batch-groups-deploy` is repository-global | Every category queues behind every other |
+| Both deploy jobs use `environment: name: development` | No per-team approvers, secrets, or deployment history |
+| No `CODEOWNERS`, tag ruleset, or namespace-prefix lint | Ownership and release rights are conventions, not controls |
+| `scripts/register-flows.sh` posts flows individually | Deleted flows linger; the directory is not the source of truth |
+| No staging stage or staged-content gate | A tag can release content that was never exercised |
+
+### Tag Convention Decision
+
+This design drafted `<group-id>/v<version>` before the existing convention was found. The repository
+already uses `EC-x.y.z` and `AFFILIATE-x.y.z` with regex validation, so the existing family should
+win on consistency grounds, generalized to `<GROUP-ID-UPPERCASE>-<semver>`, for example
+`EC-FOOD-1.2.3`. Tag rulesets match `EC-FOOD-*` as readily as a path-like prefix.
+
+One constraint to resolve before committing to it: if `release-please` generates the tags, its format
+is configurable through the component name and tag separator but conventionally includes a `v`, which
+yields `ec-food-v1.2.3` rather than `EC-FOOD-1.2.3`. Pick one shape, apply it to both the generator
+configuration and the `resolve` job's validation regex, and do not let the two drift.
+
 ## Deltas From The Current Repository
 
 | # | Current state | Required change |
 |---|---------------|-----------------|
 | 1 | `scripts/deploy-batch-group.sh` takes a hardcoded `ec` / `affiliate` enum | Take a group directory and read `group.yaml` |
 | 2 | `scripts/register-flows.sh` POSTs each flow file | Official `kestra-io/validate-action` and `kestra-io/deploy-action`, one namespace per call, deletion left at its default |
-| 3 | Global `concurrency: kestra-playground-deploy` | Per-group-per-stage `deploy-<group id>-<stage>` |
+| 3 | Global `concurrency: kestra-playground-deploy` in `deploy.yml` and `kestra-batch-groups-deploy` in `deploy-batch-groups.yml` | Per-group-per-stage `deploy-<group id>-<stage>` |
 | 4 | One runtime image contains `batch-groups/ec/batches` | Per-category Namespace Files or per-category images |
 | 5 | No per-group metadata or ownership enforcement | Add `group.yaml`, `scripts/detect-changed-batch-groups.sh`, namespace-prefix lint, `CODEOWNERS`, per-category GitHub Environments |
-| 6 | One `workflow_dispatch` release path with an environment dropdown | Push-triggered staging by changed paths; tag-triggered production through `<group-id>/v*` plus `scripts/resolve-release-group.sh` |
+| 6 | `deploy-batch-groups.yml` hardcodes one job and one output flag per group | Matrix over discovered `group.yaml` manifests, so a new category needs no workflow edit |
 | 7 | No repository-level enforcement of the git strategy | Add per-directory `CODEOWNERS`, branch protection with required checks on `main`, tag rulesets per `<group-id>/v*`, and the staged-content gate on release-input hashes |
 
 Items 2 and the namespace-prefix lint are the highest-leverage pair. Together they make a food deploy

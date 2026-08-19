@@ -213,3 +213,26 @@ default rather than through an opt-in flag, with official `kestra-io/validate-ac
 
 Full survey, fit assessment, and deliberate divergences:
 `design-docs/specs/design-monorepo-release-methodology-survey.md`.
+
+## Batch Group Deploy Workflow Findings (2026-08-19)
+
+Observations recorded while designing per-category batch group CI/CD. Both are about the repository
+as it stands, not about the proposed design.
+
+- `.github/workflows/deploy-batch-groups.yml` is stale and will fail on every run. Its `validate`,
+  `deploy-ec`, and `deploy-affiliate` jobs invoke `nix develop -c task ci`,
+  `nix develop -c task scripts:check`, and `nix develop -c scripts/deploy-batch-group.sh`, but commit
+  `8b36cab` ("chore: migrate development workflow to mise") deleted `flake.nix`, `flake.lock`, and
+  `Taskfile.yml`. That migration converted `.github/workflows/deploy.yml` to `mise run` and
+  `mise exec --` but did not convert `deploy-batch-groups.yml`. The fix is the same substitution
+  already applied to `deploy.yml`: replace the Nix installer step with `jdx/mise-action` and the
+  `nix develop -c task ...` invocations with their `mise` equivalents.
+- The repository already deploys each batch group to a separate Kestra instance. `affiliate` runs its
+  own container on port 8082 with its own database and its own deploy URL, and is constrained to the
+  official `kestra/kestra` distribution while the EC group may run a `tacogips/kestra` fork build.
+  Both instances nonetheless share one `kestra/config/application.yaml`, one `docker-compose.yml`,
+  and one deploy path, which is the concrete evidence that separate runtimes raise rather than lower
+  the value of shared provisioning code.
+
+See `design-docs/specs/design-per-category-batch-group-cicd.md` for the design these findings feed
+into, including its current-implementation baseline and tag-convention decision.
