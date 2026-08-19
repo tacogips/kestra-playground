@@ -142,7 +142,9 @@ assert_child_success() {
   ' "${child_file}" >/dev/null
   jq -e '
     any(.[]; .taskId == "stage_source" and (.message | contains("uploaded to '"'"'sftp://")))
+    and any(.[]; .taskId == "validate_input" and (.message | contains("progress phase=input_validated")))
     and any(.[]; .taskId == "execute_batch" and (.message | contains("progress phase=complete")))
+    and any(.[]; .taskId == "validate_output" and (.message | contains("progress phase=output_validated")))
     and any(.[]; .taskId == "cleanup_workspace" and (.message | contains("workspace_cleaned verified=true")))
   ' "${logs_file}" >/dev/null
 
@@ -171,11 +173,12 @@ assert_child_failure() {
 
   jq -e '
     .state.current == "FAILED"
-    and any(.taskRunList[]; .taskId == "execute_batch" and .state.current == "FAILED")
+    and any(.taskRunList[]; .taskId == "validate_input" and .state.current == "FAILED")
+    and ([.taskRunList[] | select(.taskId == "execute_batch")] | length) == 0
     and any(.taskRunList[]; .taskId == "cleanup_failed_workspace" and .state.current == "SUCCESS")
   ' "${child_file}" >/dev/null
   jq -e '
-    any(.[]; .taskId == "execute_batch" and (.message | contains("batch_error type=FileNotFoundError")))
+    any(.[]; .taskId == "validate_input" and (.message | contains("batch_error type=FileNotFoundError")))
     and any(.[]; .taskId == "cleanup_failed_workspace" and (.message | contains("workspace_cleaned verified=true")))
     and all(.[]; (.message | contains("Failed to render output values")) | not)
   ' "${logs_file}" >/dev/null
@@ -224,4 +227,4 @@ run_and_assert export_database_to_csv SUCCESS
 run_and_assert parse_application_logs SUCCESS
 run_and_assert parse_application_logs FAILED "log_path=/opt/batch-inputs/missing.jsonl"
 
-echo "Verified remote source staging, execution, artifact collection, and failure propagation."
+echo "Verified independently managed input validation, execution, output validation, artifact collection, and failure propagation."

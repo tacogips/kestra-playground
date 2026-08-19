@@ -46,6 +46,8 @@ Large features are split into multiple related plans with cross-references.
 | Plan | Completed | Design Reference |
 |------|-----------|------------------|
 | [Kestra Deployment Playground](completed/kestra-deployment-playground.md) | 2026-06-26 | `design-docs/specs/architecture.md` |
+| [Multi-Target SSH Batch Retry](completed/multi-target-ssh-batch-retry.md) | 2026-08-17 | `design-docs/specs/design-remote-python-batch-runner.md#multi-target-fan-out-and-retry` |
+| [Granular Remote Batch Business Tasks](completed/granular-remote-batch-business-tasks.md) | 2026-08-18 | `design-docs/specs/design-remote-python-batch-runner.md#sshsftp-adapter` |
 
 ## Phase Dependencies (for impl-exec-auto)
 

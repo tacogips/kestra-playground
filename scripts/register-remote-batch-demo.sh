@@ -60,17 +60,21 @@ case "${ADAPTER}" in
     flow_names=(
       00_remote_batch_runner.yaml
       01_routed_batch_runner.yaml
+      02_multi_target_remote_batch_runner.yaml
       export_database_to_csv.yaml
       export_database_to_csv_routed.yaml
       parse_application_logs.yaml
+      parse_application_logs_multi_target.yaml
       parse_application_logs_routed.yaml
     )
     ;;
   ssh)
     flow_names=(
       00_remote_batch_runner.yaml
+      02_multi_target_remote_batch_runner.yaml
       export_database_to_csv.yaml
       parse_application_logs.yaml
+      parse_application_logs_multi_target.yaml
     )
     ;;
   routed)

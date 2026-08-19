@@ -535,6 +535,7 @@ Namespace Files, executes the database export and log parser, then runs the pars
 remote input. It asserts:
 
 - Namespace File resolution and SFTP source staging;
+- separate input-validation, execution, and output-validation task states;
 - all success-path SSH/SFTP task states;
 - controller-visible remote progress logs and structured variables;
 - internal-storage artifact URIs and SHA-256 checksums;
@@ -546,10 +547,63 @@ Worker connection defaults come from `ENV_REMOTE_BATCH_HOST` and
 `ENV_REMOTE_BATCH_USERNAME`. The password is read through `secret('REMOTE_BATCH_PASSWORD')`; OSS
 deployments provide the base64-encoded value as `SECRET_REMOTE_BATCH_PASSWORD`.
 
-For a new batch, upload a standalone Python source into the `playground.remote_batch` namespace and
-create a one-task caller flow that invokes `remote_batch_runner` with `script_name`, `config_json`,
-`output_file`, and worker coordinates. Do not repeat SSH, SFTP, cleanup, or error handling in the
-caller.
+For a new batch, upload a standalone Python source into the `playground.remote_batch` namespace.
+Its entry point must accept `validate-input`, `execute`, and `validate-output`; a no-argument `all`
+mode is recommended for direct use. Create a one-task caller flow that invokes
+`remote_batch_runner` with `script_name`, `config_json`, `output_file`, and worker coordinates. Do
+not repeat SSH, SFTP, cleanup, or error handling in the caller.
+
+### Multi-Target SSH Batch And Isolated Retry
+
+Run the local two-target baseline and transient-failure scenario with:
+
+```bash
+task kestra:local:docker:start
+task kestra:flows:run-remote-batch-multi-target
+```
+
+Build and start the current fork before the local run when validating Kestra 2.0 behavior:
+
+```bash
+mise run kestra:local:build-latest-fork
+EC_KESTRA_IMAGE=tacogips-kestra:latest mise run kestra:local:docker:start
+```
+
+`multi_target_remote_batch_runner` uses Kestra 2.0 `Loop` to fan out one
+`remote_batch_runner` child per target with a static concurrency limit of four. The verifier creates
+a one-use execute failure marker only on worker B. It follows the execution correlation label to
+the target children and asserts one child per target; one prepare, stage, input-validation, and
+output-validation attempt per child; one execute attempt on A; and failed plus successful execute
+attempts on B. It also verifies artifacts, checksums, empty workspace roots, and the absence of any
+Kestra runtime on both targets.
+
+For GCP, authenticate gcloud, load the local-only batch password, and provision or start the two
+targets:
+
+```bash
+set -a
+source batch-groups/ec/config/envs/local.env
+set +a
+PROJECT_ID=kestra-playground-260625 task kestra:live:remote-batch-ssh-targets
+PROJECT_ID=kestra-playground-260625 task kestra:live:run-remote-batch-ssh
+```
+
+The provisioner creates a dedicated VPC/subnet, two `e2-micro` Debian targets, static regional
+addresses, and an ingress rule restricted to `REMOTE_BATCH_SSH_SOURCE_CIDR` or the caller's detected
+public IPv4. The password is sent to `chpasswd` through authenticated `gcloud compute ssh`; it is not
+placed in instance metadata, command output, or committed files. The live verifier places a
+one-use marker owned by the batch account on target B, proving execute-step retry while SSH remains
+available and earlier steps remain successful. It also rejects a Kestra binary, server process, or
+container on either GCE target.
+
+Inspect or stop the targets with:
+
+```bash
+PROJECT_ID=kestra-playground-260625 REMOTE_BATCH_TARGET_ACTION=status \
+  task kestra:live:remote-batch-ssh-targets
+PROJECT_ID=kestra-playground-260625 REMOTE_BATCH_TARGET_ACTION=stop \
+  task kestra:live:remote-batch-ssh-targets
+```
 
 ### Remote Python Batch On Scale-From-Zero Routed Workers
 

@@ -9,10 +9,11 @@ import time
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Final, TypedDict
+from typing import Final, TypedDict, cast
 
 CONFIG_ENV: Final = "KESTRA_BATCH_CONFIG"
 OUTPUT_ENV: Final = "KESTRA_BATCH_OUTPUT"
+PHASES: Final = frozenset({"all", "validate-input", "execute", "validate-output"})
 
 
 class ParseSummary(TypedDict):
@@ -76,10 +77,40 @@ def _emit_kestra_result(total_lines: int, error_lines: int, elapsed_seconds: flo
     print(f"::{json.dumps(payload, separators=(',', ':'))}::", flush=True)
 
 
-def parse_log(input_path: Path, output_path: Path, business_date: str) -> ParseSummary:
-    """Summarize valid JSON log records for one date, retaining malformed-line counts."""
+def validate_input(input_path: Path, business_date: str) -> None:
+    """Validate the source contract without creating the output artifact."""
     if not input_path.is_file():
         raise FileNotFoundError(f"Log file does not exist: {input_path}")
+    if len(business_date) != 10:
+        raise ValueError("business_date must use YYYY-MM-DD")
+    print(
+        f"progress phase=input_validated input={input_path} business_date={business_date}",
+        flush=True,
+    )
+
+
+def validate_output(output_path: Path, business_date: str) -> ParseSummary:
+    """Validate the persisted summary contract after the execute phase."""
+    if not output_path.is_file():
+        raise FileNotFoundError(f"Summary file does not exist: {output_path}")
+    value = json.loads(output_path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("Summary output must contain a JSON object")
+    if value.get("business_date") != business_date:
+        raise ValueError("Summary business_date does not match the configured partition")
+    for key in ("total_lines", "matched_lines", "malformed_lines"):
+        if not isinstance(value.get(key), int):
+            raise ValueError(f"Summary field {key!r} must be an integer")
+    for key in ("levels", "services"):
+        if not isinstance(value.get(key), dict):
+            raise ValueError(f"Summary field {key!r} must be an object")
+    print(f"progress phase=output_validated output={output_path}", flush=True)
+    return cast(ParseSummary, value)
+
+
+def parse_log(input_path: Path, output_path: Path, business_date: str) -> ParseSummary:
+    """Summarize valid JSON log records for one date, retaining malformed-line counts."""
+    validate_input(input_path, business_date)
 
     levels: Counter[str] = Counter()
     services: Counter[str] = Counter()
@@ -128,15 +159,31 @@ def parse_log(input_path: Path, output_path: Path, business_date: str) -> ParseS
     return result
 
 
-def main() -> int:
-    """Execute the configured parse and translate expected input errors to exit 64."""
+def main(arguments: list[str] | None = None) -> int:
+    """Run one independently retryable batch phase, or every phase for compatibility."""
     started_at = time.monotonic()
     try:
+        selected_arguments = sys.argv[1:] if arguments is None else arguments
+        phase = selected_arguments[0] if selected_arguments else "all"
+        if len(selected_arguments) > 1 or phase not in PHASES:
+            raise ValueError(
+                "Expected at most one phase: validate-input, execute, validate-output, or all"
+            )
         config = _load_config()
         input_path = Path(_required_string(config, "input_path"))
         business_date = _required_string(config, "business_date")
         output_path = Path(_required_env(OUTPUT_ENV))
-        result = parse_log(input_path, output_path, business_date)
+        if phase in {"all", "validate-input"}:
+            validate_input(input_path, business_date)
+        if phase in {"all", "execute"}:
+            result = parse_log(input_path, output_path, business_date)
+            _emit_kestra_result(
+                result["matched_lines"],
+                result["levels"].get("ERROR", 0),
+                time.monotonic() - started_at,
+            )
+        if phase in {"all", "validate-output"}:
+            validate_output(output_path, business_date)
     except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError) as error:
         print(
             f"batch_error type={type(error).__name__} message={error}",
@@ -145,11 +192,6 @@ def main() -> int:
         )
         return 64
 
-    _emit_kestra_result(
-        result["matched_lines"],
-        result["levels"].get("ERROR", 0),
-        time.monotonic() - started_at,
-    )
     return 0
 
 

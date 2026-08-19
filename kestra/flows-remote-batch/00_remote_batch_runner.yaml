@@ -1,8 +1,13 @@
 id: remote_batch_runner
 namespace: playground.remote_batch
-description: Reusable SSH/SFTP framework that stages, runs, collects, and cleans one Python batch.
+description: Reusable SSH/SFTP framework with separately retryable validation and execution tasks.
 
 inputs:
+  - id: target_id
+    type: STRING
+    defaults: single-target
+    description: Stable non-secret target identifier used for audit output.
+
   - id: script_name
     type: STRING
     required: true
@@ -39,12 +44,22 @@ inputs:
     type: DURATION
     defaults: PT5M
 
+  - id: execute_failure_marker
+    type: STRING
+    defaults: ""
+    description: Optional remote file removed to inject one retryable execute-step failure in tests.
+
 tasks:
   - id: resolve_source
     type: io.kestra.plugin.core.namespace.DownloadFiles
     namespace: "{{ flow.namespace }}"
     files:
       - "{{ inputs.script_name }}"
+    retry:
+      type: constant
+      maxAttempts: 2
+      interval: PT5S
+      maxDuration: PT5M
 
   - id: prepare_workspace
     type: io.kestra.plugin.fs.ssh.Command
@@ -60,6 +75,11 @@ tasks:
         install -d -m 700 "$HOME/kestra-runs/{{ execution.id }}/output"
         rm -f "$HOME/kestra-runs/{{ execution.id }}/main.py" "$HOME/kestra-runs/{{ execution.id }}/output/{{ inputs.output_file }}"
         printf '%s\n' 'progress phase=workspace_ready'
+    retry:
+      type: constant
+      maxAttempts: 2
+      interval: PT5S
+      maxDuration: PT5M
 
   - id: stage_source
     type: io.kestra.plugin.fs.sftp.Upload
@@ -70,8 +90,13 @@ tasks:
     from: "{{ outputs.resolve_source.files['/' ~ inputs.script_name] }}"
     to: "kestra-runs/{{ execution.id }}/main.py"
     overwrite: true
+    retry:
+      type: constant
+      maxAttempts: 2
+      interval: PT5S
+      maxDuration: PT5M
 
-  - id: execute_batch
+  - id: validate_input
     type: io.kestra.plugin.fs.ssh.Command
     host: "{{ inputs.worker_host }}"
     port: "{{ inputs.worker_port }}"
@@ -88,7 +113,66 @@ tasks:
         KESTRA_BATCH_OUTPUT="$HOME/kestra-runs/{{ execution.id }}/output/{{ inputs.output_file }}"
         PYTHONUNBUFFERED=1
         export KESTRA_BATCH_CONFIG KESTRA_BATCH_OUTPUT PYTHONUNBUFFERED
-        python3 main.py
+        python3 main.py validate-input
+    retry:
+      type: constant
+      maxAttempts: 2
+      interval: PT5S
+      maxDuration: PT5M
+
+  - id: execute_batch
+    type: io.kestra.plugin.fs.ssh.Command
+    host: "{{ inputs.worker_host }}"
+    port: "{{ inputs.worker_port }}"
+    authMethod: PASSWORD
+    username: "{{ inputs.worker_username }}"
+    password: "{{ secret(inputs.worker_password_secret) }}"
+    strictHostKeyChecking: "no"
+    timeout: "{{ inputs.timeout }}"
+    commands:
+      - |
+        set -eu
+        cd "$HOME/kestra-runs/{{ execution.id }}"
+        failure_marker="$(printf '%s' '{{ inputs.execute_failure_marker | base64encode }}' | base64 --decode)"
+        if [ -n "${failure_marker}" ] && [ -f "${failure_marker}" ]; then
+          rm -f -- "${failure_marker}"
+          printf '%s\n' 'retry_probe phase=execute_batch result=failed_once' >&2
+          exit 75
+        fi
+        KESTRA_BATCH_CONFIG="$(printf '%s' '{{ inputs.config_json | base64encode }}' | base64 --decode)"
+        KESTRA_BATCH_OUTPUT="$HOME/kestra-runs/{{ execution.id }}/output/{{ inputs.output_file }}"
+        PYTHONUNBUFFERED=1
+        export KESTRA_BATCH_CONFIG KESTRA_BATCH_OUTPUT PYTHONUNBUFFERED
+        python3 main.py execute
+    retry:
+      type: constant
+      maxAttempts: 2
+      interval: PT5S
+      maxDuration: PT5M
+
+  - id: validate_output
+    type: io.kestra.plugin.fs.ssh.Command
+    host: "{{ inputs.worker_host }}"
+    port: "{{ inputs.worker_port }}"
+    authMethod: PASSWORD
+    username: "{{ inputs.worker_username }}"
+    password: "{{ secret(inputs.worker_password_secret) }}"
+    strictHostKeyChecking: "no"
+    timeout: "{{ inputs.timeout }}"
+    commands:
+      - |
+        set -eu
+        cd "$HOME/kestra-runs/{{ execution.id }}"
+        KESTRA_BATCH_CONFIG="$(printf '%s' '{{ inputs.config_json | base64encode }}' | base64 --decode)"
+        KESTRA_BATCH_OUTPUT="$HOME/kestra-runs/{{ execution.id }}/output/{{ inputs.output_file }}"
+        PYTHONUNBUFFERED=1
+        export KESTRA_BATCH_CONFIG KESTRA_BATCH_OUTPUT PYTHONUNBUFFERED
+        python3 main.py validate-output
+    retry:
+      type: constant
+      maxAttempts: 2
+      interval: PT5S
+      maxDuration: PT5M
 
   - id: collect_artifact
     type: io.kestra.plugin.fs.sftp.Download
@@ -97,6 +181,11 @@ tasks:
     username: "{{ inputs.worker_username }}"
     password: "{{ secret(inputs.worker_password_secret) }}"
     from: "kestra-runs/{{ execution.id }}/output/{{ inputs.output_file }}"
+    retry:
+      type: constant
+      maxAttempts: 2
+      interval: PT5S
+      maxDuration: PT5M
 
   - id: cleanup_workspace
     type: io.kestra.plugin.fs.ssh.Command
@@ -116,6 +205,11 @@ tasks:
           exit 1
         fi
         printf '%s\n' 'progress phase=workspace_cleaned verified=true'
+    retry:
+      type: constant
+      maxAttempts: 2
+      interval: PT5S
+      maxDuration: PT5M
 
 errors:
   - id: cleanup_failed_workspace
@@ -138,6 +232,10 @@ errors:
         printf '%s\n' 'progress phase=workspace_cleaned verified=true'
 
 outputs:
+  - id: target_id
+    type: STRING
+    value: "{{ inputs.target_id }}"
+
   - id: artifact
     type: FILE
     value: "{{ outputs.collect_artifact is defined ? outputs.collect_artifact.to : 'nsfile:///' ~ inputs.script_name }}"

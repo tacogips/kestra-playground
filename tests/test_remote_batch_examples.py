@@ -6,6 +6,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -15,13 +16,19 @@ ROOT = Path(__file__).parent.parent
 
 
 def _run_batch(
-    script: Path, config: dict[str, object], output_path: Path
+    script: Path,
+    config: Mapping[str, object],
+    output_path: Path,
+    phase: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["KESTRA_BATCH_CONFIG"] = json.dumps(config)
     env["KESTRA_BATCH_OUTPUT"] = str(output_path)
+    command = [sys.executable, str(script)]
+    if phase is not None:
+        command.append(phase)
     return subprocess.run(
-        [sys.executable, str(script)],
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -126,6 +133,44 @@ def test_log_parser_writes_summary_and_counts_malformed_lines(tmp_path: Path) ->
     }
 
 
+def test_log_parser_supports_independent_retryable_phases(tmp_path: Path) -> None:
+    input_path = tmp_path / "application.jsonl"
+    input_path.write_text(
+        '{"timestamp":"2026-06-25T01:00:00Z","level":"INFO","service":"api"}\n',
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "summary.json"
+    config = {"input_path": str(input_path), "business_date": "2026-06-25"}
+
+    validate_input_result = _run_batch(
+        ROOT / "batch-groups/ec/batches/log_parse/parse_logs.py",
+        config,
+        output_path,
+        "validate-input",
+    )
+    assert validate_input_result.returncode == 0, validate_input_result.stderr
+    assert "progress phase=input_validated" in validate_input_result.stdout
+    assert not output_path.exists()
+
+    execute_result = _run_batch(
+        ROOT / "batch-groups/ec/batches/log_parse/parse_logs.py",
+        config,
+        output_path,
+        "execute",
+    )
+    assert execute_result.returncode == 0, execute_result.stderr
+    assert output_path.is_file()
+
+    validate_output_result = _run_batch(
+        ROOT / "batch-groups/ec/batches/log_parse/parse_logs.py",
+        config,
+        output_path,
+        "validate-output",
+    )
+    assert validate_output_result.returncode == 0, validate_output_result.stderr
+    assert "progress phase=output_validated" in validate_output_result.stdout
+
+
 def test_remote_examples_delegate_all_execution_mechanics_to_framework() -> None:
     runner = _load_yaml("kestra/flows-remote-batch/00_remote_batch_runner.yaml")
     export_flow = _load_yaml("kestra/flows-remote-batch/export_database_to_csv.yaml")
@@ -137,6 +182,8 @@ def test_remote_examples_delegate_all_execution_mechanics_to_framework() -> None
         "io.kestra.plugin.fs.ssh.Command",
         "io.kestra.plugin.fs.sftp.Upload",
         "io.kestra.plugin.fs.ssh.Command",
+        "io.kestra.plugin.fs.ssh.Command",
+        "io.kestra.plugin.fs.ssh.Command",
         "io.kestra.plugin.fs.sftp.Download",
         "io.kestra.plugin.fs.ssh.Command",
     ]
@@ -144,7 +191,9 @@ def test_remote_examples_delegate_all_execution_mechanics_to_framework() -> None
         "resolve_source",
         "prepare_workspace",
         "stage_source",
+        "validate_input",
         "execute_batch",
+        "validate_output",
         "collect_artifact",
         "cleanup_workspace",
     ]
@@ -152,6 +201,18 @@ def test_remote_examples_delegate_all_execution_mechanics_to_framework() -> None
     assert "workspace_cleaned verified=true" in runner["tasks"][-1]["commands"][0]
     assert "workspace_cleaned verified=true" in runner["errors"][0]["commands"][0]
     assert '[ -e "${workspace}" ] || [ -L "${workspace}" ]' in (runner["errors"][0]["commands"][0])
+    for task in runner["tasks"]:
+        assert task["retry"] == {
+            "type": "constant",
+            "maxAttempts": 2,
+            "interval": "PT5S",
+            "maxDuration": "PT5M",
+        }
+    execute = next(task for task in runner["tasks"] if task["id"] == "execute_batch")
+    assert "retry_probe phase=execute_batch result=failed_once" in execute["commands"][0]
+    assert "python3 main.py validate-input" in runner["tasks"][3]["commands"][0]
+    assert "python3 main.py execute" in execute["commands"][0]
+    assert "python3 main.py validate-output" in runner["tasks"][5]["commands"][0]
 
     for flow, script_name in (
         (export_flow, "batches/db_export/export_database.py"),
@@ -167,6 +228,103 @@ def test_remote_examples_delegate_all_execution_mechanics_to_framework() -> None
         serialized = json.dumps(flow)
         assert "io.kestra.plugin.fs.ssh.Command" not in serialized
         assert "io.kestra.plugin.fs.sftp.Upload" not in serialized
+
+
+def test_multi_target_runner_fans_out_and_retries_each_target_independently() -> None:
+    runner = _load_yaml("kestra/flows-remote-batch/02_multi_target_remote_batch_runner.yaml")
+    caller = _load_yaml("kestra/flows-remote-batch/parse_application_logs_multi_target.yaml")
+
+    assert runner["inputs"][0] == {
+        "id": "targets",
+        "type": "JSON",
+        "required": True,
+        "description": (
+            "Bounded array of unique target objects with id, host, port, username, "
+            "password_secret, and execute_failure_marker. Values name Kestra secrets but never "
+            "contain secret payloads."
+        ),
+    }
+    fan_out = runner["tasks"][0]
+    assert fan_out["type"] == "io.kestra.plugin.core.flow.Loop"
+    assert fan_out["values"] == "{{ inputs.targets }}"
+    assert fan_out["concurrencyLimit"] == 4
+
+    target = fan_out["tasks"][0]
+    assert target["type"] == "io.kestra.plugin.core.flow.Subflow"
+    assert target["flowId"] == "remote_batch_runner"
+    assert target["wait"] is True
+    assert target["transmitFailed"] is True
+    assert target["inputs"]["target_id"] == "{{ fromJson(item.value).id }}"
+    assert target["inputs"]["worker_host"] == "{{ fromJson(item.value).host }}"
+    assert target["inputs"]["worker_password_secret"] == (
+        "{{ fromJson(item.value).password_secret }}"
+    )
+    assert target["inputs"]["execute_failure_marker"] == (
+        "{{ fromJson(item.value).execute_failure_marker }}"
+    )
+    assert target["retry"] == {
+        "type": "constant",
+        "maxAttempts": 3,
+        "interval": "PT30S",
+        "maxDuration": "PT30M",
+    }
+
+    assert len(caller["tasks"]) == 1
+    assert caller["tasks"][0]["flowId"] == "multi_target_remote_batch_runner"
+    assert caller["tasks"][0]["inputs"]["targets"] == "{{ inputs.targets }}"
+
+
+def test_local_compose_provisions_two_external_ssh_workers() -> None:
+    compose = _load_yaml("local/docker/docker-compose.yml")
+    services = compose["services"]
+
+    for service_name in ("remote-worker", "remote-worker-b"):
+        worker = services[service_name]
+        assert worker["build"]["context"] == "./remote-worker"
+        assert worker["env_file"] == ["../../batch-groups/ec/config/envs/local.env"]
+        assert "ssh-keyscan" in worker["healthcheck"]["test"][1]
+
+
+def test_multi_target_verifier_proves_retry_is_isolated() -> None:
+    script = (ROOT / "scripts/verify-local-remote-batch-multi-target.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "inject_second_worker_execute_failure" in script
+    assert "assert_child_step_attempts" in script
+    assert "correlated_execution_id" in script
+    assert ".metadata.attemptNumber == 1" in script
+    assert 'assert_child_step_attempts "${retry_worker_a_id}" worker-a 1' in script
+    assert 'assert_child_step_attempts "${retry_worker_b_id}" worker-b 2' in script
+    assert '.taskId == "validate_input"' in script
+    assert '.taskId == "validate_output"' in script
+    assert "for worker in remote-worker remote-worker-b" in script
+    assert "assert_no_target_kestra_runtime" in script
+
+
+def test_gcp_target_scripts_keep_secrets_out_of_metadata_and_test_retry() -> None:
+    provision = (ROOT / "scripts/provision-live-remote-batch-targets.sh").read_text(
+        encoding="utf-8"
+    )
+    startup = (ROOT / "scripts/live-remote-batch-target-startup.sh").read_text(encoding="utf-8")
+    verify = (ROOT / "scripts/verify-live-remote-batch-ssh.sh").read_text(encoding="utf-8")
+
+    assert "--metadata-from-file=startup-script=" in provision
+    assert "https://api.ipify.org" in provision
+    assert "valid IPv4 source address" in provision
+    assert "REMOTE_BATCH_PASSWORD is required" in provision
+    assert "--metadata=remote-batch-password" not in provision
+    assert "sudo chpasswd" in provision
+    assert "kestra-remote-batch-sshd-control.service" in startup
+    assert "remote-batch-sshd-disabled" in startup
+    assert "inject_target_b_execute_failure" in verify
+    assert "correlated_execution_id" in verify
+    assert 'assert_child_step_attempts "${retry_worker_a_id}" gcp-worker-a 1' in verify
+    assert 'assert_child_step_attempts "${retry_worker_b_id}" gcp-worker-b 2' in verify
+    assert '.taskId == "validate_input"' in verify
+    assert '.taskId == "validate_output"' in verify
+    assert "assert_no_target_kestra_runtime" in verify
+    assert "Unexpected Kestra process on remote target" in verify
 
 
 def test_routed_examples_need_only_uv_on_the_selected_worker() -> None:

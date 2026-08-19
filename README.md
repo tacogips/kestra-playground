@@ -189,7 +189,40 @@ mise run kestra:flows:run-remote-batch-examples
 mise run kestra:local:docker:stop
 ```
 
-The local `remote-worker` container models an arbitrary batch machine. Production workers do not
+Build the current `tacogips/kestra` `main`, then run the same log-parsing batch on two local SSH
+targets and prove that only the failed business task retries on the affected target:
+
+```bash
+mise run kestra:local:build-latest-fork
+EC_KESTRA_IMAGE=tacogips-kestra:latest mise run kestra:local:docker:start
+mise run kestra:flows:run-remote-batch-multi-target
+```
+
+The multi-target caller accepts a bounded JSON target array. Kestra 2.0 `Loop` runs at most four
+target children concurrently. Each child exposes `validate_input`, `execute_batch`, and
+`validate_output` as separate business tasks between source staging and artifact collection. Every
+task has its own retry boundary, while the child Subflow retains a final target-level fallback. The
+verifier injects one `execute_batch` failure on target B and requires both validation tasks to stay
+at one attempt on both targets while only target B's execute task records failed and successful
+attempts.
+
+Provision or start the two GCP SSH targets, then run the live equivalent from local Kestra:
+
+```bash
+set -a
+source batch-groups/ec/config/envs/local.env
+set +a
+PROJECT_ID=kestra-playground-260625 mise run kestra:live:remote-batch-ssh-targets
+PROJECT_ID=kestra-playground-260625 mise run kestra:live:run-remote-batch-ssh
+```
+
+The provisioner uses a dedicated VPC, reserves one public IPv4 address per target, and restricts
+port 22 to the caller's current public IPv4. Use `REMOTE_BATCH_TARGET_ACTION=stop` with the first
+command to stop the VMs when they are no longer needed; reserved addresses continue to exist until
+explicitly removed.
+
+The local `remote-worker` container models an arbitrary batch machine. The verifiers fail if a
+Kestra binary, server process, or container is detected on either target. Production targets do not
 need a custom resident agent, but they do need Python 3, an SSH/SFTP account, network reachability
 from the Kestra worker role, verified host identity, and credentials supplied through Kestra
 Secrets. See `design-docs/specs/design-remote-python-batch-runner.md` for the complete contract and

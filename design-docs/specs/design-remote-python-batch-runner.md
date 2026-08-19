@@ -53,17 +53,50 @@ library.
 `playground.remote_batch.remote_batch_runner` is a reusable Subflow. A business flow supplies only
 the Namespace File name, JSON configuration, artifact name, and worker connection coordinates.
 
-The runner performs six controller-visible stages:
+The runner performs eight controller-visible tasks:
 
 1. `resolve_source` converts a versioned Namespace File into a Kestra internal-storage URI.
 2. `prepare_workspace` creates an execution-scoped directory on the remote worker over SSH.
 3. `stage_source` copies the resolved Python file into that directory over SFTP.
-4. `execute_batch` invokes `python3 main.py` over SSH and streams stdout/stderr to Kestra logs.
-5. `collect_artifact` downloads the result into internal storage and returns its SHA-256 checksum.
-6. `cleanup_workspace` removes the execution-scoped remote directory.
+4. `validate_input` invokes `python3 main.py validate-input` without creating an artifact.
+5. `execute_batch` invokes `python3 main.py execute` and atomically creates the artifact.
+6. `validate_output` invokes `python3 main.py validate-output` against the persisted artifact.
+7. `collect_artifact` downloads the result into internal storage and returns its SHA-256 checksum.
+8. `cleanup_workspace` removes the execution-scoped remote directory.
+
+The Python entry point defaults to `all` when invoked without a phase for direct CLI compatibility.
+The SSH adapter always names one phase per Kestra task, making input-contract failures,
+transformation failures, and output-contract failures independently visible and retryable.
 
 A flow-level error handler cleans a failed workspace. The original execution remains failed, so the
 caller receives the failure through `transmitFailed: true`.
+
+### Multi-Target Fan-Out And Retry
+
+`playground.remote_batch.multi_target_remote_batch_runner` accepts a bounded JSON array of target
+objects. Each object supplies a stable target ID plus the host, port, username, Kestra password
+secret name, and an optional test-only execute failure marker for one SSH machine. The Kestra 2.0
+`Loop` task invokes one `remote_batch_runner` Subflow per target, with a reviewed static concurrency
+limit of four so the same versioned batch source and business configuration can run on several
+machines in parallel.
+
+Every controller-visible source, workspace, SFTP, validation, execution, collection, and cleanup
+task has a constant task-level retry. A transient failure therefore stays at its failed task and
+retains the earlier successful task states. In particular, an execute retry does not rerun
+`validate_input`, and `validate_output` begins only after execute succeeds. The direct per-target
+Subflow also keeps a three-attempt fallback for cases that escape a granular retry. The error handler
+runs only when the child ultimately fails, so it does not remove the workspace between ordinary
+task attempts. Successful target children are never rerun because another target retries.
+
+The parent succeeds only when every target succeeds within its retry budget. If one target exhausts
+the budget, the parent fails after the other target iterations reach a terminal state. Kestra 2.0
+stores `Loop` iterations as internal sub-executions; the verifier follows the shared correlation
+label to each target child and uses its inputs, outputs, metadata attempt number, and task histories
+as the audit record.
+
+Target IDs must be unique within one request. Password values never appear in the target JSON;
+targets carry only Kestra secret names. The current bounded fan-out is intended for small operational
+server sets, not unbounded data partitioning.
 
 ### File Transfer And Result Management
 
@@ -76,7 +109,7 @@ repository
   -> Namespace File in internal storage
   -> DownloadFiles resolves an internal-storage URI
   -> SFTP Upload copies source to <execution-id>/main.py
-  -> SSH Command runs python3 main.py and captures stdout/stderr/exit status
+  -> SSH Commands run validate-input, execute, and validate-output as distinct tasks
   -> SFTP Download copies the artifact into internal storage and returns its checksum
   -> SSH Command removes the execution directory
 ```
@@ -149,8 +182,10 @@ CSV, logs row progress, and emits row-count variables and metrics.
 services, records malformed lines, writes a JSON summary, and emits line/error variables and
 metrics.
 
-Each caller is a one-task Subflow wrapper. A new SSH batch adds its Python source plus a caller with
-connection inputs. A new routed batch adds its source directory plus a caller specifying
+Each single-target caller is a one-task Subflow wrapper. A multi-target caller delegates to
+`multi_target_remote_batch_runner`, which owns fan-out and isolated retry while reusing the same
+single-target runner. A new SSH batch adds its Python source plus a caller with connection inputs. A
+new routed batch adds its source directory plus a caller specifying
 `batch_bundle`, `source_root`, `script_name`, business `config_json`, `output_file`, and
 `worker_group`. `scripts/build-remote-batch-bundles.sh` provides the repeatable bundle layout.
 Neither caller repeats transfer, execution, artifact, checksum, cleanup, or failure logic.
@@ -164,6 +199,10 @@ execution and its caller. Artifacts are uploaded only after successful execution
 The SSH graph exposes prepare, upload, execution, download, and cleanup as separate task states. The
 routed graph exposes one atomic selected-worker task; execution FILE localization and output-file
 persistence are lifecycle phases of that task.
+
+For multi-target SSH runs, each target has an independent child execution. A transient target
+failure produces another attempt of only that target's Subflow task. An exhausted target retry
+budget fails the parent; cleanup is still performed by every failed child execution.
 
 ## Security And Production Boundaries
 

@@ -18,6 +18,7 @@ from typing import Final
 
 CONFIG_ENV: Final = "KESTRA_BATCH_CONFIG"
 OUTPUT_ENV: Final = "KESTRA_BATCH_OUTPUT"
+PHASES: Final = frozenset({"all", "validate-input", "execute", "validate-output"})
 
 
 def _load_config() -> dict[str, object]:
@@ -59,14 +60,30 @@ def _emit_kestra_result(row_count: int, elapsed_seconds: float, output_path: Pat
     print(f"::{json.dumps(payload, separators=(',', ':'))}::", flush=True)
 
 
-def export_query(database_path: Path, query: str, output_path: Path) -> int:
-    """Run one read-only SQLite query and atomically write its rows as CSV."""
+def validate_input(database_path: Path, query: str) -> None:
+    """Validate the source and query contract without creating an artifact."""
     if not database_path.is_file():
         raise FileNotFoundError(f"Database does not exist: {database_path}")
-
     normalized_query = query.lstrip().lower()
     if not normalized_query.startswith(("select", "with")):
         raise ValueError("Only SELECT or WITH queries are allowed")
+    print(f"progress phase=input_validated database={database_path}", flush=True)
+
+
+def validate_output(output_path: Path) -> None:
+    """Validate that the execute phase produced a readable CSV with a header."""
+    if not output_path.is_file():
+        raise FileNotFoundError(f"CSV output does not exist: {output_path}")
+    with output_path.open(encoding="utf-8", newline="") as output_file:
+        header = next(csv.reader(output_file), None)
+    if not header or any(not column for column in header):
+        raise ValueError("CSV output must contain a non-empty header")
+    print(f"progress phase=output_validated output={output_path}", flush=True)
+
+
+def export_query(database_path: Path, query: str, output_path: Path) -> int:
+    """Run one read-only SQLite query and atomically write its rows as CSV."""
+    validate_input(database_path, query)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = output_path.with_suffix(f"{output_path.suffix}.tmp")
@@ -98,15 +115,27 @@ def export_query(database_path: Path, query: str, output_path: Path) -> int:
     return row_count
 
 
-def main() -> int:
-    """Execute the configured export and translate expected configuration errors to exit 64."""
+def main(arguments: list[str] | None = None) -> int:
+    """Run one independently retryable batch phase, or every phase for compatibility."""
     started_at = time.monotonic()
     try:
+        selected_arguments = sys.argv[1:] if arguments is None else arguments
+        phase = selected_arguments[0] if selected_arguments else "all"
+        if len(selected_arguments) > 1 or phase not in PHASES:
+            raise ValueError(
+                "Expected at most one phase: validate-input, execute, validate-output, or all"
+            )
         config = _load_config()
         database_path = Path(_required_string(config, "database_path"))
         query = _required_string(config, "query")
         output_path = Path(_required_env(OUTPUT_ENV))
-        row_count = export_query(database_path, query, output_path)
+        if phase in {"all", "validate-input"}:
+            validate_input(database_path, query)
+        if phase in {"all", "execute"}:
+            row_count = export_query(database_path, query, output_path)
+            _emit_kestra_result(row_count, time.monotonic() - started_at, output_path)
+        if phase in {"all", "validate-output"}:
+            validate_output(output_path)
     except (FileNotFoundError, json.JSONDecodeError, sqlite3.Error, ValueError) as error:
         print(
             f"batch_error type={type(error).__name__} message={error}",
@@ -115,7 +144,6 @@ def main() -> int:
         )
         return 64
 
-    _emit_kestra_result(row_count, time.monotonic() - started_at, output_path)
     return 0
 
 
