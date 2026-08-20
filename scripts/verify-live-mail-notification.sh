@@ -35,7 +35,7 @@ done
 
 # shellcheck source=scripts/lib/gke-auth.sh
 source "${SCRIPT_DIR}/lib/gke-auth.sh"
-ensure_gke_auth_plugin
+ensure_gke_kubectl_auth
 
 KESTRA_URL="${KESTRA_URL:-}"
 if [[ -z "${KESTRA_URL}" ]]; then

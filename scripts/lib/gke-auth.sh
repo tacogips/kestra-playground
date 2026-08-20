@@ -24,3 +24,28 @@ ensure_gke_auth_plugin() {
     return 1
   fi
 }
+
+ensure_gcloud_account() {
+  # google-github-actions/auth only writes an ADC credentials file. The gcloud
+  # CLI keeps its own account list, and gke-gcloud-auth-plugin mints tokens by
+  # shelling out to gcloud, so on a runner with no activated account it fails
+  # with "failure while executing gcloud ... Please run gcloud auth login".
+  if gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | grep -q .; then
+    return 0
+  fi
+
+  if [[ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" || ! -f "${GOOGLE_APPLICATION_CREDENTIALS}" ]]; then
+    echo "No active gcloud account and no GOOGLE_APPLICATION_CREDENTIALS to activate one from." >&2
+    return 1
+  fi
+
+  echo "Activating gcloud with the workload identity credentials file."
+  gcloud auth login --cred-file="${GOOGLE_APPLICATION_CREDENTIALS}" --quiet
+}
+
+# Everything kubectl needs to reach a GKE cluster: the credential plugin binary
+# and a gcloud account it can mint tokens with.
+ensure_gke_kubectl_auth() {
+  ensure_gcloud_account || return 1
+  ensure_gke_auth_plugin || return 1
+}

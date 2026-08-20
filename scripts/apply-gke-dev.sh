@@ -53,7 +53,7 @@ require_command yq
 
 # shellcheck source=scripts/lib/gke-auth.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/gke-auth.sh"
-ensure_gke_auth_plugin
+ensure_gke_kubectl_auth
 
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
