@@ -162,18 +162,19 @@ def test_gke_variant_matches_the_routed_kestra2_deployment() -> None:
     assert [task["id"] for task in sample["tasks"]] == [task["id"] for task in canonical["tasks"]]
 
 
-def test_apply_script_installs_the_email_plugin_and_keeps_volumes_in_sync() -> None:
+def test_gke_apply_does_not_stage_plugins_into_an_emptydir() -> None:
     script = (ROOT / "scripts/apply-gke-dev.sh").read_text(encoding="utf-8")
 
-    assert "io.kestra.plugin:plugin-email:${email_plugin_version}" in script
-    assert "name: install-email-plugin" in script
-    # Helm replaces list values, so the generated values file has to repeat the
-    # tmp entries defined in k8s/helm/kestra-values.yaml.
-    values = _load_yaml("k8s/helm/kestra-values.yaml")
-    for mount in values["common"]["extraVolumeMounts"]:
-        assert f"mountPath: {mount['mountPath']}" in script
-    for volume in values["common"]["extraVolumes"]:
-        assert f"- name: {volume['name']}" in script
+    # Staging the image's plugins into an emptyDir evicted every pod with
+    # "ephemeral local storage usage exceeds the total limit of containers 1Gi",
+    # because the runtime image bundles every plugin. Plugins belong in the
+    # image: the runtime image ships them and the routed image build installs the
+    # Email plugin explicitly.
+    assert "install-email-plugin" not in script
+    assert "extra-plugins" not in script
+
+    workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+    assert "io.kestra.plugin:plugin-email:" in workflow
 
 
 def test_local_plugin_versions_match_the_routed_image_build() -> None:

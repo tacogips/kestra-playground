@@ -44,9 +44,6 @@ common:
       value: http://otel-collector:4317
     - name: KESTRA_DB_MAX_POOL_SIZE
       value: "4"
-  # scripts/apply-gke-dev.sh overrides these two lists so it can add the plugin
-  # volume for the Email plugin init container. Helm replaces lists rather than
-  # merging them, so keep the entries here and in that script in sync.
   extraVolumeMounts:
     - name: tmp
       mountPath: /tmp/kestra-wd
