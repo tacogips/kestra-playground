@@ -16,6 +16,10 @@ if [[ ! -f "${AFFILIATE_ENV_FILE}" ]]; then
   cp "${AFFILIATE_ENV_FILE}.example" "${AFFILIATE_ENV_FILE}"
 fi
 
+# The EC Kestra fork image bundles almost no plugins; make sure the plugin JARs
+# that docker-compose.yml bind-mounts exist before compose resolves the mounts.
+"${ROOT_DIR}/local/docker/fetch-plugins.sh"
+
 compose_env_keys=()
 while IFS='=' read -r key _; do
   [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
@@ -58,5 +62,6 @@ compose up -d
 
 echo "EC Kestra is starting at http://localhost:8080"
 echo "Affiliate Kestra is starting at http://localhost:8082"
+echo "Mailpit (mock SMTP sink) UI is at http://localhost:8025"
 echo "Register EC flows with: scripts/register-flows.sh http://localhost:8080 batch-groups/ec/flows"
 echo "Register affiliate flows with: scripts/register-flows.sh http://localhost:8082 batch-groups/affiliate/flows"

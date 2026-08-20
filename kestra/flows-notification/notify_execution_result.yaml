@@ -1,0 +1,40 @@
+id: notify_execution_result
+namespace: playground.system
+description: |
+  Central mail notifier. It is an independent flow: it owns no business logic and
+  is never called by the flows it reports on. A Flow trigger fans it out over every
+  terminal state of every execution in the playground.notification namespace, and
+  MailExecution renders the execution summary (state, duration, execution link,
+  failing task) into the mail body.
+
+labels:
+  environment: playground
+  domain: notification
+
+tasks:
+  - id: mail_execution_summary
+    type: io.kestra.plugin.email.MailExecution
+    executionId: "{{ trigger.executionId }}"
+    from: "{{ envs.notify_mail_from }}"
+    to: "{{ envs.notify_mail_to }}"
+    host: "{{ envs.notify_smtp_host }}"
+    port: "{{ envs.notify_smtp_port }}"
+    # Mailpit speaks plain SMTP on 1025; the plugin default is SMTPS on 465.
+    transportStrategy: SMTP
+    subject: "[{{ trigger.state }}] {{ trigger.namespace }}.{{ trigger.flowId }}"
+    customMessage: |
+      execution_id={{ trigger.executionId }}
+      state={{ trigger.state }}
+      first_failed_task={{ trigger.firstFailedTaskId ?? 'none' }}
+      last_task={{ trigger.lastTaskId ?? 'none' }}
+
+triggers:
+  - id: on_terminal_state
+    type: io.kestra.plugin.core.trigger.Flow
+    # Kestra 2 replaced the 1.x `conditions` / `preconditions` blocks with
+    # `states` plus the `when` expression evaluated against the upstream flow.
+    states:
+      - SUCCESS
+      - FAILED
+      - WARNING
+    when: "{{ flow.namespace | startsWith('playground.notification') }}"

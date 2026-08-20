@@ -107,6 +107,7 @@ cp batch-groups/ec/config/envs/local.env.example batch-groups/ec/config/envs/loc
 cp batch-groups/affiliate/config/envs/local.env.example batch-groups/affiliate/config/envs/local.env
 mise run kestra:local:apple:start
 mise run kestra:flows:register
+mise run kestra:flows:verify-mail-notification-local
 mise run kestra:flows:generate
 mise run kestra:flows:report
 mise run kestra:flows:segments
@@ -166,6 +167,59 @@ scripts/run-flow.sh generate_ecommerce_mock_data 2026-06-25 http://34.84.21.87:8
 scripts/run-flow.sh build_ecommerce_daily_report 2026-06-25 http://34.84.21.87:8080
 scripts/run-flow.sh build_ecommerce_customer_segments 2026-06-25 http://34.84.21.87:8080
 ```
+
+## Mail Notification Flows
+
+`kestra/flows-notification/` shows how to mail the success or failure of other tasks, written for
+the Kestra 2 flow model that the `tacogips/kestra` fork build runs:
+
+- `playground.system.notify_execution_result` is an independent flow. It contains no business logic
+  and is never called by the flows it reports on: a `io.kestra.plugin.core.trigger.Flow` trigger
+  fires it on every terminal state of the `playground.notification` namespace, and
+  `io.kestra.plugin.email.MailExecution` renders the execution summary, including the failing task
+  ID, into the mail. Kestra 2 replaced the 1.x `conditions` / `preconditions` blocks with the
+  trigger's `states` list plus a `when` expression evaluated against the upstream flow, so
+  `when: "{{ flow.namespace | startsWith(...) }}"` selects which flows are watched.
+- `playground.inline.demo_inline_notification` keeps the mail tasks inside the flow in an
+  `afterExecution` block, which runs once the execution reached its final state. `execution.state`
+  is resolved there, so `runIf` splits the success and failure branches, and
+  `tasksWithState('FAILED')` names the failed tasks.
+- `playground.notification.sample_sales_batch` is the sample workflow that combines both layers. It
+  runs extract, transform, and publish stages, and `fail_stage` (`none`, `extract`, `transform`,
+  `publish`) selects which stage fails. Its `errors` block mails the error mail the moment a task
+  fails, with the failing task in the subject via `tasksWithState('FAILED')[0]['taskId']`; the
+  execution then reaches FAILED and the independent notifier mails the fail mail for the same run,
+  so one failure produces one `[ERROR]` mail and one `[FAILED]` mail. Its `finally` block only logs
+  cleanup, because `finally` runs while the execution is still `RUNNING` and cannot see the final
+  state - which is why the mail tasks are not there.
+
+The local Docker stack provides a mock mailer, so no mail leaves the machine: the `mailpit` service
+accepts plain SMTP on `mailpit:1025` and serves the captured messages at `http://localhost:8025`.
+The SMTP endpoint and addresses come from `ENV_NOTIFY_*` entries in
+`batch-groups/ec/config/envs/local.env`, which Kestra exposes to flows as `{{ envs.notify_* }}`. An
+env file created before those entries existed is not refreshed by `start.sh`; copy the `ENV_NOTIFY_*`
+block from `local.env.example` into it and recreate the `kestra-ec` container.
+
+The EC fork image is built from `kestra-base:latest-no-plugins` and therefore ships almost no
+plugins, so `local/docker/fetch-plugins.sh` downloads the pinned Email plugin JAR into
+`local/docker/plugins/` (checksum-verified, gitignored) and `docker-compose.yml` bind-mounts it into
+`/app/plugins`. `local/docker/start.sh` runs the fetch step automatically. Override
+`KESTRA_EMAIL_PLUGIN_VERSION` to pin a different version.
+
+```bash
+EC_KESTRA_IMAGE=tacogips-kestra:latest mise run kestra:local:docker:start
+mise run kestra:flows:verify-mail-notification-local
+```
+
+The verification task registers the five notification flows, runs a succeeding batch, a failing
+batch, both branches of the inline demo, and both paths of the sample workflow. It then asserts that
+Mailpit received exactly the expected mails - one `[STATE] namespace.flow` execution summary per
+execution plus the sample workflow's `[ERROR] ... task=simulate_transform_failure` mail - and that
+the error mail body names the failing task.
+
+Keep `EC_KESTRA_IMAGE` pointed at the fork build once the local EC database has been migrated by
+Kestra 2. Starting the EC service on the compose default `kestra/kestra:latest` (still a 1.x
+release) against that database fails at boot with `type "queue_type" does not exist`.
 
 ## Remote Python Batch Examples
 

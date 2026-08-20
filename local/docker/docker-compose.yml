@@ -33,6 +33,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     env_file:
       - ../../batch-groups/ec/config/envs/local.env
     ports:
@@ -43,6 +45,10 @@ services:
       - /tmp/kestra-wd:/tmp/kestra-wd
       - ../../kestra/config/application.yaml:/etc/kestra/application.yaml:ro
       - ../../batch-groups/ec/batches:/app/kestra-playground/batch-groups/ec/batches:ro
+      # The fork build is based on kestra-base:latest-no-plugins, so the Email
+      # plugin used by the notification flows is bind-mounted in.
+      # local/docker/fetch-plugins.sh downloads the pinned JAR.
+      - ./plugins/plugin-email-${KESTRA_EMAIL_PLUGIN_VERSION:-1.5.1}.jar:/app/plugins/plugin-email.jar:ro
 
   kestra-affiliate:
     # The affiliate batch group always runs the official kestra/kestra image; never
@@ -63,6 +69,23 @@ services:
       - /tmp/kestra-affiliate-wd:/tmp/kestra-wd
       - ../../kestra/config/application.yaml:/etc/kestra/application.yaml:ro
       - ../../batch-groups/affiliate/batches:/app/kestra-playground/batch-groups/affiliate/batches:ro
+
+  # Mock SMTP sink for the notification flows: SMTP on 1025, web UI and REST
+  # API on 8025. Nothing leaves the machine; messages are kept in memory.
+  mailpit:
+    image: axllent/mailpit:v1.30.7
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+      MP_MAX_MESSAGES: "500"
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   remote-worker:
     build:

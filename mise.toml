@@ -310,6 +310,12 @@ run = '''
 scripts/verify-local-batch-group-broadcast.sh "${BUSINESS_DATE:-}"
 '''
 
+[tasks."kestra:flows:verify-mail-notification-local"]
+description = "Run the mail notification demo flows locally and assert the Mailpit mock SMTP sink received them"
+run = '''
+scripts/verify-local-mail-notification.sh
+'''
+
 [tasks."kestra:flows:audit-federated-topology"]
 description = "Audit the OSS federated topology for GKE controller-only and two sticky GCE workers"
 run = '''
