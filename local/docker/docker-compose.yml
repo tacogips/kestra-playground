@@ -40,6 +40,14 @@ services:
     ports:
       - "8080:8080"
       - "8081:8081"
+    # A Kestra that cannot reach PostgreSQL logs connection stack traces as fast
+    # as the JVM can write them; without a cap the json-file log filled the
+    # Docker VM disk, which then kept PostgreSQL from recovering.
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     volumes:
       - kestra-ec-data:/app/storage
       - /tmp/kestra-wd:/tmp/kestra-wd
@@ -66,6 +74,14 @@ services:
     ports:
       - "8082:8080"
       - "8083:8081"
+    # A Kestra that cannot reach PostgreSQL logs connection stack traces as fast
+    # as the JVM can write them; without a cap the json-file log filled the
+    # Docker VM disk, which then kept PostgreSQL from recovering.
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     volumes:
       - kestra-affiliate-data:/app/storage
       - /tmp/kestra-affiliate-wd:/tmp/kestra-wd
