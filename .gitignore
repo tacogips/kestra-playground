@@ -37,6 +37,10 @@ crash.*.log
 ## locally downloaded Kestra plugin JARs
 local/docker/plugins/*.jar
 
+## generated per-batch-group runtime env files
+## local/docker/start.sh writes these from the checked-in .example templates
+batch-groups/*/config/envs/local.env
+
 ## ide's /meta infos
 **/.vscode
 **/.idea
