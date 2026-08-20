@@ -125,13 +125,17 @@ wait_for_endpoint() {
   return 1
 }
 
+# Every deploy target may be scaled to zero, and register-flows.sh gives up long
+# before a cold start finishes, so wait for all of them and not just the one
+# whose flow set depends on the version probe.
+wait_for_endpoint
+
 # The affiliate notification flow is not portable across Kestra lineages: the
 # canonical flow scopes its trigger with the 1.x `conditions` block, which
 # Kestra 2 rejects with `Unrecognized field "conditions"`, and the Kestra 2
 # variant needs a fork-only workerSelector the 1.x distribution does not know.
 # Swap in the matching variant when the endpoint is Kestra 2 or newer.
 if [[ "${SYSTEM}" == "affiliate" ]]; then
-  wait_for_endpoint
   kestra_major="$(
     curl --silent --show-error --fail \
       -u "${KESTRA_BASIC_AUTH_USERNAME}:${KESTRA_BASIC_AUTH_PASSWORD}" \
