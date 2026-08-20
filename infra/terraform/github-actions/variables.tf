@@ -26,3 +26,15 @@ variable "github_ref" {
   description = "Git ref allowed to impersonate the deploy service account."
   default     = "refs/heads/main"
 }
+
+variable "github_release_tag_prefixes" {
+  type        = list(string)
+  description = <<-EOT
+    Release tag prefixes allowed to impersonate the deploy service account.
+    .github/workflows/deploy-batch-groups.yml deploys a batch group when a tag
+    with one of these prefixes is pushed, and the OIDC token for a tag push
+    carries refs/tags/<tag> rather than the branch ref, so the tags need their own
+    entries in the provider attribute condition.
+  EOT
+  default     = ["EC-", "AFFILIATE-"]
+}

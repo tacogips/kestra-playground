@@ -57,6 +57,16 @@ resource "google_iam_workload_identity_pool" "github_actions" {
   description               = "OIDC identity pool for GitHub Actions deployments."
 }
 
+locals {
+  github_ref_condition = join(" || ", concat(
+    ["assertion.ref == '${var.github_ref}'"],
+    [
+      for prefix in var.github_release_tag_prefixes :
+      "assertion.ref.startsWith('refs/tags/${prefix}')"
+    ],
+  ))
+}
+
 resource "google_iam_workload_identity_pool_provider" "github_actions" {
   workload_identity_pool_id          = google_iam_workload_identity_pool.github_actions.workload_identity_pool_id
   workload_identity_pool_provider_id = "github"
@@ -71,7 +81,7 @@ resource "google_iam_workload_identity_pool_provider" "github_actions" {
     "attribute.workflow"   = "assertion.workflow"
   }
 
-  attribute_condition = "assertion.repository == '${var.github_repository}' && assertion.ref == '${var.github_ref}'"
+  attribute_condition = "assertion.repository == '${var.github_repository}' && (${local.github_ref_condition})"
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
