@@ -124,10 +124,34 @@ run = '''
 local/docker/start.sh
 '''
 
+[tasks."kestra:local:docker:start:ec"]
+description = "Start only the EC batch group locally (PostgreSQL, Mailpit, EC Kestra, SSH workers)"
+run = '''
+local/docker/start.sh ec
+'''
+
+[tasks."kestra:local:docker:start:affiliate"]
+description = "Start only the affiliate batch group locally (PostgreSQL, Mailpit, affiliate Kestra)"
+run = '''
+local/docker/start.sh affiliate
+'''
+
 [tasks."kestra:local:docker:stop"]
 description = "Stop local Docker Compose Kestra services"
 run = '''
 local/docker/stop.sh
+'''
+
+[tasks."kestra:local:docker:stop:ec"]
+description = "Stop only the EC batch group containers, leaving PostgreSQL and Mailpit up"
+run = '''
+local/docker/stop.sh ec
+'''
+
+[tasks."kestra:local:docker:stop:affiliate"]
+description = "Stop only the affiliate batch group container, leaving PostgreSQL and Mailpit up"
+run = '''
+local/docker/stop.sh affiliate
 '''
 
 [tasks."kestra:flows:register"]

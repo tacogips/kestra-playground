@@ -130,7 +130,18 @@ mise run kestra:local:docker:stop
 
 Both start paths boot the two batch groups side by side against one PostgreSQL container: the EC
 Kestra UI defaults to `http://localhost:8080` and the affiliate Kestra UI to
-`http://localhost:8082`. The affiliate flows have their own task entry points:
+`http://localhost:8082`. Each group can also run on its own, which keeps the shared PostgreSQL and
+Mailpit containers up and touches only that group's Kestra (and, for EC, its SSH workers):
+
+```bash
+mise run kestra:local:docker:start:ec
+mise run kestra:local:docker:start:affiliate
+mise run kestra:local:docker:stop:ec
+mise run kestra:local:docker:stop:affiliate
+```
+
+`local/docker/start.sh <all|ec|affiliate>` and `local/docker/stop.sh <all|ec|affiliate>` back those
+tasks; only the `all` stop removes the shared containers. The affiliate flows have their own task entry points:
 
 ```bash
 mise run kestra:affiliate:flows:register
@@ -550,7 +561,12 @@ resources.
 
 Both paths run the standard project checks first and then call
 `scripts/deploy-batch-group.sh <system>`, which registers the system's flow directory against
-its Kestra endpoint. Each group owns non-secret GCP routing defaults in
+its Kestra endpoint. Development doubles as staging, so both groups currently target the one Kestra
+on GKE: `batch-groups/affiliate/config/envs/gcp.env.example` points the affiliate group at the `k8s`
+subdomain and the `kestra-dev-gke` Basic Auth secrets, because no separate affiliate deployment
+exists yet. Since that endpoint runs the Kestra 2 fork build and scales to zero, the deploy script
+waits for the endpoint to wake, reads its major version, and swaps the affiliate notification flow
+for the matching variant. Each group owns non-secret GCP routing defaults in
 `batch-groups/<system>/config/envs/gcp.env.example`; an ignored `gcp.env` or an explicit
 `BATCH_GROUP_ENV_FILE` overrides that template. Endpoints resolve from `EC_KESTRA_DEPLOY_URL` /
 `AFFILIATE_KESTRA_DEPLOY_URL`, then from `LIVE_DOMAIN_NAME` subdomains

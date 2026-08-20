@@ -171,11 +171,11 @@ def test_batch_group_env_files_are_owned_separately() -> None:
         "KESTRA_AUTH_SECRET_PREFIX": "kestra-dev-gke",
         "KESTRA_AUTH_SOURCE": "secret-manager",
     }
-    assert affiliate_gcp == {
-        "LIVE_KESTRA_SUBDOMAIN": "affiliate-kestra",
-        "KESTRA_AUTH_SECRET_PREFIX": "kestra-affiliate",
-        "KESTRA_AUTH_SOURCE": "secret-manager",
-    }
+    # Development doubles as staging and has only one Kestra deployment, so the
+    # affiliate group currently targets the same endpoint and Basic Auth secrets
+    # as the EC group. Restore a dedicated affiliate subdomain and secret prefix
+    # once an affiliate deployment exists.
+    assert affiliate_gcp == ec_gcp
     assert not (ROOT / "kestra/config/envs/local.env.example").exists()
 
 

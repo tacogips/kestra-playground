@@ -91,6 +91,68 @@ if [[ -z "${KESTRA_BASIC_AUTH_USERNAME:-}" || -z "${KESTRA_BASIC_AUTH_PASSWORD:-
   exit 1
 fi
 
+WORK_FLOW_DIR=""
+cleanup() {
+  if [[ -n "${WORK_FLOW_DIR}" ]]; then
+    rm -rf "${WORK_FLOW_DIR}"
+  fi
+}
+trap cleanup EXIT INT TERM
+
+# The GKE environment scales to zero, so the first request only wakes it up.
+# Wait for the endpoint before probing its version, otherwise the probe reads the
+# activator's 502/503 and the wrong flow variant is deployed.
+wait_for_endpoint() {
+  local attempts="${KESTRA_DEPLOY_WAIT_ATTEMPTS:-60}"
+  local delay="${KESTRA_DEPLOY_WAIT_DELAY:-10}"
+  local status
+
+  for _ in $(seq 1 "${attempts}"); do
+    status="$(
+      curl --silent --output /dev/null --write-out '%{http_code}' --max-time 30 \
+        -u "${KESTRA_BASIC_AUTH_USERNAME}:${KESTRA_BASIC_AUTH_PASSWORD}" \
+        "${DEPLOY_URL%/}/api/v1/configs"
+    )" || status="000"
+
+    if [[ "${status}" == "200" ]]; then
+      return 0
+    fi
+    echo "Endpoint ${DEPLOY_URL} answered HTTP ${status}; waiting ${delay}s for it to start."
+    sleep "${delay}"
+  done
+
+  echo "Endpoint ${DEPLOY_URL} did not become ready." >&2
+  return 1
+}
+
+# The affiliate notification flow is not portable across Kestra lineages: the
+# canonical flow scopes its trigger with the 1.x `conditions` block, which
+# Kestra 2 rejects with `Unrecognized field "conditions"`, and the Kestra 2
+# variant needs a fork-only workerSelector the 1.x distribution does not know.
+# Swap in the matching variant when the endpoint is Kestra 2 or newer.
+if [[ "${SYSTEM}" == "affiliate" ]]; then
+  wait_for_endpoint
+  kestra_major="$(
+    curl --silent --show-error --fail \
+      -u "${KESTRA_BASIC_AUTH_USERNAME}:${KESTRA_BASIC_AUTH_PASSWORD}" \
+      "${DEPLOY_URL%/}/api/v1/configs" |
+      python3 -c 'import json,sys; print(json.load(sys.stdin)["version"].split(".")[0])'
+  )" || kestra_major=""
+
+  if [[ -n "${kestra_major}" && "${kestra_major}" != "1" ]]; then
+    echo "Endpoint reports Kestra ${kestra_major}; using the Kestra 2 notification variant."
+    WORK_FLOW_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kestra-affiliate-deploy.XXXXXX")"
+    for flow in "${FLOW_DIR}"/*.yaml; do
+      case "$(basename "${flow}")" in
+        notify_affiliate_execution_result.yaml) continue ;;
+        *) cp "${flow}" "${WORK_FLOW_DIR}/" ;;
+      esac
+    done
+    cp kestra/flows-notification-affiliate/*.yaml "${WORK_FLOW_DIR}/"
+    FLOW_DIR="${WORK_FLOW_DIR}"
+  fi
+fi
+
 echo "Deploying ${SYSTEM} flows from ${FLOW_DIR} to ${DEPLOY_URL}"
 "${SCRIPT_DIR}/register-flows.sh" "${DEPLOY_URL}" "${FLOW_DIR}"
 echo "Deployed ${SYSTEM} batch group flows."

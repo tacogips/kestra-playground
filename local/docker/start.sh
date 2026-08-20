@@ -2,6 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Start one batch group on its own, or both:
+#   local/docker/start.sh            both groups (default)
+#   local/docker/start.sh ec         PostgreSQL, Mailpit, EC Kestra, SSH workers
+#   local/docker/start.sh affiliate  PostgreSQL, Mailpit, affiliate Kestra
+BATCH_GROUP="${1:-${BATCH_GROUP:-all}}"
 ENV_FILE="${ROOT_DIR}/local/docker/.env"
 EC_ENV_FILE="${ROOT_DIR}/batch-groups/ec/config/envs/local.env"
 AFFILIATE_ENV_FILE="${ROOT_DIR}/batch-groups/affiliate/config/envs/local.env"
@@ -58,10 +63,33 @@ SELECT 'CREATE DATABASE ${AFFILIATE_KESTRA_DB}'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${AFFILIATE_KESTRA_DB}')\gexec
 SQL
 
-compose up -d
+# The SSH workers are EC remote-batch targets, and Mailpit is shared by both
+# groups, so only the Kestra service and its own dependencies differ per group.
+case "${BATCH_GROUP}" in
+  all)
+    services=()
+    ;;
+  ec)
+    services=(mailpit kestra-ec remote-worker remote-worker-b)
+    ;;
+  affiliate)
+    services=(mailpit kestra-affiliate)
+    ;;
+  *)
+    echo "Unknown batch group: ${BATCH_GROUP}" >&2
+    echo "Use one of: all, ec, affiliate" >&2
+    exit 1
+    ;;
+esac
 
-echo "EC Kestra is starting at http://localhost:8080"
-echo "Affiliate Kestra is starting at http://localhost:8082"
+compose up -d "${services[@]+"${services[@]}"}"
+
 echo "Mailpit (mock SMTP sink) UI is at http://localhost:8025"
-echo "Register EC flows with: scripts/register-flows.sh http://localhost:8080 batch-groups/ec/flows"
-echo "Register affiliate flows with: scripts/register-flows.sh http://localhost:8082 batch-groups/affiliate/flows"
+if [[ "${BATCH_GROUP}" == "all" || "${BATCH_GROUP}" == "ec" ]]; then
+  echo "EC Kestra is starting at http://localhost:8080"
+  echo "Register EC flows with: scripts/register-flows.sh http://localhost:8080 batch-groups/ec/flows"
+fi
+if [[ "${BATCH_GROUP}" == "all" || "${BATCH_GROUP}" == "affiliate" ]]; then
+  echo "Affiliate Kestra is starting at http://localhost:8082"
+  echo "Register affiliate flows with: scripts/register-flows.sh http://localhost:8082 batch-groups/affiliate/flows"
+fi
