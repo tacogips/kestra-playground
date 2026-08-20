@@ -135,3 +135,42 @@ def test_env_examples_expose_the_notification_settings_to_flows() -> None:
         assert entries["ENV_NOTIFY_SMTP_HOST"] == "mailpit"
         assert entries["ENV_NOTIFY_SMTP_PORT"] == "1025"
         assert entries["ENV_NOTIFY_MAIL_TO"] == "ops@playground.local"
+
+
+def test_gke_variant_matches_the_routed_kestra2_deployment() -> None:
+    notifier = _load_yaml(
+        "kestra/flows-notification-affiliate/notify_affiliate_execution_result.yaml"
+    )
+    sample = _load_yaml("kestra/flows-notification-affiliate/sample_affiliate_partner_batch.yaml")
+
+    # Kestra 2 rejects the 1.x conditions block outright, so the GKE variant has
+    # to scope its trigger with states and when.
+    trigger = notifier["triggers"][0]
+    assert "conditions" not in trigger
+    assert trigger["when"] == "{{ flow.namespace == 'playground.affiliate' }}"
+
+    # The routed deployment has no worker on the default queue, so every plugin
+    # task must name a worker group or it stays SUBMITTED forever.
+    for task in (notifier["tasks"][0], sample["errors"][0]):
+        assert task["workerSelector"]["tags"] == ["gke-small"]
+        assert task["workerSelector"]["fallback"] == "FAIL"
+
+    # Same flow ids as the 1.x pair, so both lineages expose one contract.
+    canonical = _load_yaml("batch-groups/affiliate/flows/sample_affiliate_partner_batch.yaml")
+    assert sample["id"] == canonical["id"]
+    assert sample["namespace"] == canonical["namespace"]
+    assert [task["id"] for task in sample["tasks"]] == [task["id"] for task in canonical["tasks"]]
+
+
+def test_apply_script_installs_the_email_plugin_and_keeps_volumes_in_sync() -> None:
+    script = (ROOT / "scripts/apply-gke-dev.sh").read_text(encoding="utf-8")
+
+    assert "io.kestra.plugin:plugin-email:${email_plugin_version}" in script
+    assert "name: install-email-plugin" in script
+    # Helm replaces list values, so the generated values file has to repeat the
+    # tmp entries defined in k8s/helm/kestra-values.yaml.
+    values = _load_yaml("k8s/helm/kestra-values.yaml")
+    for mount in values["common"]["extraVolumeMounts"]:
+        assert f"mountPath: {mount['mountPath']}" in script
+    for volume in values["common"]["extraVolumes"]:
+        assert f"- name: {volume['name']}" in script

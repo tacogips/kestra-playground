@@ -240,7 +240,24 @@ ClusterIP-only Mailpit sink to the `kestra-dev` namespace, and `scripts/apply-gk
 `ENV_NOTIFY_*` values into the runtime Secret so flows resolve `{{ envs.notify_* }}` to
 `mailpit:1025`. The sink has no Ingress, so it is reachable only from inside the cluster and through
 `kubectl port-forward`. Override the defaults with `NOTIFY_SMTP_HOST`, `NOTIFY_SMTP_PORT`,
-`NOTIFY_MAIL_FROM`, and `NOTIFY_MAIL_TO` when applying.
+`NOTIFY_MAIL_FROM`, and `NOTIFY_MAIL_TO` when applying. The mail itself is plain SMTP from the Kestra
+worker to `mailpit:1025`; Mailpit stores every message and relays none, so nothing reaches a real
+mailbox.
+
+The GKE environment runs the `tacogips/kestra` fork build, so it needs its own variant of the
+affiliate example in `kestra/flows-notification-affiliate/`. Two properties are not portable between
+the lineages, and each fails loudly rather than silently:
+
+- Kestra 2 removed the condition plugins, so registering the 1.x notifier there fails with
+  `Unrecognized field "conditions"`. The variant scopes its trigger with `states` and `when`.
+- The routed deployment has no worker on the `default` queue - the executor runs core tasks in
+  process and subscribes only a `SystemWorker` to the `system` queue - so a plugin task such as the
+  mail task stays `SUBMITTED` forever unless it names a worker group. The variant tags its mail tasks
+  with `workerSelector: {tags: [gke-small]}`, which the official 1.x distribution does not
+  understand.
+
+`scripts/verify-live-mail-notification.sh` reads the endpoint's major version and registers the
+matching directory, so the same command works against either lineage.
 
 ```bash
 mise run k8s:apply:dev

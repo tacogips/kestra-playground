@@ -18,7 +18,8 @@ BUSINESS_DATE="${1:-${BUSINESS_DATE:-2026-06-25}}"
 MAILPIT_LOCAL_PORT="${MAILPIT_LOCAL_PORT:-18025}"
 MAILPIT_URL="http://127.0.0.1:${MAILPIT_LOCAL_PORT}"
 NOTIFICATION_WAIT_SECONDS="${NOTIFICATION_WAIT_SECONDS:-180}"
-FLOW_DIR="${ROOT_DIR}/batch-groups/affiliate/flows"
+FLOW_DIR_1X="${ROOT_DIR}/batch-groups/affiliate/flows"
+FLOW_DIR_2X="${ROOT_DIR}/kestra/flows-notification-affiliate"
 PORT_FORWARD_PID=""
 
 require_command() {
@@ -91,6 +92,22 @@ fi
 
 echo "Clearing the Mailpit mailbox"
 curl --silent --show-error --fail -X DELETE "${MAILPIT_URL}/api/v1/messages" >/dev/null
+
+# The flows exist in two variants because neither the Flow trigger nor the task
+# routing is portable across lineages. Kestra 2 removed the condition plugins the
+# 1.x variant scopes its trigger with and rejects it with
+# `Unrecognized field "conditions"`, while the routed fork build needs a
+# workerSelector the official 1.x distribution does not know. Pick the directory
+# that matches the endpoint.
+kestra_major="$(
+  kestra_api "${KESTRA_URL%/}/api/v1/configs" |
+    python3 -c 'import json,sys; print(json.load(sys.stdin)["version"].split(".")[0])'
+)"
+case "${kestra_major}" in
+  1) FLOW_DIR="${FLOW_DIR_1X}" ;;
+  *) FLOW_DIR="${FLOW_DIR_2X}" ;;
+esac
+echo "Kestra major version ${kestra_major}; registering ${FLOW_DIR#"${ROOT_DIR}/"}"
 
 "${ROOT_DIR}/scripts/register-flows.sh" "${KESTRA_URL}" "${FLOW_DIR}"
 

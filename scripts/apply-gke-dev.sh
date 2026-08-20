@@ -104,6 +104,7 @@ if [[ -z "$federated_gce_b_url" && -n "${LIVE_DOMAIN_NAME:-}" ]]; then
 fi
 # Notification mail settings for the mail notification flows. They point at the
 # in-cluster Mailpit mock SMTP sink by default, so no mail leaves the cluster.
+email_plugin_version="${KESTRA_EMAIL_PLUGIN_VERSION:-1.5.1}"
 notify_smtp_host="${NOTIFY_SMTP_HOST:-mailpit}"
 notify_smtp_port="${NOTIFY_SMTP_PORT:-1025}"
 notify_mail_from="${NOTIFY_MAIL_FROM:-kestra@playground.local}"
@@ -211,11 +212,47 @@ if [[ -z "$image_repository" || -z "$image_tag" || "$image_repository" == "$imag
   exit 1
 fi
 
+# The Kestra image is built from the no-plugins base, so the Email plugin used by
+# the mail notification flows is installed into an emptyDir by an init container
+# that first copies the plugins already baked into the image. Helm replaces list
+# values from later values files instead of merging them, so the extraVolume
+# lists below must repeat the entries from kestra-values.yaml.
 helm_runtime_values="${tmpdir}/kestra-runtime-values.yaml"
 cat >"$helm_runtime_values" <<EOF
 image:
   repository: ${image_repository}
   tag: ${image_tag}
+common:
+  initContainers:
+    - name: install-email-plugin
+      image: ${kestra_image}
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          cp -a /app/plugins/. /shared-plugins/ 2>/dev/null || true
+          /app/kestra plugins install io.kestra.plugin:plugin-email:${email_plugin_version} --plugins /shared-plugins
+      volumeMounts:
+        - name: extra-plugins
+          mountPath: /shared-plugins
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+  extraVolumeMounts:
+    - name: tmp
+      mountPath: /tmp/kestra-wd
+    - name: extra-plugins
+      mountPath: /app/plugins
+  extraVolumes:
+    - name: tmp
+      emptyDir: {}
+    - name: extra-plugins
+      emptyDir: {}
 EOF
 
 helm_args=()

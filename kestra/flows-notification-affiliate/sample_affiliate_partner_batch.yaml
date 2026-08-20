@@ -1,0 +1,91 @@
+id: sample_affiliate_partner_batch
+namespace: playground.affiliate
+description: |
+  Affiliate-category sample batch that exercises both notification layers.
+
+  `errors` mails the error mail with the failing task as soon as a task fails,
+  the execution then reaches FAILED and playground.affiliate.system's notifier
+  mails the fail mail for the same run, and `finally` only logs cleanup because
+  it runs while the execution is still RUNNING.
+
+  Set `fail_stage` to collect, aggregate, or publish to fail that stage.
+
+  This is the Kestra 2 / routed-worker variant used by the GKE environment. It
+  matches batch-groups/affiliate/flows/sample_affiliate_partner_batch.yaml except
+  that the mail task carries a workerSelector, because the routed deployment has
+  no worker on the default queue and the fork-only workerSelector property is
+  rejected by the official 1.x distribution.
+
+labels:
+  environment: playground
+  domain: affiliate
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+    description: Business date the batch reports on.
+
+  - id: fail_stage
+    type: STRING
+    required: true
+    defaults: none
+    description: Stage that should fail; use none for the success path.
+
+pluginDefaults:
+  - type: io.kestra.plugin.email.MailSend
+    values:
+      from: "{{ envs.notify_mail_from }}"
+      to: "{{ envs.notify_mail_to }}"
+      host: "{{ envs.notify_smtp_host }}"
+      port: "{{ envs.notify_smtp_port }}"
+      transportStrategy: SMTP
+
+tasks:
+  - id: collect_partner_clicks
+    type: io.kestra.plugin.core.debug.Return
+    format: "collected partner clicks for {{ inputs.business_date }}"
+
+  - id: simulate_collect_failure
+    type: io.kestra.plugin.core.execution.Fail
+    condition: "{{ inputs.fail_stage == 'collect' }}"
+    errorMessage: "collect stage failed for {{ inputs.business_date }}"
+
+  - id: aggregate_conversions
+    type: io.kestra.plugin.core.debug.Return
+    format: "aggregated {{ outputs.collect_partner_clicks.value }}"
+
+  - id: simulate_aggregate_failure
+    type: io.kestra.plugin.core.execution.Fail
+    condition: "{{ inputs.fail_stage == 'aggregate' }}"
+    errorMessage: "aggregate stage failed for {{ inputs.business_date }}"
+
+  - id: publish_partner_rankings
+    type: io.kestra.plugin.core.log.Log
+    message: "published {{ outputs.aggregate_conversions.value }}"
+
+  - id: simulate_publish_failure
+    type: io.kestra.plugin.core.execution.Fail
+    condition: "{{ inputs.fail_stage == 'publish' }}"
+    errorMessage: "publish stage failed for {{ inputs.business_date }}"
+
+errors:
+  - id: mail_error_details
+    type: io.kestra.plugin.email.MailSend
+    workerSelector:
+      tags: [gke-small]
+      match: ALL
+      fallback: FAIL
+    subject: "[ERROR] {{ flow.namespace }}.{{ flow.id }} task={{ tasksWithState('FAILED')[0]['taskId'] }}"
+    plainTextContent: |
+      batch_group=affiliate
+      execution_id={{ execution.id }}
+      business_date={{ inputs.business_date }}
+      fail_stage={{ inputs.fail_stage }}
+      failed_tasks={{ tasksWithState('FAILED') }}
+
+finally:
+  - id: log_cleanup
+    type: io.kestra.plugin.core.log.Log
+    message: "cleanup done for {{ execution.id }}"
