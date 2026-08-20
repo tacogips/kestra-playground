@@ -91,8 +91,13 @@ def test_local_compose_provides_a_mock_mailer_and_the_email_plugin() -> None:
     assert "1025:1025" in mailpit["ports"]
     assert "8025:8025" in mailpit["ports"]
 
+    # Both batch groups mail through the same sink.
+    for service_name in ("kestra-ec", "kestra-affiliate"):
+        assert services[service_name]["depends_on"]["mailpit"]["condition"] == "service_started"
+
+    # Only the EC fork image needs the plugin bind-mount; the official image that
+    # the affiliate group runs already bundles the Email plugin.
     kestra_ec = services["kestra-ec"]
-    assert kestra_ec["depends_on"]["mailpit"]["condition"] == "service_started"
     assert any(
         volume.endswith(":/app/plugins/plugin-email.jar:ro") for volume in kestra_ec["volumes"]
     )

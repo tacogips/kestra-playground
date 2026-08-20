@@ -216,19 +216,24 @@ plugins, so `local/docker/fetch-plugins.sh` downloads the pinned Email plugin JA
 `KESTRA_EMAIL_PLUGIN_VERSION` to pin a different version.
 
 ```bash
-EC_KESTRA_IMAGE=tacogips-kestra:latest mise run kestra:local:docker:start
+mise run kestra:local:docker:start
 mise run kestra:flows:verify-mail-notification-local
+mise run kestra:affiliate:flows:verify-mail-notification-local
 ```
 
-The verification task registers the five notification flows, runs a succeeding batch, a failing
-batch, both branches of the inline demo, and both paths of the sample workflow. It then asserts that
+`scripts/verify-local-mail-notification.sh <ec|affiliate>` backs both tasks. The EC run registers the
+five Kestra 2 notification flows on `:8080` and exercises the demo batches, both branches of the
+inline demo, and both paths of the sample workflow. The affiliate run registers the affiliate flows
+on the official 1.x endpoint at `:8082` and exercises the sample affiliate batch. Each asserts that
 Mailpit received exactly the expected mails - one `[STATE] namespace.flow` execution summary per
-execution plus the sample workflow's `[ERROR] ... task=simulate_transform_failure` mail - and that
-the error mail body names the failing task.
+execution plus the sample workflow's `[ERROR] ... task=simulate_*_failure` mail - and that the error
+mail body names the failing task.
 
-Keep `EC_KESTRA_IMAGE` pointed at the fork build once the local EC database has been migrated by
-Kestra 2. Starting the EC service on the compose default `kestra/kestra:latest` (still a 1.x
-release) against that database fails at boot with `type "queue_type" does not exist`.
+Keep the local EC service on the fork build once its database has been migrated by Kestra 2:
+`local/docker/.env` sets `EC_KESTRA_IMAGE`, and because `start.sh` passes that file to compose with
+`--env-file` while unsetting the same keys in the shell, the file wins over an exported variable.
+Starting the EC service on `kestra/kestra:latest` (still a 1.x release) against a Kestra 2 database
+fails at boot with `type "queue_type" does not exist`.
 
 On GKE the same shape is deployed without a real mail server: `k8s/base/mailpit.yaml` adds a
 ClusterIP-only Mailpit sink to the `kestra-dev` namespace, and `scripts/apply-gke-dev.sh` writes the

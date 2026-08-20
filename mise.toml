@@ -311,9 +311,15 @@ scripts/verify-local-batch-group-broadcast.sh "${BUSINESS_DATE:-}"
 '''
 
 [tasks."kestra:flows:verify-mail-notification-local"]
-description = "Run the mail notification demo flows locally and assert the Mailpit mock SMTP sink received them"
+description = "Run the EC mail notification demo flows locally and assert the Mailpit mock SMTP sink received them"
 run = '''
-scripts/verify-local-mail-notification.sh
+scripts/verify-local-mail-notification.sh ec
+'''
+
+[tasks."kestra:affiliate:flows:verify-mail-notification-local"]
+description = "Run the affiliate mail notification sample locally and assert the Mailpit mock SMTP sink received them"
+run = '''
+scripts/verify-local-mail-notification.sh affiliate
 '''
 
 [tasks."kestra:live:verify-mail-notification"]

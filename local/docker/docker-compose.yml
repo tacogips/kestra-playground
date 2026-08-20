@@ -59,6 +59,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     env_file:
       - ../../batch-groups/affiliate/config/envs/local.env
     ports:
