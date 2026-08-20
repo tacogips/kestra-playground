@@ -36,6 +36,7 @@ fi
 GKE_MIN_COST_ENABLED="${GKE_MIN_COST_ENABLED:-false}"
 NAMESPACE="${NAMESPACE:-kestra-dev}"
 KESTRA_ALLOW_LINEAGE_SWITCH="${KESTRA_ALLOW_LINEAGE_SWITCH:-false}"
+email_plugin_version="${KESTRA_EMAIL_PLUGIN_VERSION:-1.5.1}"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -223,19 +224,19 @@ fi
 # reports "type \"queue_type\" does not exist" against a 1.x one. The repo builds
 # both - the runtime image from the official 1.x base and the routed image from
 # the 2.x fork - so refuse to swap lineages unless the caller says so.
+lineage_of() {
+  case "$1" in
+    *kestra-oss-worker-routing*) echo "fork" ;;
+    *) echo "official" ;;
+  esac
+}
+target_lineage="$(lineage_of "$kestra_image")"
 current_image="$(
   kubectl -n "$NAMESPACE" get deployment kestra-webserver \
     -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true
 )"
 if [[ -n "$current_image" && "$KESTRA_ALLOW_LINEAGE_SWITCH" != "true" ]]; then
-  lineage_of() {
-    case "$1" in
-      *kestra-oss-worker-routing*) echo "fork" ;;
-      *) echo "official" ;;
-    esac
-  }
   current_lineage="$(lineage_of "$current_image")"
-  target_lineage="$(lineage_of "$kestra_image")"
 
   if [[ "$current_lineage" != "$target_lineage" ]]; then
     echo "Refusing to deploy a ${target_lineage} image over a ${current_lineage} deployment." >&2
@@ -253,6 +254,51 @@ image:
   repository: ${image_repository}
   tag: ${image_tag}
 EOF
+
+# The fork image is built from kestra-base:latest-no-plugins, so images built
+# before the Email plugin was added to the routed build have no mail plugin at
+# all. Stage it next to the plugins already in the image.
+#
+# This must never run against the official runtime image: that one bundles every
+# plugin and is 2.85 GB, so copying its plugin directory into an emptyDir exceeds
+# the 1Gi Autopilot ephemeral storage limit and evicts every pod. Helm replaces
+# list values from later values files rather than merging them, so the volume
+# lists below repeat the entries from kestra-values.yaml.
+if [[ "$target_lineage" == "fork" ]]; then
+  cat >>"$helm_runtime_values" <<EOF
+common:
+  initContainers:
+    - name: install-email-plugin
+      image: ${kestra_image}
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          cp -a /app/plugins/. /shared-plugins/ 2>/dev/null || true
+          /app/kestra plugins install io.kestra.plugin:plugin-email:${email_plugin_version} --plugins /shared-plugins
+      volumeMounts:
+        - name: extra-plugins
+          mountPath: /shared-plugins
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+  extraVolumeMounts:
+    - name: tmp
+      mountPath: /tmp/kestra-wd
+    - name: extra-plugins
+      mountPath: /app/plugins
+  extraVolumes:
+    - name: tmp
+      emptyDir: {}
+    - name: extra-plugins
+      emptyDir: {}
+EOF
+fi
 
 helm_args=()
 helm_args+=(--values "${HELM_VALUES_DIR}/kestra-values.yaml")

@@ -14,9 +14,10 @@ description: |
   Both variants watch the playground.affiliate namespace exactly, so the
   notifier in playground.affiliate.system never triggers on its own executions.
 
-  The mail task carries a workerSelector because the GKE deployment only runs
-  routed workers; the fork-only workerSelector property is another reason this
-  variant cannot be shared with the official 1.x distribution.
+  The mail task runs on the default worker queue, which is what the GKE apply
+  provisions. A routed deployment has no worker there and needs a fork-only
+  workerSelector on the task instead - another reason this variant cannot be
+  shared with the official 1.x distribution.
 
 labels:
   environment: playground
@@ -31,10 +32,6 @@ tasks:
     # topology has the opposite shape: a plain worker on the default queue and no
     # gke-small group. IGNORE drops the tag when no tagged worker exists, so the
     # flow runs under both.
-    workerSelector:
-      tags: [gke-small]
-      match: ALL
-      fallback: IGNORE
     executionId: "{{ trigger.executionId }}"
     from: "{{ envs.notify_mail_from }}"
     to: "{{ envs.notify_mail_to }}"

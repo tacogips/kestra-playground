@@ -10,11 +10,10 @@ description: |
 
   Set `fail_stage` to collect, aggregate, or publish to fail that stage.
 
-  This is the Kestra 2 / routed-worker variant used by the GKE environment. It
-  matches batch-groups/affiliate/flows/sample_affiliate_partner_batch.yaml except
-  that the mail task carries a workerSelector, because the routed deployment has
-  no worker on the default queue and the fork-only workerSelector property is
-  rejected by the official 1.x distribution.
+  This is the Kestra 2 variant used by the GKE environment. It matches
+  batch-groups/affiliate/flows/sample_affiliate_partner_batch.yaml; only the
+  notification flow differs between the lineages, and this copy exists so the
+  deploy can register one directory per lineage.
 
 labels:
   environment: playground
@@ -73,10 +72,6 @@ tasks:
 errors:
   - id: mail_error_details
     type: io.kestra.plugin.email.MailSend
-    workerSelector:
-      tags: [gke-small]
-      match: ALL
-      fallback: IGNORE
     subject: "[ERROR] {{ flow.namespace }}.{{ flow.id }} task={{ tasksWithState('FAILED')[0]['taskId'] }}"
     plainTextContent: |
       batch_group=affiliate

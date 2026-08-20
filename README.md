@@ -264,11 +264,13 @@ the lineages, and each fails loudly rather than silently:
 
 - Kestra 2 removed the condition plugins, so registering the 1.x notifier there fails with
   `Unrecognized field "conditions"`. The variant scopes its trigger with `states` and `when`.
-- The routed deployment has no worker on the `default` queue - the executor runs core tasks in
-  process and subscribes only a `SystemWorker` to the `system` queue - so a plugin task such as the
-  mail task stays `SUBMITTED` forever unless it names a worker group. The variant tags its mail tasks
-  with `workerSelector: {tags: [gke-small]}`, which the official 1.x distribution does not
-  understand.
+- Task routing depends on the worker topology. `scripts/apply-gke-dev.sh` provisions a plain worker
+  on the `default` queue, which is what these flows rely on. A routed deployment instead runs
+  tag-scoped workers and no default one - the executor only runs core tasks in process and
+  subscribes a `SystemWorker` to the `system` queue - so there a plugin task such as the mail task
+  stays `SUBMITTED` forever unless it carries a fork-only
+  `workerSelector: {tags: [gke-small], fallback: IGNORE}`, which the official 1.x distribution does
+  not understand.
 
 `scripts/verify-live-mail-notification.sh` reads the endpoint's major version and registers the
 matching directory, so the same command works against either lineage.

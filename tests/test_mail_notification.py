@@ -149,13 +149,11 @@ def test_gke_variant_matches_the_routed_kestra2_deployment() -> None:
     assert "conditions" not in trigger
     assert trigger["when"] == "{{ flow.namespace == 'playground.affiliate' }}"
 
-    # In routed mode there is no worker on the default queue, so every plugin task
-    # must name a worker group or it stays SUBMITTED forever. The standard
-    # topology has no gke-small group at all, so the fallback must drop the tag
-    # rather than fail the task.
+    # Tasks run on the default worker queue, which is what the GKE apply
+    # provisions. Pinning them to the routed gke-small group left the mail task
+    # SUBMITTED forever once the cluster was back on the standard topology.
     for task in (notifier["tasks"][0], sample["errors"][0]):
-        assert task["workerSelector"]["tags"] == ["gke-small"]
-        assert task["workerSelector"]["fallback"] == "IGNORE"
+        assert "workerSelector" not in task
 
     # Same flow ids as the 1.x pair, so both lineages expose one contract.
     canonical = _load_yaml("batch-groups/affiliate/flows/sample_affiliate_partner_batch.yaml")
@@ -164,16 +162,17 @@ def test_gke_variant_matches_the_routed_kestra2_deployment() -> None:
     assert [task["id"] for task in sample["tasks"]] == [task["id"] for task in canonical["tasks"]]
 
 
-def test_gke_apply_does_not_stage_plugins_into_an_emptydir() -> None:
+def test_gke_apply_stages_plugins_only_for_the_fork_image() -> None:
     script = (ROOT / "scripts/apply-gke-dev.sh").read_text(encoding="utf-8")
 
-    # Staging the image's plugins into an emptyDir evicted every pod with
-    # "ephemeral local storage usage exceeds the total limit of containers 1Gi",
-    # because the runtime image bundles every plugin. Plugins belong in the
-    # image: the runtime image ships them and the routed image build installs the
-    # Email plugin explicitly.
-    assert "install-email-plugin" not in script
-    assert "extra-plugins" not in script
+    # The fork image starts from the no-plugins base and needs the Email plugin
+    # staged beside the ones already in it. The official runtime image must never
+    # get the same treatment: it bundles every plugin and is 2.85 GB, so copying
+    # its plugin directory into an emptyDir evicted every pod with "ephemeral
+    # local storage usage exceeds the total limit of containers 1Gi".
+    guard = script.index('if [[ "$target_lineage" == "fork" ]]; then')
+    staging = script.index("name: install-email-plugin")
+    assert guard < staging
 
     workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
     assert "io.kestra.plugin:plugin-email:" in workflow
