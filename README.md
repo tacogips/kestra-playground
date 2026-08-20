@@ -221,10 +221,13 @@ env file created before those entries existed is not refreshed by `start.sh`; co
 block from `local.env.example` into it and recreate the `kestra-ec` container.
 
 The EC fork image is built from `kestra-base:latest-no-plugins` and therefore ships almost no
-plugins, so `local/docker/fetch-plugins.sh` downloads the pinned Email plugin JAR into
-`local/docker/plugins/` (checksum-verified, gitignored) and `docker-compose.yml` bind-mounts it into
-`/app/plugins`. `local/docker/start.sh` runs the fetch step automatically. Override
-`KESTRA_EMAIL_PLUGIN_VERSION` to pin a different version.
+plugins, so `local/docker/fetch-plugins.sh` downloads the pinned Email, PostgreSQL, and Shell plugin
+JARs into `local/docker/plugins/` (checksum-verified, gitignored) and `docker-compose.yml`
+bind-mounts them into `/app/plugins`. Without the PostgreSQL plugin the EC batch flows cannot even
+register on that image. The versions match the ones the routed image build installs, and a test keeps
+the two in sync. `local/docker/start.sh` runs the fetch step automatically; override
+`KESTRA_EMAIL_PLUGIN_VERSION`, `KESTRA_JDBC_POSTGRES_PLUGIN_VERSION`, or
+`KESTRA_SCRIPT_SHELL_PLUGIN_VERSION` to pin different versions.
 
 ```bash
 mise run kestra:local:docker:start

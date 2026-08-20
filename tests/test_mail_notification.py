@@ -174,3 +174,21 @@ def test_apply_script_installs_the_email_plugin_and_keeps_volumes_in_sync() -> N
         assert f"mountPath: {mount['mountPath']}" in script
     for volume in values["common"]["extraVolumes"]:
         assert f"- name: {volume['name']}" in script
+
+
+def test_local_plugin_versions_match_the_routed_image_build() -> None:
+    fetch = (ROOT / "local/docker/fetch-plugins.sh").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+
+    # The local EC container and the routed image both start from the no-plugins
+    # base, so they must install the same plugin versions or a flow that
+    # registers locally can fail on GKE.
+    for artifact, variable in (
+        ("plugin-email", "KESTRA_EMAIL_PLUGIN_VERSION"),
+        ("plugin-jdbc-postgres", "KESTRA_JDBC_POSTGRES_PLUGIN_VERSION"),
+        ("plugin-script-shell", "KESTRA_SCRIPT_SHELL_PLUGIN_VERSION"),
+    ):
+        marker = f"${{{variable}:-"
+        start = fetch.index(marker) + len(marker)
+        version = fetch[start : fetch.index("}", start)]
+        assert f"io.kestra.plugin:{artifact}:{version}" in workflow, artifact

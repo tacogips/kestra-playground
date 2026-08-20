@@ -12,6 +12,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PLUGIN_DIR="${ROOT_DIR}/local/docker/plugins"
 MAVEN_BASE="${KESTRA_PLUGIN_MAVEN_BASE:-https://repo1.maven.org/maven2}"
 EMAIL_PLUGIN_VERSION="${KESTRA_EMAIL_PLUGIN_VERSION:-1.5.1}"
+# The EC batch group flows need the PostgreSQL plugin and the remote-batch demos
+# need the Shell plugin. These versions match the ones the routed image build in
+# .github/workflows/deploy.yml installs, so local and GKE run the same set.
+JDBC_POSTGRES_PLUGIN_VERSION="${KESTRA_JDBC_POSTGRES_PLUGIN_VERSION:-1.15.4}"
+SCRIPT_SHELL_PLUGIN_VERSION="${KESTRA_SCRIPT_SHELL_PLUGIN_VERSION:-1.9.0}"
 
 mkdir -p "${PLUGIN_DIR}"
 
@@ -47,3 +52,5 @@ fetch_plugin() {
 }
 
 fetch_plugin "plugin-email" "${EMAIL_PLUGIN_VERSION}"
+fetch_plugin "plugin-jdbc-postgres" "${JDBC_POSTGRES_PLUGIN_VERSION}"
+fetch_plugin "plugin-script-shell" "${SCRIPT_SHELL_PLUGIN_VERSION}"

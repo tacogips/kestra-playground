@@ -57,6 +57,8 @@ services:
       # plugin used by the notification flows is bind-mounted in.
       # local/docker/fetch-plugins.sh downloads the pinned JAR.
       - ./plugins/plugin-email-${KESTRA_EMAIL_PLUGIN_VERSION:-1.5.1}.jar:/app/plugins/plugin-email.jar:ro
+      - ./plugins/plugin-jdbc-postgres-${KESTRA_JDBC_POSTGRES_PLUGIN_VERSION:-1.15.4}.jar:/app/plugins/plugin-jdbc-postgres.jar:ro
+      - ./plugins/plugin-script-shell-${KESTRA_SCRIPT_SHELL_PLUGIN_VERSION:-1.9.0}.jar:/app/plugins/plugin-script-shell.jar:ro
 
   kestra-affiliate:
     # The affiliate batch group always runs the official kestra/kestra image; never
