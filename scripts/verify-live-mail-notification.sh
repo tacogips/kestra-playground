@@ -33,6 +33,10 @@ for command in curl kubectl python3; do
   require_command "${command}"
 done
 
+# shellcheck source=scripts/lib/gke-auth.sh
+source "${SCRIPT_DIR}/lib/gke-auth.sh"
+ensure_gke_auth_plugin
+
 KESTRA_URL="${KESTRA_URL:-}"
 if [[ -z "${KESTRA_URL}" ]]; then
   if [[ -z "${LIVE_DOMAIN_NAME}" ]]; then
