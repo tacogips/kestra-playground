@@ -25,13 +25,16 @@ labels:
 tasks:
   - id: mail_execution_summary
     type: io.kestra.plugin.email.MailExecution
-    # The routed deployment has no worker on the default queue: the executor only
-    # runs core tasks in-process and subscribes a SystemWorker to the system
-    # queue, so a plugin task without a worker tag stays SUBMITTED forever.
+    # In routed mode there is no worker on the default queue - the executor runs
+    # core tasks in-process and subscribes a SystemWorker to the system queue - so
+    # a plugin task without a worker tag stays SUBMITTED forever. The standard
+    # topology has the opposite shape: a plain worker on the default queue and no
+    # gke-small group. IGNORE drops the tag when no tagged worker exists, so the
+    # flow runs under both.
     workerSelector:
       tags: [gke-small]
       match: ALL
-      fallback: FAIL
+      fallback: IGNORE
     executionId: "{{ trigger.executionId }}"
     from: "{{ envs.notify_mail_from }}"
     to: "{{ envs.notify_mail_to }}"

@@ -35,6 +35,7 @@ if [[ "$LIVE_GKE_DATABASE_AUTOSCALE_ENABLED" == "true" && "$LIVE_GKE_CONTROL_PLA
 fi
 GKE_MIN_COST_ENABLED="${GKE_MIN_COST_ENABLED:-false}"
 NAMESPACE="${NAMESPACE:-kestra-dev}"
+KESTRA_ALLOW_LINEAGE_SWITCH="${KESTRA_ALLOW_LINEAGE_SWITCH:-false}"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -213,6 +214,37 @@ image_tag="${kestra_image##*:}"
 if [[ -z "$image_repository" || -z "$image_tag" || "$image_repository" == "$image_tag" ]]; then
   echo "KESTRA image must be a tagged image reference for the Helm chart: ${kestra_image}" >&2
   exit 1
+fi
+
+# Kestra 1.x and Kestra 2 keep their schema in one database but migrate it
+# differently, so pointing this environment at the other lineage leaves every pod
+# crash-looping: the 1.x image reports "Found non-empty schema(s) \"public\" but no
+# schema history table" against a database Kestra 2 migrated, and the 2.x image
+# reports "type \"queue_type\" does not exist" against a 1.x one. The repo builds
+# both - the runtime image from the official 1.x base and the routed image from
+# the 2.x fork - so refuse to swap lineages unless the caller says so.
+current_image="$(
+  kubectl -n "$NAMESPACE" get deployment kestra-webserver \
+    -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true
+)"
+if [[ -n "$current_image" && "$KESTRA_ALLOW_LINEAGE_SWITCH" != "true" ]]; then
+  lineage_of() {
+    case "$1" in
+      *kestra-oss-worker-routing*) echo "fork" ;;
+      *) echo "official" ;;
+    esac
+  }
+  current_lineage="$(lineage_of "$current_image")"
+  target_lineage="$(lineage_of "$kestra_image")"
+
+  if [[ "$current_lineage" != "$target_lineage" ]]; then
+    echo "Refusing to deploy a ${target_lineage} image over a ${current_lineage} deployment." >&2
+    echo "  running: ${current_image}" >&2
+    echo "  wanted:  ${kestra_image}" >&2
+    echo "The two Kestra lineages cannot share a migrated database. Set" >&2
+    echo "KESTRA_ALLOW_LINEAGE_SWITCH=true once the database has been reset or migrated." >&2
+    exit 1
+  fi
 fi
 
 helm_runtime_values="${tmpdir}/kestra-runtime-values.yaml"

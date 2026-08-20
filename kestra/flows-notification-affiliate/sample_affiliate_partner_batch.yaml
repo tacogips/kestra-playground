@@ -76,7 +76,7 @@ errors:
     workerSelector:
       tags: [gke-small]
       match: ALL
-      fallback: FAIL
+      fallback: IGNORE
     subject: "[ERROR] {{ flow.namespace }}.{{ flow.id }} task={{ tasksWithState('FAILED')[0]['taskId'] }}"
     plainTextContent: |
       batch_group=affiliate

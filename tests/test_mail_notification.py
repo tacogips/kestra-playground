@@ -149,11 +149,13 @@ def test_gke_variant_matches_the_routed_kestra2_deployment() -> None:
     assert "conditions" not in trigger
     assert trigger["when"] == "{{ flow.namespace == 'playground.affiliate' }}"
 
-    # The routed deployment has no worker on the default queue, so every plugin
-    # task must name a worker group or it stays SUBMITTED forever.
+    # In routed mode there is no worker on the default queue, so every plugin task
+    # must name a worker group or it stays SUBMITTED forever. The standard
+    # topology has no gke-small group at all, so the fallback must drop the tag
+    # rather than fail the task.
     for task in (notifier["tasks"][0], sample["errors"][0]):
         assert task["workerSelector"]["tags"] == ["gke-small"]
-        assert task["workerSelector"]["fallback"] == "FAIL"
+        assert task["workerSelector"]["fallback"] == "IGNORE"
 
     # Same flow ids as the 1.x pair, so both lineages expose one contract.
     canonical = _load_yaml("batch-groups/affiliate/flows/sample_affiliate_partner_batch.yaml")
@@ -193,3 +195,14 @@ def test_local_plugin_versions_match_the_routed_image_build() -> None:
         start = fetch.index(marker) + len(marker)
         version = fetch[start : fetch.index("}", start)]
         assert f"io.kestra.plugin:{artifact}:{version}" in workflow, artifact
+
+
+def test_gke_apply_refuses_to_swap_kestra_lineages() -> None:
+    script = (ROOT / "scripts/apply-gke-dev.sh").read_text(encoding="utf-8")
+
+    # Deploying the official 1.x runtime image over a database migrated by the
+    # Kestra 2 fork left every pod crash-looping on a Flyway error, so the apply
+    # compares the running image with the requested one first.
+    assert "KESTRA_ALLOW_LINEAGE_SWITCH" in script
+    assert "Refusing to deploy a ${target_lineage} image" in script
+    assert "kestra-oss-worker-routing" in script
