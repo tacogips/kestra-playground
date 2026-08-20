@@ -7,4 +7,5 @@ resources:
   - service.yaml
   - controller-grpc-service.yaml
   - otel-collector.yaml
+  - mailpit.yaml
   - kestra-podcreate-rbac.yaml

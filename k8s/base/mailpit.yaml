@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailpit
+  namespace: kestra
+  labels:
+    app.kubernetes.io/name: mailpit
+    app.kubernetes.io/component: mail-sink
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mailpit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mailpit
+        app.kubernetes.io/component: mail-sink
+    spec:
+      containers:
+        - name: mailpit
+          image: axllent/mailpit:v1.30.7
+          # Mock SMTP sink for the notification flows. It never relays mail to a
+          # real MTA, so nothing leaves the cluster; messages are held in memory
+          # and read back through the REST API on port 8025.
+          env:
+            - name: MP_SMTP_AUTH_ACCEPT_ANY
+              value: "1"
+            - name: MP_SMTP_AUTH_ALLOW_INSECURE
+              value: "1"
+            - name: MP_MAX_MESSAGES
+              value: "500"
+            - name: MP_DATABASE
+              value: /tmp/mailpit.db
+          ports:
+            - name: smtp
+              containerPort: 1025
+            - name: http
+              containerPort: 8025
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailpit
+  namespace: kestra
+  labels:
+    app.kubernetes.io/name: mailpit
+spec:
+  # ClusterIP only: the sink is reachable from Kestra pods and through
+  # kubectl port-forward, never from the internet.
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: mailpit
+  ports:
+    - name: smtp
+      port: 1025
+      targetPort: smtp
+    - name: http
+      port: 8025
+      targetPort: http

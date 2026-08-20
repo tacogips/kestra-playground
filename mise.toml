@@ -316,6 +316,12 @@ run = '''
 scripts/verify-local-mail-notification.sh
 '''
 
+[tasks."kestra:live:verify-mail-notification"]
+description = "Run the affiliate mail notification sample on GKE and assert the in-cluster Mailpit sink received the mails"
+run = '''
+scripts/verify-live-mail-notification.sh "${BUSINESS_DATE:-}"
+'''
+
 [tasks."kestra:flows:audit-federated-topology"]
 description = "Audit the OSS federated topology for GKE controller-only and two sticky GCE workers"
 run = '''

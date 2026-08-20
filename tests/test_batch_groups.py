@@ -64,7 +64,13 @@ def test_affiliate_flows_stay_in_the_affiliate_namespace() -> None:
     flow_ids = []
     for flow_path in sorted((ROOT / "batch-groups/affiliate/flows").glob("*.yaml")):
         flow = yaml.safe_load(flow_path.read_text(encoding="utf-8"))
-        assert flow["namespace"] == "playground.affiliate", flow_path
+        # Batch flows live in playground.affiliate. The notification flow that
+        # watches them sits one level below so its own executions never match
+        # its ExecutionNamespace condition and re-trigger it.
+        assert flow["namespace"] in {
+            "playground.affiliate",
+            "playground.affiliate.system",
+        }, flow_path
         assert flow["labels"]["domain"] == "affiliate"
         flow_ids.append(flow["id"])
 
@@ -72,14 +78,19 @@ def test_affiliate_flows_stay_in_the_affiliate_namespace() -> None:
         "build_affiliate_daily_report",
         "build_affiliate_partner_rankings",
         "generate_affiliate_mock_data",
+        "notify_affiliate_execution_result",
+        "sample_affiliate_partner_batch",
     ]
 
 
 def test_affiliate_flows_use_the_shared_batch_database() -> None:
     for flow_path in sorted((ROOT / "batch-groups/affiliate/flows").glob("*.yaml")):
         flow = yaml.safe_load(flow_path.read_text(encoding="utf-8"))
-        defaults = {entry["type"]: entry["values"] for entry in flow["pluginDefaults"]}
-        values = defaults["io.kestra.plugin.jdbc.postgresql"]
+        defaults = {entry["type"]: entry["values"] for entry in flow.get("pluginDefaults", [])}
+        values = defaults.get("io.kestra.plugin.jdbc.postgresql")
+        if values is None:
+            # Notification flows send mail and never touch the batch database.
+            continue
 
         assert values["url"] == "{{ envs.batch_db_url }}"
         assert values["username"] == "{{ envs.batch_db_username }}"

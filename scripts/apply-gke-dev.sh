@@ -102,6 +102,12 @@ federated_gce_b_url="${FEDERATED_GCE_B_URL:-}"
 if [[ -z "$federated_gce_b_url" && -n "${LIVE_DOMAIN_NAME:-}" ]]; then
   federated_gce_b_url="https://${LIVE_GCE_B_SUBDOMAIN:-${LIVE_GCE_CLUSTER_SUBDOMAIN:-gce-container}}.${LIVE_DOMAIN_NAME}"
 fi
+# Notification mail settings for the mail notification flows. They point at the
+# in-cluster Mailpit mock SMTP sink by default, so no mail leaves the cluster.
+notify_smtp_host="${NOTIFY_SMTP_HOST:-mailpit}"
+notify_smtp_port="${NOTIFY_SMTP_PORT:-1025}"
+notify_mail_from="${NOTIFY_MAIL_FROM:-kestra@playground.local}"
+notify_mail_to="${NOTIFY_MAIL_TO:-ops@playground.local}"
 federated_gce_b_username="${FEDERATED_GCE_B_USERNAME:-$(optional_gcp_secret_value kestra-cluster-dev-kestra-basic-auth-username)}"
 federated_gce_b_password="${FEDERATED_GCE_B_PASSWORD:-$(optional_gcp_secret_value kestra-cluster-dev-kestra-basic-auth-password)}"
 
@@ -176,6 +182,10 @@ stringData:
   ENV_FEDERATED_GCE_B_URL: "${federated_gce_b_url}"
   ENV_FEDERATED_GCE_B_USERNAME: "${federated_gce_b_username}"
   ENV_FEDERATED_GCE_B_PASSWORD: "${federated_gce_b_password}"
+  ENV_NOTIFY_SMTP_HOST: "${notify_smtp_host}"
+  ENV_NOTIFY_SMTP_PORT: "${notify_smtp_port}"
+  ENV_NOTIFY_MAIL_FROM: "${notify_mail_from}"
+  ENV_NOTIFY_MAIL_TO: "${notify_mail_to}"
 EOF
 
 rendered="${tmpdir}/rendered.yaml"

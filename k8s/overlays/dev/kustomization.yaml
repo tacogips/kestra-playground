@@ -12,8 +12,10 @@ labels:
       app.kubernetes.io/part-of: kestra-playground
       app.kubernetes.io/environment: dev
 
+# The namespace transformer above already renames the base Namespace object, so
+# the overlay does not patch it; a name-changing strategic merge patch has no
+# target and fails the build on kustomize v5.
 patches:
-  - path: namespace.yaml
   - path: service-account.yaml
   - path: configmap.yaml
   - path: service.yaml

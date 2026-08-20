@@ -193,6 +193,15 @@ the Kestra 2 flow model that the `tacogips/kestra` fork build runs:
   cleanup, because `finally` runs while the execution is still `RUNNING` and cannot see the final
   state - which is why the mail tasks are not there.
 
+The affiliate batch group carries the same example for the other category, in
+`batch-groups/affiliate/flows/`: `playground.affiliate.system.notify_affiliate_execution_result`
+watches the `playground.affiliate` namespace and `playground.affiliate.sample_affiliate_partner_batch`
+runs collect, aggregate, and publish stages with the same `fail_stage` switch. That group always runs
+the official `kestra/kestra` distribution, which is still the 1.x lineage, so its trigger is scoped
+with the 1.x `conditions` block (`ExecutionStatus` plus `ExecutionNamespace`) rather than the Kestra 2
+`states` and `when` properties. `ExecutionNamespace` matches the namespace exactly, which is why the
+notifier itself sits in `playground.affiliate.system` and never triggers on its own executions.
+
 The local Docker stack provides a mock mailer, so no mail leaves the machine: the `mailpit` service
 accepts plain SMTP on `mailpit:1025` and serves the captured messages at `http://localhost:8025`.
 The SMTP endpoint and addresses come from `ENV_NOTIFY_*` entries in
@@ -220,6 +229,23 @@ the error mail body names the failing task.
 Keep `EC_KESTRA_IMAGE` pointed at the fork build once the local EC database has been migrated by
 Kestra 2. Starting the EC service on the compose default `kestra/kestra:latest` (still a 1.x
 release) against that database fails at boot with `type "queue_type" does not exist`.
+
+On GKE the same shape is deployed without a real mail server: `k8s/base/mailpit.yaml` adds a
+ClusterIP-only Mailpit sink to the `kestra-dev` namespace, and `scripts/apply-gke-dev.sh` writes the
+`ENV_NOTIFY_*` values into the runtime Secret so flows resolve `{{ envs.notify_* }}` to
+`mailpit:1025`. The sink has no Ingress, so it is reachable only from inside the cluster and through
+`kubectl port-forward`. Override the defaults with `NOTIFY_SMTP_HOST`, `NOTIFY_SMTP_PORT`,
+`NOTIFY_MAIL_FROM`, and `NOTIFY_MAIL_TO` when applying.
+
+```bash
+mise run k8s:apply:dev
+kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME -- mise run kestra:live:verify-mail-notification
+```
+
+The live verifier waits for the Mailpit rollout, port-forwards its API, registers
+`batch-groups/affiliate/flows`, runs the sample affiliate batch on the success and failure paths, and
+asserts the `[SUCCESS]`, `[FAILED]`, and `[ERROR]` mails plus the error mail body. Set `KESTRA_URL` to
+target a specific endpoint and `NAMESPACE` if the sink is not in `kestra-dev`.
 
 ## Remote Python Batch Examples
 

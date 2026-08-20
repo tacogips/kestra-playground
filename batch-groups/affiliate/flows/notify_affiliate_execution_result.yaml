@@ -1,0 +1,46 @@
+id: notify_affiliate_execution_result
+namespace: playground.affiliate.system
+description: |
+  Affiliate-category counterpart of playground.system.notify_execution_result.
+
+  The affiliate batch group always runs the official kestra/kestra distribution,
+  which is still the 1.x lineage, so the Flow trigger is scoped with the 1.x
+  `conditions` block (ExecutionStatus + ExecutionNamespace) instead of the
+  `states` / `when` properties used by the Kestra 2 flows in
+  kestra/flows-notification.
+
+  The notifier itself lives in playground.affiliate.system while the batches it
+  watches live in playground.affiliate, and ExecutionNamespace matches that
+  namespace exactly, so the notifier never reports on its own executions.
+
+labels:
+  environment: playground
+  domain: affiliate
+
+tasks:
+  - id: mail_execution_summary
+    type: io.kestra.plugin.email.MailExecution
+    executionId: "{{ trigger.executionId }}"
+    from: "{{ envs.notify_mail_from }}"
+    to: "{{ envs.notify_mail_to }}"
+    host: "{{ envs.notify_smtp_host }}"
+    port: "{{ envs.notify_smtp_port }}"
+    transportStrategy: SMTP
+    subject: "[{{ trigger.state }}] {{ trigger.namespace }}.{{ trigger.flowId }}"
+    customMessage: |
+      batch_group=affiliate
+      execution_id={{ trigger.executionId }}
+      state={{ trigger.state }}
+
+triggers:
+  - id: on_terminal_state
+    type: io.kestra.plugin.core.trigger.Flow
+    conditions:
+      - type: io.kestra.plugin.core.condition.ExecutionStatus
+        in:
+          - SUCCESS
+          - FAILED
+          - WARNING
+      - type: io.kestra.plugin.core.condition.ExecutionNamespace
+        namespace: playground.affiliate
+        prefix: false
