@@ -1,0 +1,15 @@
+[project]
+name = "affiliate-conversion-stats-batch"
+version = "0.1.0"
+description = "Affiliate batch: aggregate conversion events into a commission summary file"
+requires-python = ">=3.12"
+dependencies = [
+  "kestra-batch-common==0.1.0",
+]
+
+# Local development resolves the shared library from the top-level project.
+# Staging/production must pass --no-sources and provide the GCP Artifact Registry
+# index through UV_INDEX / UV_INDEX_* environment variables (see
+# design-docs/specs/design-batch-common-registry-operation.md).
+[tool.uv.sources]
+kestra-batch-common = { path = "../../../../batch-common", editable = true }

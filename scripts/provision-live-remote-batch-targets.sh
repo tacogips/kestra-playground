@@ -32,6 +32,17 @@ fi
 
 gcloud_args=(--project="${PROJECT_ID}" --quiet)
 
+# Registry mode: when PYTHON_REGISTRY_INDEX_URL is set, the startup script
+# installs kestra-batch-common from the private Artifact Registry repository.
+# KESTRA_BATCH_COMMON_SPEC optionally pins the version (e.g. kestra-batch-common==0.1.0).
+INSTANCE_METADATA="remote-batch-sshd-disabled=false"
+if [[ -n "${PYTHON_REGISTRY_INDEX_URL:-}" ]]; then
+  INSTANCE_METADATA+=",python-registry-index-url=${PYTHON_REGISTRY_INDEX_URL}"
+fi
+if [[ -n "${KESTRA_BATCH_COMMON_SPEC:-}" ]]; then
+  INSTANCE_METADATA+=",kestra-batch-common-spec=${KESTRA_BATCH_COMMON_SPEC}"
+fi
+
 resource_exists() {
   "$@" >/dev/null 2>&1
 }
@@ -102,7 +113,8 @@ ensure_instance() {
       --boot-disk-size=10GB \
       --boot-disk-type=pd-standard \
       --tags=kestra-remote-batch-target \
-      --metadata=remote-batch-sshd-disabled=false \
+      --scopes=cloud-platform \
+      --metadata="${INSTANCE_METADATA}" \
       --metadata-from-file=startup-script="${STARTUP_SCRIPT}" \
       "${gcloud_args[@]}"
     return
@@ -119,7 +131,7 @@ ensure_instance() {
   fi
   gcloud compute instances add-metadata "${instance_name}" \
     --zone="${ZONE}" \
-    --metadata=remote-batch-sshd-disabled=false \
+    --metadata="${INSTANCE_METADATA}" \
     "${gcloud_args[@]}"
 }
 

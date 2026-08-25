@@ -37,6 +37,14 @@ inputs:
     type: STRING
     defaults: "3.12"
 
+  - id: dependency_source
+    type: STRING
+    defaults: bundled
+    description: >-
+      bundled resolves kestra-batch-common from the copy shipped inside the bundle;
+      registry adds uv --no-sources so it resolves from the private Python registry
+      configured through UV_INDEX environment variables on the worker.
+
   - id: timeout
     type: DURATION
     defaults: PT10M
@@ -75,6 +83,8 @@ tasks:
                 for runtime_path in \
                   batch.tar.gz \
                   "{{ inputs.source_root }}" \
+                  batch-groups \
+                  batch-common \
                   "${UV_CACHE_DIR}" \
                   "${UV_PYTHON_INSTALL_DIR}"
                 do
@@ -83,6 +93,8 @@ tasks:
                 for runtime_path in \
                   batch.tar.gz \
                   "{{ inputs.source_root }}" \
+                  batch-groups \
+                  batch-common \
                   "${UV_CACHE_DIR}" \
                   "${UV_PYTHON_INSTALL_DIR}"
                 do
@@ -103,7 +115,12 @@ tasks:
                 "progress phase=worker_ready group=gke-small pod=${POD_NAME:-unknown} node=${K8S_NODE_NAME:-unknown}"
               uv run --no-project --python "{{ inputs.python_version }}" \
                 python -m tarfile -e batch.tar.gz .
-              uv run --no-project --python "{{ inputs.python_version }}" \
+              uv_source_flags=""
+              if [ "{{ inputs.dependency_source }}" = "registry" ]; then
+                uv_source_flags="--no-sources"
+              fi
+              uv run --project "{{ inputs.source_root }}" --python "{{ inputs.python_version }}" \
+                ${uv_source_flags} \
                 python "{{ inputs.script_name }}"
               artifact_checksum="$(sha256sum "${KESTRA_BATCH_OUTPUT}" | cut -d ' ' -f 1)"
               printf '::{"outputs":{"artifact_checksum":"%s","worker_group":"gke-small","worker_pod":"%s","worker_node":"%s"}}::\n' \
@@ -140,6 +157,8 @@ tasks:
                 for runtime_path in \
                   batch.tar.gz \
                   "{{ inputs.source_root }}" \
+                  batch-groups \
+                  batch-common \
                   "${UV_CACHE_DIR}" \
                   "${UV_PYTHON_INSTALL_DIR}"
                 do
@@ -148,6 +167,8 @@ tasks:
                 for runtime_path in \
                   batch.tar.gz \
                   "{{ inputs.source_root }}" \
+                  batch-groups \
+                  batch-common \
                   "${UV_CACHE_DIR}" \
                   "${UV_PYTHON_INSTALL_DIR}"
                 do
@@ -168,7 +189,12 @@ tasks:
                 "progress phase=worker_ready group=gke-large pod=${POD_NAME:-unknown} node=${K8S_NODE_NAME:-unknown}"
               uv run --no-project --python "{{ inputs.python_version }}" \
                 python -m tarfile -e batch.tar.gz .
-              uv run --no-project --python "{{ inputs.python_version }}" \
+              uv_source_flags=""
+              if [ "{{ inputs.dependency_source }}" = "registry" ]; then
+                uv_source_flags="--no-sources"
+              fi
+              uv run --project "{{ inputs.source_root }}" --python "{{ inputs.python_version }}" \
+                ${uv_source_flags} \
                 python "{{ inputs.script_name }}"
               artifact_checksum="$(sha256sum "${KESTRA_BATCH_OUTPUT}" | cut -d ' ' -f 1)"
               printf '::{"outputs":{"artifact_checksum":"%s","worker_group":"gke-large","worker_pod":"%s","worker_node":"%s"}}::\n' \

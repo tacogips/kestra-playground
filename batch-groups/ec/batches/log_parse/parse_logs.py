@@ -1,19 +1,31 @@
-"""Parse JSON Lines application logs and write a static summary file."""
+"""Parse JSON Lines application logs and write a static summary file.
+
+Shared framework helpers come from ``kestra-batch-common``, resolved from the top-level
+``batch-common/`` project during local development and from the private GCP Artifact Registry
+in staging and production.
+"""
 
 from __future__ import annotations
 
 import json
-import os
 import sys
 import time
 from collections import Counter
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Final, TypedDict, cast
+from typing import TypedDict, cast
 
-CONFIG_ENV: Final = "KESTRA_BATCH_CONFIG"
-OUTPUT_ENV: Final = "KESTRA_BATCH_OUTPUT"
-PHASES: Final = frozenset({"all", "validate-input", "execute", "validate-output"})
+from kestra_batch_common import (
+    counter_metric,
+    emit_kestra_result,
+    emit_progress,
+    load_config,
+    output_path,
+    report_batch_error,
+    required_string,
+    select_phase,
+    timer_metric,
+    write_json_atomically,
+)
 
 
 class ParseSummary(TypedDict):
@@ -26,55 +38,15 @@ class ParseSummary(TypedDict):
     services: dict[str, int]
 
 
-def _load_config() -> dict[str, object]:
-    raw = os.environ.get(CONFIG_ENV)
-    if not raw:
-        raise ValueError(f"{CONFIG_ENV} is required")
-
-    value = json.loads(raw)
-    if not isinstance(value, dict):
-        raise ValueError(f"{CONFIG_ENV} must contain a JSON object")
-    return value
-
-
-def _required_string(config: dict[str, object], key: str) -> str:
-    value = config.get(key)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"Configuration field {key!r} must be a non-empty string")
-    return value
-
-
-def _required_env(key: str) -> str:
-    value = os.environ.get(key)
-    if not value:
-        raise ValueError(f"Environment variable {key} is required")
-    return value
-
-
-def _write_json_atomically(output_path: Path, value: Mapping[str, object]) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = output_path.with_suffix(f"{output_path.suffix}.tmp")
-    try:
-        temporary_path.write_text(
-            json.dumps(value, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        temporary_path.replace(output_path)
-    except BaseException:
-        temporary_path.unlink(missing_ok=True)
-        raise
-
-
-def _emit_kestra_result(total_lines: int, error_lines: int, elapsed_seconds: float) -> None:
-    payload = {
-        "outputs": {"total_lines": total_lines, "error_lines": error_lines},
-        "metrics": [
-            {"name": "parsed_log_lines", "type": "counter", "value": total_lines},
-            {"name": "error_log_lines", "type": "counter", "value": error_lines},
-            {"name": "parse_duration", "type": "timer", "value": elapsed_seconds},
+def _emit_parse_result(total_lines: int, error_lines: int, elapsed_seconds: float) -> None:
+    emit_kestra_result(
+        {"total_lines": total_lines, "error_lines": error_lines},
+        [
+            counter_metric("parsed_log_lines", total_lines),
+            counter_metric("error_log_lines", error_lines),
+            timer_metric("parse_duration", elapsed_seconds),
         ],
-    }
-    print(f"::{json.dumps(payload, separators=(',', ':'))}::", flush=True)
+    )
 
 
 def validate_input(input_path: Path, business_date: str) -> None:
@@ -83,10 +55,7 @@ def validate_input(input_path: Path, business_date: str) -> None:
         raise FileNotFoundError(f"Log file does not exist: {input_path}")
     if len(business_date) != 10:
         raise ValueError("business_date must use YYYY-MM-DD")
-    print(
-        f"progress phase=input_validated input={input_path} business_date={business_date}",
-        flush=True,
-    )
+    emit_progress("input_validated", input=input_path, business_date=business_date)
 
 
 def validate_output(output_path: Path, business_date: str) -> ParseSummary:
@@ -104,7 +73,7 @@ def validate_output(output_path: Path, business_date: str) -> ParseSummary:
     for key in ("levels", "services"):
         if not isinstance(value.get(key), dict):
             raise ValueError(f"Summary field {key!r} must be an object")
-    print(f"progress phase=output_validated output={output_path}", flush=True)
+    emit_progress("output_validated", output=output_path)
     return cast(ParseSummary, value)
 
 
@@ -118,7 +87,7 @@ def parse_log(input_path: Path, output_path: Path, business_date: str) -> ParseS
     matched_lines = 0
     malformed_lines = 0
 
-    print(f"progress phase=open input={input_path} business_date={business_date}", flush=True)
+    emit_progress("open", input=input_path, business_date=business_date)
     with input_path.open(encoding="utf-8") as input_file:
         for total_lines, raw_line in enumerate(input_file, start=1):
             try:
@@ -130,7 +99,7 @@ def parse_log(input_path: Path, output_path: Path, business_date: str) -> ParseS
                     raise ValueError("required fields must be strings")
             except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                 malformed_lines += 1
-                print(f"progress phase=parse malformed_line={total_lines}", flush=True)
+                emit_progress("parse", malformed_line=total_lines)
                 continue
 
             if not timestamp.startswith(business_date):
@@ -139,7 +108,7 @@ def parse_log(input_path: Path, output_path: Path, business_date: str) -> ParseS
             levels[level.upper()] += 1
             services[service] += 1
             if matched_lines == 1 or matched_lines % 1000 == 0:
-                print(f"progress phase=parse matched={matched_lines}", flush=True)
+                emit_progress("parse", matched=matched_lines)
 
     result: ParseSummary = {
         "business_date": business_date,
@@ -150,12 +119,8 @@ def parse_log(input_path: Path, output_path: Path, business_date: str) -> ParseS
         "levels": dict(sorted(levels.items())),
         "services": dict(sorted(services.items())),
     }
-    _write_json_atomically(output_path, result)
-    print(
-        f"progress phase=complete matched={matched_lines} malformed={malformed_lines} "
-        f"output={output_path}",
-        flush=True,
-    )
+    write_json_atomically(output_path, result)
+    emit_progress("complete", matched=matched_lines, malformed=malformed_lines, output=output_path)
     return result
 
 
@@ -164,33 +129,24 @@ def main(arguments: list[str] | None = None) -> int:
     started_at = time.monotonic()
     try:
         selected_arguments = sys.argv[1:] if arguments is None else arguments
-        phase = selected_arguments[0] if selected_arguments else "all"
-        if len(selected_arguments) > 1 or phase not in PHASES:
-            raise ValueError(
-                "Expected at most one phase: validate-input, execute, validate-output, or all"
-            )
-        config = _load_config()
-        input_path = Path(_required_string(config, "input_path"))
-        business_date = _required_string(config, "business_date")
-        output_path = Path(_required_env(OUTPUT_ENV))
+        phase = select_phase(selected_arguments)
+        config = load_config()
+        input_path = Path(required_string(config, "input_path"))
+        business_date = required_string(config, "business_date")
+        artifact_path = output_path()
         if phase in {"all", "validate-input"}:
             validate_input(input_path, business_date)
         if phase in {"all", "execute"}:
-            result = parse_log(input_path, output_path, business_date)
-            _emit_kestra_result(
+            result = parse_log(input_path, artifact_path, business_date)
+            _emit_parse_result(
                 result["matched_lines"],
                 result["levels"].get("ERROR", 0),
                 time.monotonic() - started_at,
             )
         if phase in {"all", "validate-output"}:
-            validate_output(output_path, business_date)
+            validate_output(artifact_path, business_date)
     except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError) as error:
-        print(
-            f"batch_error type={type(error).__name__} message={error}",
-            file=sys.stderr,
-            flush=True,
-        )
-        return 64
+        return report_batch_error(error)
 
     return 0
 

@@ -15,3 +15,10 @@ infra
 local
 scripts
 tests
+
+# The remote-worker image (local/docker/remote-worker/Dockerfile) builds from the
+# repo root so it can install batch-common from the working tree.
+!local/docker/remote-worker/**
+batch-common/.venv
+batch-common/uv.lock
+**/__pycache__

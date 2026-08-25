@@ -22,7 +22,12 @@ inputs:
 
   - id: log_path
     type: STRING
-    defaults: batches/log_parse/fixtures/application.jsonl
+    defaults: batch-groups/ec/batches/log_parse/fixtures/application.jsonl
+
+  - id: dependency_source
+    type: STRING
+    defaults: bundled
+    description: bundled uses the kestra-batch-common copy in the bundle; registry resolves it from the private Python registry.
 
 tasks:
   - id: run_remote_batch
@@ -33,12 +38,13 @@ tasks:
     transmitFailed: true
     inputs:
       batch_bundle: "{{ inputs.batch_bundle }}"
-      source_root: batches/log_parse
-      script_name: batches/log_parse/parse_logs.py
+      source_root: batch-groups/ec/batches/log_parse
+      script_name: batch-groups/ec/batches/log_parse/parse_logs.py
       config_json: >-
         {"input_path":"{{ inputs.log_path }}","business_date":"{{ inputs.business_date }}"}
       output_file: "log-summary-{{ inputs.business_date }}.json"
       worker_group: "{{ inputs.worker_group }}"
+      dependency_source: "{{ inputs.dependency_source }}"
 
 outputs:
   - id: artifact

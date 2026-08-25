@@ -109,7 +109,8 @@ services:
 
   remote-worker:
     build:
-      context: ./remote-worker
+      context: ../..
+      dockerfile: local/docker/remote-worker/Dockerfile
     env_file:
       - ../../batch-groups/ec/config/envs/local.env
     healthcheck:
@@ -120,7 +121,8 @@ services:
 
   remote-worker-b:
     build:
-      context: ./remote-worker
+      context: ../..
+      dockerfile: local/docker/remote-worker/Dockerfile
     env_file:
       - ../../batch-groups/ec/config/envs/local.env
     healthcheck:

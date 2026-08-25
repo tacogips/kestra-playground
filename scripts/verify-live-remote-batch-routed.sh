@@ -407,7 +407,7 @@ run_and_assert \
   gke-large \
   FAILED \
   "${BUNDLE_DIR}/log_parse.tar.gz" \
-  "log_path=batches/log_parse/fixtures/missing.jsonl"
+  "log_path=batch-groups/ec/batches/log_parse/fixtures/missing.jsonl"
 
 kill "${PORT_FORWARD_PID}"
 wait "${PORT_FORWARD_PID}" 2>/dev/null || true

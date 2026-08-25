@@ -20,6 +20,11 @@ inputs:
     type: STRING
     defaults: gke-small
 
+  - id: dependency_source
+    type: STRING
+    defaults: bundled
+    description: bundled uses the kestra-batch-common copy in the bundle; registry resolves it from the private Python registry.
+
 tasks:
   - id: run_remote_batch
     type: io.kestra.plugin.core.flow.Subflow
@@ -29,12 +34,13 @@ tasks:
     transmitFailed: true
     inputs:
       batch_bundle: "{{ inputs.batch_bundle }}"
-      source_root: batches/db_export
-      script_name: batches/db_export/export_database.py
+      source_root: batch-groups/ec/batches/db_export
+      script_name: batch-groups/ec/batches/db_export/export_database.py
       config_json: >-
-        {"database_path":"batches/db_export/fixtures/ecommerce.db","query":"SELECT order_id, business_date, customer_id, status, net_amount FROM orders WHERE business_date = '{{ inputs.business_date }}' ORDER BY order_id"}
+        {"database_path":"batch-groups/ec/batches/db_export/fixtures/ecommerce.db","query":"SELECT order_id, business_date, customer_id, status, net_amount FROM orders WHERE business_date = '{{ inputs.business_date }}' ORDER BY order_id"}
       output_file: "orders-{{ inputs.business_date }}.csv"
       worker_group: "{{ inputs.worker_group }}"
+      dependency_source: "{{ inputs.dependency_source }}"
 
 outputs:
   - id: artifact

@@ -475,3 +475,16 @@ components.
 
 The detailed decision report is in
 `design-docs/specs/design-kestra-gcp-runtime-decision.md`.
+
+### Shared Batch Library And Private Python Registry
+
+All Python batches consume shared runtime helpers from `kestra-batch-common`, a uv project at
+`batch-common/`. Each batch under `batch-groups/*/batches/` is its own uv project pinning an exact
+library version. Local environments resolve the library from the working tree through
+`tool.uv.sources` path entries (developer machines, the repository test suite, the local Docker SSH
+worker image, and bundled routed executions), while staging/production resolves the published wheel
+from a private GCP Artifact Registry Python repository (`uv --no-sources` with `UV_INDEX`
+environment variables on routed workers, `pip install --index-url` on live SSH targets). The
+registry is provisioned by `infra/terraform/artifact-registry/`.
+
+The full operation guide is in `design-docs/specs/design-batch-common-registry-operation.md`.

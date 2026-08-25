@@ -1020,6 +1020,29 @@ kinko exec --env CLOUDFLARE_API_TOKEN -- \
   tofu -chdir=infra/terraform/gce-single plan -var-file=../../live/dev/gce-single.tfvars
 ```
 
+### Shared Batch Library (kestra-batch-common)
+
+```bash
+# Test, build, and publish the shared batch library to Artifact Registry.
+mise run batch-common:test
+mise run batch-common:build
+PROJECT_ID=<project> mise run batch-common:publish
+
+# Provision the private Python registry.
+tofu -chdir=infra/terraform/artifact-registry init
+tofu -chdir=infra/terraform/artifact-registry apply -var "project_id=${PROJECT_ID}"
+
+# Refresh a batch project lock after changing its kestra-batch-common pin.
+(cd batch-groups/ec/batches/db_export && uv lock)
+
+# Provision live SSH targets in registry mode.
+PYTHON_REGISTRY_INDEX_URL="https://asia-northeast1-python.pkg.dev/${PROJECT_ID}/python-batch-libs/simple/" \
+KESTRA_BATCH_COMMON_SPEC="kestra-batch-common==0.1.0" \
+scripts/provision-live-remote-batch-targets.sh up
+```
+
+Operation guide: `design-docs/specs/design-batch-common-registry-operation.md`.
+
 ### Troubleshooting
 
 Use these checks before changing infrastructure:

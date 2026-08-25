@@ -170,6 +170,8 @@ def test_batch_group_env_files_are_owned_separately() -> None:
         "LIVE_KESTRA_SUBDOMAIN": "k8s",
         "KESTRA_AUTH_SECRET_PREFIX": "kestra-dev-gke",
         "KESTRA_AUTH_SOURCE": "secret-manager",
+        "PYTHON_REGISTRY_REGION": "asia-northeast1",
+        "PYTHON_REGISTRY_REPOSITORY": "python-batch-libs",
     }
     # Development doubles as staging and has only one Kestra deployment, so the
     # affiliate group currently targets the same endpoint and Basic Auth secrets

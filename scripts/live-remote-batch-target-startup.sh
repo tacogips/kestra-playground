@@ -3,12 +3,41 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install --yes --no-install-recommends openssh-server python3 curl
+apt-get install --yes --no-install-recommends openssh-server python3 python3-pip curl
 rm -rf /var/lib/apt/lists/*
 
 if ! id batch >/dev/null 2>&1; then
   useradd --create-home --shell /bin/bash batch
 fi
+
+# Staging/production targets install the shared batch library from the private
+# GCP Artifact Registry Python repository. The index URL and optional version
+# spec arrive through instance metadata; authentication uses the instance
+# service account token from the metadata server.
+install_batch_common() {
+  local metadata_base='http://metadata.google.internal/computeMetadata/v1'
+  local index_url package_spec access_token
+
+  index_url="$(curl --fail --silent --max-time 5 -H 'Metadata-Flavor: Google' \
+    "${metadata_base}/instance/attributes/python-registry-index-url" 2>/dev/null || true)"
+  if [[ -z "${index_url}" ]]; then
+    echo "python-registry-index-url metadata is not set; skipping kestra-batch-common install." >&2
+    return 0
+  fi
+
+  package_spec="$(curl --fail --silent --max-time 5 -H 'Metadata-Flavor: Google' \
+    "${metadata_base}/instance/attributes/kestra-batch-common-spec" 2>/dev/null || true)"
+  package_spec="${package_spec:-kestra-batch-common}"
+
+  access_token="$(curl --fail --silent --max-time 5 -H 'Metadata-Flavor: Google' \
+    "${metadata_base}/instance/service-accounts/default/token" \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)["access_token"])')"
+
+  python3 -m pip install --break-system-packages --no-cache-dir \
+    --index-url "https://oauth2accesstoken:${access_token}@${index_url#https://}" \
+    "${package_spec}"
+}
+install_batch_common
 
 install -d -m 755 /opt/batch-inputs
 python3 - <<'PY'

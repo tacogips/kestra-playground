@@ -90,12 +90,27 @@ wheels = [
 ]
 
 [[package]]
+name = "kestra-batch-common"
+version = "0.1.0"
+source = { editable = "batch-common" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "ruff", specifier = ">=0.11.0" },
+    { name = "ty", specifier = ">=0.0.1a32" },
+]
+
+[[package]]
 name = "kestra-playground"
 version = "0.1.0"
 source = { editable = "." }
 
 [package.dev-dependencies]
 dev = [
+    { name = "kestra-batch-common" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pyyaml" },
@@ -107,6 +122,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "kestra-batch-common", editable = "batch-common" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },

@@ -21,12 +21,18 @@ Repository = "https://github.com/user/repo"
 
 [dependency-groups]
 dev = [
+  "kestra-batch-common",
   "pytest>=8.3.5",
   "pytest-cov>=6.0.0",
   "pyyaml>=6.0.2",
   "ruff>=0.11.0",
   "ty>=0.0.1a32",
 ]
+
+# The dev environment resolves the shared batch library from the top-level
+# batch-common/ project so tests can execute batch scripts directly.
+[tool.uv.sources]
+kestra-batch-common = { path = "batch-common", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kestra_playground"]

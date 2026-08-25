@@ -280,7 +280,10 @@ def test_local_compose_provisions_two_external_ssh_workers() -> None:
 
     for service_name in ("remote-worker", "remote-worker-b"):
         worker = services[service_name]
-        assert worker["build"]["context"] == "./remote-worker"
+        # The build context is the repo root so the image can install the shared
+        # batch library (batch-common/) from the working tree.
+        assert worker["build"]["context"] == "../.."
+        assert worker["build"]["dockerfile"] == "local/docker/remote-worker/Dockerfile"
         assert worker["env_file"] == ["../../batch-groups/ec/config/envs/local.env"]
         assert "ssh-keyscan" in worker["healthcheck"]["test"][1]
 
@@ -373,7 +376,7 @@ def test_local_compose_provisions_an_external_ssh_worker_and_kestra_secret() -> 
     services = compose["services"]
     ec_env = (ROOT / "batch-groups/ec/config/envs/local.env.example").read_text(encoding="utf-8")
 
-    assert services["remote-worker"]["build"]["context"] == "./remote-worker"
+    assert services["remote-worker"]["build"]["context"] == "../.."
     expected_env_file = ["../../batch-groups/ec/config/envs/local.env"]
     assert services["remote-worker"]["env_file"] == expected_env_file
     assert services["kestra-ec"]["env_file"] == expected_env_file

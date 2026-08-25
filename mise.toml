@@ -106,6 +106,27 @@ run = '''
 uv build
 '''
 
+[tasks."batch-common:test"]
+description = "Run the shared batch library test suite"
+dir = "batch-common"
+run = '''
+uv sync --dev
+uv run pytest
+'''
+
+[tasks."batch-common:build"]
+description = "Build kestra-batch-common distributions"
+dir = "batch-common"
+run = '''
+uv build
+'''
+
+[tasks."batch-common:publish"]
+description = "Publish kestra-batch-common to the private Artifact Registry Python repository"
+run = '''
+scripts/publish-batch-common.sh
+'''
+
 [tasks."kestra:local:apple:start"]
 description = "Start local Kestra and PostgreSQL with Apple container"
 run = '''
