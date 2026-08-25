@@ -218,7 +218,9 @@ tasks:
 outputs:
   - id: artifact
     type: FILE
-    value: "{{ outputs.execute_batch_gke_small.outputFiles is defined ? outputs.execute_batch_gke_small.outputFiles[inputs.output_file] : (outputs.execute_batch_gke_large.outputFiles is defined ? outputs.execute_batch_gke_large.outputFiles[inputs.output_file] : inputs.batch_bundle) }}"
+    # Guard the key, not just the map: on Kestra 2.0 a failed execute task still
+    # defines an empty outputFiles map, and rendering a missing key would fail.
+    value: "{{ outputs.execute_batch_gke_small.outputFiles[inputs.output_file] is defined ? outputs.execute_batch_gke_small.outputFiles[inputs.output_file] : (outputs.execute_batch_gke_large.outputFiles[inputs.output_file] is defined ? outputs.execute_batch_gke_large.outputFiles[inputs.output_file] : inputs.batch_bundle) }}"
 
   - id: artifact_checksum
     type: STRING

@@ -359,9 +359,15 @@ run_and_assert() {
 
   if [[ "${expected_state}" == "SUCCESS" ]]; then
     fetch_execution_outputs "${child_id}" "${outputs_file}"
-    assert_success "${flow_id}" "${expected_group}" "${child_file}" "${outputs_file}" "${logs_file}"
+    if ! assert_success "${flow_id}" "${expected_group}" "${child_file}" "${outputs_file}" "${logs_file}"; then
+      echo "assert_success failed for ${flow_id} (runner ${child_id}); see ${child_file}, ${outputs_file}, ${logs_file}." >&2
+      return 1
+    fi
   else
-    assert_failure "${expected_group}" "${child_file}" "${logs_file}"
+    if ! assert_failure "${expected_group}" "${child_file}" "${logs_file}"; then
+      echo "assert_failure failed for ${flow_id} (runner ${child_id}); see ${child_file}, ${logs_file}." >&2
+      return 1
+    fi
   fi
 
   echo "${flow_id}: parent=${parent_id} runner=${child_id} state=${expected_state}"
