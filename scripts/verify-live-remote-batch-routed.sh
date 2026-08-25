@@ -8,7 +8,11 @@ KUBERNETES_NAMESPACE="${KUBERNETES_NAMESPACE:-kestra-dev}"
 FLOW_NAMESPACE="playground.remote_batch"
 BUSINESS_DATE="${1:-${BUSINESS_DATE:-2026-06-25}}"
 LOCAL_PORT="${REMOTE_BATCH_ACTIVATOR_PORT:-18081}"
-KESTRA_URL="http://127.0.0.1:${LOCAL_PORT}"
+# The routed fork webserver serves its write APIs only for the public hostname:
+# POST through a localhost port-forward answers 405 method_not_allowed, while the
+# same request through https://k8s.<domain>/ succeeds. Set REMOTE_BATCH_KESTRA_URL
+# to the public URL to bypass the port-forward entirely.
+KESTRA_URL="${REMOTE_BATCH_KESTRA_URL:-http://127.0.0.1:${LOCAL_PORT}}"
 TEMP_DIR="$(mktemp -d)"
 PORT_FORWARD_PID=""
 
@@ -365,23 +369,25 @@ scale_timeout="${REMOTE_BATCH_SCALE_TIMEOUT:-$((idle_seconds + 180))}"
 echo "Waiting for the scale-to-zero baseline: ${managed_deployments[*]}"
 wait_for_replicas 0 "${scale_timeout}" "${managed_deployments[@]}"
 
-kubectl -n "${KUBERNETES_NAMESPACE}" port-forward \
-  --address 127.0.0.1 \
-  service/kestra-worker-activator \
-  "${LOCAL_PORT}:8080" \
-  >"${TEMP_DIR}/port-forward.log" 2>&1 &
-PORT_FORWARD_PID=$!
+if [[ -z "${REMOTE_BATCH_KESTRA_URL:-}" ]]; then
+  kubectl -n "${KUBERNETES_NAMESPACE}" port-forward \
+    --address 127.0.0.1 \
+    service/kestra-worker-activator \
+    "${LOCAL_PORT}:8080" \
+    >"${TEMP_DIR}/port-forward.log" 2>&1 &
+  PORT_FORWARD_PID=$!
 
-for _ in {1..30}; do
-  if curl --silent --show-error --max-time 2 "${KESTRA_URL}/" >/dev/null 2>&1; then
-    break
-  fi
-  if ! kill -0 "${PORT_FORWARD_PID}" 2>/dev/null; then
-    cat "${TEMP_DIR}/port-forward.log" >&2
-    exit 1
-  fi
-  sleep 1
-done
+  for _ in {1..30}; do
+    if curl --silent --show-error --max-time 2 "${KESTRA_URL}/" >/dev/null 2>&1; then
+      break
+    fi
+    if ! kill -0 "${PORT_FORWARD_PID}" 2>/dev/null; then
+      cat "${TEMP_DIR}/port-forward.log" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+fi
 
 wait_for_ui "${KESTRA_BASIC_AUTH_USERNAME}" "${KESTRA_BASIC_AUTH_PASSWORD}"
 wait_for_warm_replicas 900 "${managed_deployments[@]}"
@@ -409,9 +415,11 @@ run_and_assert \
   "${BUNDLE_DIR}/log_parse.tar.gz" \
   "log_path=batch-groups/ec/batches/log_parse/fixtures/missing.jsonl"
 
-kill "${PORT_FORWARD_PID}"
-wait "${PORT_FORWARD_PID}" 2>/dev/null || true
-PORT_FORWARD_PID=""
+if [[ -n "${PORT_FORWARD_PID}" ]]; then
+  kill "${PORT_FORWARD_PID}"
+  wait "${PORT_FORWARD_PID}" 2>/dev/null || true
+  PORT_FORWARD_PID=""
+fi
 
 echo "Waiting for the activator to park the verified topology again."
 wait_for_replicas 0 "${scale_timeout}" "${managed_deployments[@]}"
