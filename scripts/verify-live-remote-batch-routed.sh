@@ -16,11 +16,18 @@ KESTRA_URL="${REMOTE_BATCH_KESTRA_URL:-http://127.0.0.1:${LOCAL_PORT}}"
 TEMP_DIR="$(mktemp -d)"
 PORT_FORWARD_PID=""
 
-cleanup() {
+stop_port_forward() {
   if [[ -n "${PORT_FORWARD_PID}" ]]; then
+    touch "${TEMP_DIR}/port-forward-stop"
+    pkill -P "${PORT_FORWARD_PID}" 2>/dev/null || true
     kill "${PORT_FORWARD_PID}" 2>/dev/null || true
     wait "${PORT_FORWARD_PID}" 2>/dev/null || true
+    PORT_FORWARD_PID=""
   fi
+}
+
+cleanup() {
+  stop_port_forward
   rm -rf -- "${TEMP_DIR}"
 }
 trap cleanup EXIT
@@ -411,18 +418,23 @@ if [[ -z "${REMOTE_BATCH_KESTRA_URL:-}" ]]; then
     exit 1
   fi
 
-  kubectl -n "${KUBERNETES_NAMESPACE}" port-forward \
-    --address 127.0.0.1 \
-    service/kestra-worker-activator \
-    "${LOCAL_PORT}:80" \
-    >"${TEMP_DIR}/port-forward.log" 2>&1 &
+  # kubectl port-forward tunnels can drop during node churn (for example the
+  # Autopilot scale-up a cold wake triggers), so supervise and restart it until
+  # the stop marker appears.
+  (
+    while [[ ! -e "${TEMP_DIR}/port-forward-stop" ]]; do
+      kubectl -n "${KUBERNETES_NAMESPACE}" port-forward \
+        --address 127.0.0.1 \
+        service/kestra-worker-activator \
+        "${LOCAL_PORT}:80" \
+        >>"${TEMP_DIR}/port-forward.log" 2>&1 || true
+      [[ -e "${TEMP_DIR}/port-forward-stop" ]] && break
+      sleep 2
+    done
+  ) &
   PORT_FORWARD_PID=$!
 
   for _ in {1..30}; do
-    if ! kill -0 "${PORT_FORWARD_PID}" 2>/dev/null; then
-      cat "${TEMP_DIR}/port-forward.log" >&2
-      exit 1
-    fi
     if curl --silent --show-error --max-time 2 "${KESTRA_URL}/" >/dev/null 2>&1; then
       break
     fi
@@ -456,11 +468,7 @@ run_and_assert \
   "${BUNDLE_DIR}/log_parse.tar.gz" \
   "log_path=batch-groups/ec/batches/log_parse/fixtures/missing.jsonl"
 
-if [[ -n "${PORT_FORWARD_PID}" ]]; then
-  kill "${PORT_FORWARD_PID}"
-  wait "${PORT_FORWARD_PID}" 2>/dev/null || true
-  PORT_FORWARD_PID=""
-fi
+stop_port_forward
 
 echo "Waiting for the activator to park the verified topology again."
 wait_for_replicas 0 "${scale_timeout}" "${managed_deployments[@]}"
