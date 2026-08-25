@@ -347,6 +347,9 @@ def test_routed_examples_need_only_uv_on_the_selected_worker() -> None:
             "tags": [worker_group],
             "match": "ALL",
             "fallback": "FAIL",
+            # Routed batches execute exactly once; the fork broadcasts routed
+            # runnable tasks by default (tacogips/kestra#2).
+            "broadcast": False,
         }
         assert execute["inputFiles"] == {"batch.tar.gz": "{{ inputs.batch_bundle }}"}
         assert execute["outputFiles"] == ["{{ inputs.output_file }}"]
