@@ -64,6 +64,10 @@ tasks:
             tags: [gke-small]
             match: ALL
             fallback: FAIL
+            # Routed runnable tasks broadcast to every worker by default on the
+            # fork; batches must execute exactly once with the ordinary output
+            # shape (tacogips/kestra#2).
+            broadcast: false
           inputFiles:
             batch.tar.gz: "{{ inputs.batch_bundle }}"
           env:
@@ -138,6 +142,10 @@ tasks:
             tags: [gke-large]
             match: ALL
             fallback: FAIL
+            # Routed runnable tasks broadcast to every worker by default on the
+            # fork; batches must execute exactly once with the ordinary output
+            # shape (tacogips/kestra#2).
+            broadcast: false
           inputFiles:
             batch.tar.gz: "{{ inputs.batch_bundle }}"
           env:

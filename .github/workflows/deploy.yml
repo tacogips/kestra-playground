@@ -147,7 +147,7 @@ jobs:
       image: ${{ steps.image.outputs.image }}
     env:
       IMAGE_REPOSITORY: asia-northeast1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/kestra-playground/kestra-oss-worker-routing
-      KESTRA_SOURCE_REF: 6f6012b5e0d8f302b894d465672d8dda5222515f
+      KESTRA_SOURCE_REF: 96e1be9b4b1ff88cbac11dbd0b5280a3445f7e2b
     steps:
       - name: Checkout playground
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
