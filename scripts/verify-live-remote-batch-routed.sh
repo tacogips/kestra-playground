@@ -397,6 +397,14 @@ echo "Waiting for the scale-to-zero baseline: ${managed_deployments[*]}"
 wait_for_replicas 0 "${scale_timeout}" "${managed_deployments[@]}"
 
 if [[ -z "${REMOTE_BATCH_KESTRA_URL:-}" ]]; then
+  # Anything already listening on the local port would silently answer the
+  # health probes in place of Kestra (a local usage tracker on 18081 once
+  # produced convincing but fake 405 API responses). Fail fast instead.
+  if curl --silent --output /dev/null --max-time 2 "http://127.0.0.1:${LOCAL_PORT}/" 2>/dev/null; then
+    echo "Local port ${LOCAL_PORT} is already serving HTTP; set REMOTE_BATCH_ACTIVATOR_PORT to a free port." >&2
+    exit 1
+  fi
+
   kubectl -n "${KUBERNETES_NAMESPACE}" port-forward \
     --address 127.0.0.1 \
     service/kestra-worker-activator \
@@ -405,12 +413,12 @@ if [[ -z "${REMOTE_BATCH_KESTRA_URL:-}" ]]; then
   PORT_FORWARD_PID=$!
 
   for _ in {1..30}; do
-    if curl --silent --show-error --max-time 2 "${KESTRA_URL}/" >/dev/null 2>&1; then
-      break
-    fi
     if ! kill -0 "${PORT_FORWARD_PID}" 2>/dev/null; then
       cat "${TEMP_DIR}/port-forward.log" >&2
       exit 1
+    fi
+    if curl --silent --show-error --max-time 2 "${KESTRA_URL}/" >/dev/null 2>&1; then
+      break
     fi
     sleep 1
   done
