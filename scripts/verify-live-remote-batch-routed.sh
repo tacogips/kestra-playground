@@ -68,10 +68,11 @@ wait_for_replicas() {
   while ((SECONDS < deadline)); do
     all_match=true
     for deployment in "${deployments[@]}"; do
-      desired="$(kubectl -n "${KUBERNETES_NAMESPACE}" get deployment "${deployment}" -o jsonpath='{.spec.replicas}')"
-      ready="$(kubectl -n "${KUBERNETES_NAMESPACE}" get deployment "${deployment}" -o jsonpath='{.status.readyReplicas}')"
+      desired="$(kubectl --request-timeout=10s -n "${KUBERNETES_NAMESPACE}" get deployment "${deployment}" -o jsonpath='{.spec.replicas}' || printf 'unknown')"
+      ready="$(kubectl --request-timeout=10s -n "${KUBERNETES_NAMESPACE}" get deployment "${deployment}" -o jsonpath='{.status.readyReplicas}' || printf 'unknown')"
       ready="${ready:-0}"
       if [[ "${desired}" != "${expected}" || "${ready}" != "${expected}" ]]; then
+        echo "waiting replicas=${expected} deployment=${deployment} desired=${desired} ready=${ready} elapsed=${SECONDS}s"
         all_match=false
         break
       fi
@@ -120,10 +121,11 @@ wait_for_warm_replicas() {
       "${KESTRA_URL}/" >/dev/null 2>&1 || true
     all_ready=true
     for deployment in "${deployments[@]}"; do
-      desired="$(kubectl -n "${KUBERNETES_NAMESPACE}" get deployment "${deployment}" -o jsonpath='{.spec.replicas}')"
-      ready="$(kubectl -n "${KUBERNETES_NAMESPACE}" get deployment "${deployment}" -o jsonpath='{.status.readyReplicas}')"
+      desired="$(kubectl --request-timeout=10s -n "${KUBERNETES_NAMESPACE}" get deployment "${deployment}" -o jsonpath='{.spec.replicas}' || printf 'unknown')"
+      ready="$(kubectl --request-timeout=10s -n "${KUBERNETES_NAMESPACE}" get deployment "${deployment}" -o jsonpath='{.status.readyReplicas}' || printf 'unknown')"
       ready="${ready:-0}"
       if [[ "${desired}" != "1" || "${ready}" != "1" ]]; then
+        echo "waiting warm deployment=${deployment} desired=${desired} ready=${ready} elapsed=${SECONDS}s"
         all_ready=false
         break
       fi
@@ -257,21 +259,43 @@ fetch_execution_logs() {
   return 1
 }
 
+fetch_execution_outputs() {
+  local execution_id="$1"
+  local destination="$2"
+
+  for _ in {1..30}; do
+    if curl --fail --silent \
+      -u "${KESTRA_BASIC_AUTH_USERNAME}:${KESTRA_BASIC_AUTH_PASSWORD}" \
+      "${KESTRA_URL}/api/v1/main/outputs/executions/${execution_id}" >"${destination}" \
+      && jq -e 'type == "object"' "${destination}" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "Evaluated outputs for execution ${execution_id} were not readable." >&2
+  return 1
+}
+
 assert_success() {
   local flow_id="$1"
   local expected_group="$2"
   local child_file="$3"
-  local logs_file="$4"
+  local outputs_file="$4"
+  local logs_file="$5"
   local task_id="execute_batch_${expected_group//-/_}"
 
-  jq -e --arg expected_group "${expected_group}" --arg task_id "${task_id}" '
+  jq -e --arg task_id "${task_id}" '
     .state.current == "SUCCESS"
     and any(.taskRunList[]; .taskId == $task_id and .state.current == "SUCCESS")
-    and (.outputs.artifact | startswith("kestra:///"))
-    and (.outputs.artifact_checksum | test("^[0-9a-f]{64}$"))
-    and .outputs.worker_group == $expected_group
-    and (.outputs.worker_pod | startswith("kestra-gke-worker-"))
   ' "${child_file}" >/dev/null
+  # Kestra 2.0 stores outputs outside the execution record; evaluated flow
+  # outputs come from /api/v1/main/outputs/executions/{id}.
+  jq -e --arg expected_group "${expected_group}" '
+    (.artifact | startswith("kestra:///"))
+    and (.artifact_checksum | test("^[0-9a-f]{64}$"))
+    and .worker_group == $expected_group
+    and (.worker_pod | startswith("kestra-gke-worker-"))
+  ' "${outputs_file}" >/dev/null
   jq -e --arg expected_group "${expected_group}" --arg task_id "${task_id}" '
     any(.[]; .taskId == $task_id and (.message | contains("progress phase=worker_ready group=" + $expected_group)))
     and any(.[]; .taskId == $task_id and (.message | contains("progress phase=complete")))
@@ -320,19 +344,22 @@ run_and_assert() {
   local parent_file
   local child_id
   local child_file
+  local outputs_file
   local logs_file
 
   response="$(submit_flow "${flow_id}" "${bundle_path}" "$@")"
   parent_id="$(jq -er '.id' <<<"${response}")"
   parent_file="${TEMP_DIR}/${parent_id}-parent.json"
   child_file="${TEMP_DIR}/${parent_id}-child.json"
+  outputs_file="${TEMP_DIR}/${parent_id}-outputs.json"
   logs_file="${TEMP_DIR}/${parent_id}-logs.json"
   wait_for_execution "${parent_id}" "${expected_state}" "${parent_file}"
   child_id="$(fetch_child_execution "${parent_file}" "${child_file}")"
   fetch_execution_logs "${child_id}" "${logs_file}"
 
   if [[ "${expected_state}" == "SUCCESS" ]]; then
-    assert_success "${flow_id}" "${expected_group}" "${child_file}" "${logs_file}"
+    fetch_execution_outputs "${child_id}" "${outputs_file}"
+    assert_success "${flow_id}" "${expected_group}" "${child_file}" "${outputs_file}" "${logs_file}"
   else
     assert_failure "${expected_group}" "${child_file}" "${logs_file}"
   fi
@@ -340,7 +367,7 @@ run_and_assert() {
   echo "${flow_id}: parent=${parent_id} runner=${child_id} state=${expected_state}"
   jq -r '
     (.taskRunList // [])[]
-    | [.taskId, .state.current, (.workerId // .worker.id // ""), (.outputs.vars.worker_pod // "")]
+    | [.taskId, .state.current, (.workerId // .worker.id // "")]
     | @tsv
   ' "${child_file}"
   jq -r '
