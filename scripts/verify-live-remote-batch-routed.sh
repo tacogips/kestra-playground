@@ -373,7 +373,7 @@ if [[ -z "${REMOTE_BATCH_KESTRA_URL:-}" ]]; then
   kubectl -n "${KUBERNETES_NAMESPACE}" port-forward \
     --address 127.0.0.1 \
     service/kestra-worker-activator \
-    "${LOCAL_PORT}:8080" \
+    "${LOCAL_PORT}:80" \
     >"${TEMP_DIR}/port-forward.log" 2>&1 &
   PORT_FORWARD_PID=$!
 
