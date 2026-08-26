@@ -9,7 +9,7 @@ LIVE_GKE_SUBDOMAIN="${LIVE_GKE_SUBDOMAIN:-k8s}"
 FLOW_NAMESPACE="playground.worker_routing"
 FLOW_ID="verify_worker_local_file_handoff"
 
-for command in curl gcloud jq kubectl; do
+for command in curl gcloud jq kubectl yq; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Missing required command: ${command}" >&2
     exit 1
@@ -156,18 +156,39 @@ success_id="$(start_execution "$gke_url" "$gke_username" "$gke_password" true)"
 echo "${FLOW_ID} success case: ${success_id}"
 success_json="$(wait_for_execution_state "$gke_url" "$gke_username" "$gke_password" "$success_id" SUCCESS)"
 
-if [[ "$(task_state "$success_json" write_worker_local_file)" != "SUCCESS" \
+if [[ "$(task_state "$success_json" verify_default_worker)" != "SUCCESS" \
+  || "$(task_state "$success_json" write_worker_local_file)" != "SUCCESS" \
   || "$(task_state "$success_json" read_worker_local_file)" != "SUCCESS" \
   || "$(task_state "$success_json" register_worker_local_file)" != "SUCCESS" ]]; then
-  echo "Expected the writer, reader, and database registration tasks to succeed." >&2
+  echo "Expected the default, writer, reader, and database registration tasks to succeed." >&2
   exit 1
 fi
 
+default_worker="$(task_worker_id "$success_json" verify_default_worker)"
 writer_worker="$(task_worker_id "$success_json" write_worker_local_file)"
 reader_worker="$(task_worker_id "$success_json" read_worker_local_file)"
 database_worker="$(task_worker_id "$success_json" register_worker_local_file)"
 if [[ -z "$writer_worker" || "$writer_worker" != "$reader_worker" || "$writer_worker" != "$database_worker" ]]; then
   echo "Expected writer, reader, and database registration on one worker, got writer=${writer_worker:-missing} reader=${reader_worker:-missing} database=${database_worker:-missing}." >&2
+  exit 1
+fi
+
+runtime_config="$(
+  kubectl -n "$NAMESPACE" get configmap kestra-runtime-config -o json \
+    | jq -r '.data["application.yaml"]'
+)"
+controller_queues="$(
+  yq -r '.kestra.worker.routing.groupQueueMappings.controller.queues[].workerQueueId' \
+    <<<"$runtime_config" \
+    | sort
+)"
+if [[ "$controller_queues" != $'default\nsystem' ]]; then
+  echo "Expected the controller worker group to subscribe only to default and system queues." >&2
+  exit 1
+fi
+if ! kubectl -n "$NAMESPACE" logs statefulset/kestra-worker --all-containers=true \
+  | grep -F "workerId=${default_worker}, workerGroup=controller" >/dev/null; then
+  echo "Unselected task worker ${default_worker:-missing} was not confirmed in the controller worker group." >&2
   exit 1
 fi
 
@@ -178,7 +199,7 @@ if ! kubectl -n "$NAMESPACE" logs statefulset/kestra-gke-worker-large -c kestra-
 fi
 
 success_logs="$(execution_log_messages "$gke_url" "$gke_username" "$gke_password" "$success_id")"
-for marker in "local_handoff=written" "local_handoff=read"; do
+for marker in "default_route=executed" "local_handoff=written" "local_handoff=read"; do
   if ! grep -Fq "$marker" <<<"${success_logs}"; then
     echo "Missing success marker: ${marker}" >&2
     exit 1
@@ -227,5 +248,6 @@ kubectl -n "$NAMESPACE" get pvc worker-local-kestra-gke-worker-large-0 >/dev/nul
 echo "Worker-local file handoff verification succeeded."
 echo "success_execution=${success_id}"
 echo "missing_file_execution=${missing_id}"
+echo "default_worker=${default_worker} group=controller queues=default,system"
 echo "worker=${writer_worker}"
 echo "database_value=${registered_value}"

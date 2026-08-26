@@ -470,9 +470,10 @@ worker has a retained `ReadWriteOnce` worker-local volume mounted at
 `/var/lib/kestra-worker-local`. The `verify_worker_local_file_handoff` flow routes an ordered writer
 and reader plus a PostgreSQL registration task to the single-member `gke-large` group, verifies all
 three task runs report the same worker, checks the value registered in `ecommerce_ops`, and
-separately proves that an absent file creates no database row. A task without `workerSelector` uses
-the `controller` worker group, whose only subscriptions are the reserved `default` and `system`
-queues; the dedicated workers subscribe only to their explicitly selected queues. Run
+separately proves that an absent file creates no database row. The same flow starts with an
+unselected Process task and proves it uses the `controller` worker group, whose only subscriptions
+are the reserved `default` and `system` queues; the dedicated workers subscribe only to their
+explicitly selected queues. Run
 `mise run kestra:live:run-worker-local-file-handoff` for that live GKE check.
 See
 [`design-stateful-worker-local-handoff.md`](design-docs/specs/design-stateful-worker-local-handoff.md)

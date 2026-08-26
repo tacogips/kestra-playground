@@ -10,6 +10,13 @@ inputs:
     defaults: true
 
 tasks:
+  - id: verify_default_worker
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - printf 'default_route=executed worker=%s\n' "$(hostname)"
+
   - id: write_worker_local_file
     type: io.kestra.plugin.scripts.shell.Commands
     runIf: "{{ inputs.write_file }}"

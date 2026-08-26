@@ -4,11 +4,12 @@
 
 This example proves a placement-sensitive batch chain on GKE:
 
-1. A writer task runs on the dedicated `gke-large` worker and creates a worker-local file.
-2. A reader task runs on the same worker instance, fails if the file is absent, and emits the read
+1. An unselected Process task proves ordinary work runs on the default `controller` worker group.
+2. A writer task runs on the dedicated `gke-large` worker and creates a worker-local file.
+3. A reader task runs on the same worker instance, fails if the file is absent, and emits the read
    value as a Kestra task output.
-3. A PostgreSQL task runs on that same worker and registers the emitted value in the batch database.
-4. A separate negative execution skips the writer and proves that the reader fails without creating
+4. A PostgreSQL task runs on that same worker and registers the emitted value in the batch database.
+5. A separate negative execution skips the writer and proves that the reader fails without creating
    a database row.
 
 The live verification is implemented by
@@ -69,11 +70,11 @@ groupQueueMappings:
 ```
 
 The dedicated `gke-small` and `gke-large` groups subscribe only to their same-named queues. The
-category-image live verifier runs one task without a selector and one with `tags: [gke-large]`, then
-proves the first worker ID belongs to `workerGroup=controller` and the second belongs to
-`workerGroup=gke-large`. It also checks the live controller mapping contains exactly `default` and
-`system`. Therefore an unselected runnable task is consumed by the default worker, not a dedicated
-routed worker. System tasks continue to use the reserved `system` queue.
+handoff live verifier first runs a Process task without a selector and proves its worker ID belongs
+to `workerGroup=controller`. It then proves the three selected task IDs belong to the same
+`workerGroup=gke-large` member. The verifier also checks the live controller mapping contains
+exactly `default` and `system`. Therefore an unselected runnable task is consumed by the default
+worker, not a dedicated routed worker. System tasks continue to use the reserved `system` queue.
 
 ## GKE Verification Result
 
