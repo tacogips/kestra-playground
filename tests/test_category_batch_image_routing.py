@@ -115,6 +115,9 @@ def test_worker_local_handoff_routes_both_tasks_to_one_stateful_worker() -> None
     assert '::{"outputs":{"handoff_value":"%s"}}::' in tasks[1]["commands"][0]
     assert tasks[2]["id"] == "register_worker_local_file"
     assert tasks[2]["type"] == "io.kestra.plugin.jdbc.postgresql.Queries"
+    assert tasks[2]["url"] == "{{ envs.batch_db_url }}"
+    assert tasks[2]["username"] == "{{ envs.batch_db_username }}"
+    assert tasks[2]["password"] == "{{ envs.batch_db_password }}"
     assert "CREATE TABLE IF NOT EXISTS worker_local_handoffs" in tasks[2]["sql"]
     assert "{{ outputs.read_worker_local_file.vars.handoff_value }}" in tasks[2]["sql"]
 
