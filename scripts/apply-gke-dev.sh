@@ -424,6 +424,8 @@ spec:
     spec:
       serviceAccountName: kestra
       terminationGracePeriodSeconds: 360
+      securityContext:
+        fsGroup: 1000
 ${placement}      containers:
         - name: kestra-worker
           image: ${kestra_image}

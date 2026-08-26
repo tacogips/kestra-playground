@@ -133,6 +133,7 @@ def test_gke_workers_are_statefulsets_with_retained_local_volumes() -> None:
     )
     assert "kind: StatefulSet" in apply_script
     assert "persistentVolumeClaimRetentionPolicy:" in apply_script
+    assert "fsGroup: 1000" in apply_script
     assert "mountPath: /var/lib/kestra-worker-local" in apply_script
     assert "volumeClaimTemplates:" in apply_script
     assert "serviceName: kestra-gke-worker-${group_id#gke-}" in apply_script
