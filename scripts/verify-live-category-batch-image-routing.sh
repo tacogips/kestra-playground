@@ -16,7 +16,7 @@ require_command() {
   fi
 }
 
-for command in curl gcloud jq kubectl; do
+for command in curl gcloud jq kubectl yq; do
   require_command "$command"
 done
 
@@ -198,6 +198,30 @@ if [[ "$normal_worker" == "$special_worker" ]]; then
   exit 1
 fi
 
+runtime_config="$(
+  kubectl -n "$NAMESPACE" get configmap kestra-runtime-config -o json \
+    | jq -r '.data["application.yaml"]'
+)"
+controller_queues="$(
+  yq -r '.kestra.worker.routing.groupQueueMappings.controller.queues[].workerQueueId' \
+    <<<"$runtime_config" \
+    | sort
+)"
+if [[ "$controller_queues" != $'default\nsystem' ]]; then
+  echo "Expected the controller worker group to subscribe only to default and system queues." >&2
+  exit 1
+fi
+if ! kubectl -n "$NAMESPACE" logs statefulset/kestra-worker --all-containers=true \
+  | grep -F "workerId=${normal_worker}, workerGroup=controller" >/dev/null; then
+  echo "Unselected task worker ${normal_worker} was not confirmed in the controller worker group." >&2
+  exit 1
+fi
+if ! kubectl -n "$NAMESPACE" logs statefulset/kestra-gke-worker-large -c kestra-worker \
+  | grep -F "workerId=${special_worker}, workerGroup=gke-large" >/dev/null; then
+  echo "Selected task worker ${special_worker} was not confirmed in the gke-large worker group." >&2
+  exit 1
+fi
+
 expected_image="${CATEGORY_BATCH_IMAGE:-}"
 if [[ -z "$expected_image" ]]; then
   expected_image="$(
@@ -238,7 +262,9 @@ done
 echo "Category batch image routing execution ${execution_id} succeeded."
 echo "image=${expected_image}"
 echo "normal_worker=${normal_worker}"
+echo "normal_worker_group=controller queues=default,system"
 echo "special_worker=${special_worker}"
+echo "special_worker_group=gke-large queue=gke-large"
 jq -r '
   "Batch Pods:",
   (["name", "batch", "image", "node", "phase"] | @tsv),

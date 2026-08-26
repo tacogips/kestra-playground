@@ -1,7 +1,14 @@
 id: verify_worker_local_file_handoff
 namespace: playground.worker_routing
 
-description: Verify two ordered batches use one dedicated worker and its local persistent disk.
+description: Verify ordered file and database tasks use one dedicated worker and its local persistent disk.
+
+pluginDefaults:
+  - type: io.kestra.plugin.jdbc.postgresql
+    values:
+      url: "{{ envs.batch_db_url }}"
+      username: "{{ envs.batch_db_username }}"
+      password: "{{ envs.batch_db_password }}"
 
 inputs:
   - id: write_file
@@ -54,4 +61,28 @@ tasks:
           exit 43
         fi
         printf 'local_handoff=read worker=%s path=%s value=%s\n' "$(hostname)" "$path" "$actual"
+        printf '::{"outputs":{"handoff_value":"%s"}}::\n' "$actual"
         rm -f "$path"
+
+  - id: register_worker_local_file
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    workerSelector:
+      tags: [gke-large]
+      match: ALL
+      fallback: WAIT
+      broadcast: false
+    fetchType: NONE
+    sql: |
+      CREATE TABLE IF NOT EXISTS worker_local_handoffs (
+        execution_id text PRIMARY KEY,
+        handoff_value text NOT NULL,
+        registered_at timestamptz NOT NULL DEFAULT now()
+      );
+      INSERT INTO worker_local_handoffs (execution_id, handoff_value)
+      VALUES (
+        '{{ execution.id }}',
+        '{{ outputs.read_worker_local_file.vars.handoff_value }}'
+      )
+      ON CONFLICT (execution_id) DO UPDATE
+      SET handoff_value = EXCLUDED.handoff_value,
+          registered_at = now();

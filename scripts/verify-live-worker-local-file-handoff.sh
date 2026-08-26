@@ -133,6 +133,14 @@ execution_log_messages() {
 gke_url="https://${LIVE_GKE_SUBDOMAIN}.${LIVE_DOMAIN_NAME}"
 gke_username="$(secret_value kestra-dev-gke-kestra-basic-auth-username)"
 gke_password="$(secret_value kestra-dev-gke-kestra-basic-auth-password)"
+batch_db_username="$(
+  kubectl -n "$NAMESPACE" get secret kestra-secrets -o json \
+    | jq -r '.data.ENV_BATCH_DB_USERNAME | @base64d'
+)"
+batch_db_password="$(
+  kubectl -n "$NAMESPACE" get secret kestra-secrets -o json \
+    | jq -r '.data.ENV_BATCH_DB_PASSWORD | @base64d'
+)"
 
 gcloud container clusters get-credentials kestra-dev \
   --region "$REGION" \
@@ -149,15 +157,23 @@ echo "${FLOW_ID} success case: ${success_id}"
 success_json="$(wait_for_execution_state "$gke_url" "$gke_username" "$gke_password" "$success_id" SUCCESS)"
 
 if [[ "$(task_state "$success_json" write_worker_local_file)" != "SUCCESS" \
-  || "$(task_state "$success_json" read_worker_local_file)" != "SUCCESS" ]]; then
-  echo "Expected both local handoff tasks to succeed." >&2
+  || "$(task_state "$success_json" read_worker_local_file)" != "SUCCESS" \
+  || "$(task_state "$success_json" register_worker_local_file)" != "SUCCESS" ]]; then
+  echo "Expected the writer, reader, and database registration tasks to succeed." >&2
   exit 1
 fi
 
 writer_worker="$(task_worker_id "$success_json" write_worker_local_file)"
 reader_worker="$(task_worker_id "$success_json" read_worker_local_file)"
-if [[ -z "$writer_worker" || "$writer_worker" != "$reader_worker" ]]; then
-  echo "Expected writer and reader on one worker, got writer=${writer_worker:-missing} reader=${reader_worker:-missing}." >&2
+database_worker="$(task_worker_id "$success_json" register_worker_local_file)"
+if [[ -z "$writer_worker" || "$writer_worker" != "$reader_worker" || "$writer_worker" != "$database_worker" ]]; then
+  echo "Expected writer, reader, and database registration on one worker, got writer=${writer_worker:-missing} reader=${reader_worker:-missing} database=${database_worker:-missing}." >&2
+  exit 1
+fi
+
+if ! kubectl -n "$NAMESPACE" logs statefulset/kestra-gke-worker-large -c kestra-worker \
+  | grep -F "workerId=${writer_worker}, workerGroup=gke-large" >/dev/null; then
+  echo "Worker ${writer_worker} was not confirmed as the gke-large StatefulSet member." >&2
   exit 1
 fi
 
@@ -168,6 +184,18 @@ for marker in "local_handoff=written" "local_handoff=read"; do
     exit 1
   fi
 done
+
+registered_value="$(
+  kubectl -n "$NAMESPACE" exec statefulset/kestra-postgres -- \
+    env PGPASSWORD="$batch_db_password" \
+    psql --username="$batch_db_username" --dbname=ecommerce_ops --tuples-only --no-align \
+    --command "SELECT handoff_value FROM worker_local_handoffs WHERE execution_id = '${success_id}';"
+)"
+expected_value="orders-ready-${success_id}"
+if [[ "$registered_value" != "$expected_value" ]]; then
+  echo "Expected database value ${expected_value}, got ${registered_value:-missing}." >&2
+  exit 1
+fi
 
 missing_id="$(start_execution "$gke_url" "$gke_username" "$gke_password" false)"
 echo "${FLOW_ID} missing-file case: ${missing_id}"
@@ -182,6 +210,17 @@ if ! grep -Fq "local_handoff=missing" <<<"${missing_logs}"; then
   exit 1
 fi
 
+missing_row_count="$(
+  kubectl -n "$NAMESPACE" exec statefulset/kestra-postgres -- \
+    env PGPASSWORD="$batch_db_password" \
+    psql --username="$batch_db_username" --dbname=ecommerce_ops --tuples-only --no-align \
+    --command "SELECT count(*) FROM worker_local_handoffs WHERE execution_id = '${missing_id}';"
+)"
+if [[ "$missing_row_count" != "0" ]]; then
+  echo "The missing-file execution unexpectedly registered a database row." >&2
+  exit 1
+fi
+
 kubectl -n "$NAMESPACE" get statefulset kestra-gke-worker-large >/dev/null
 kubectl -n "$NAMESPACE" get pvc worker-local-kestra-gke-worker-large-0 >/dev/null
 
@@ -189,3 +228,4 @@ echo "Worker-local file handoff verification succeeded."
 echo "success_execution=${success_id}"
 echo "missing_file_execution=${missing_id}"
 echo "worker=${writer_worker}"
+echo "database_value=${registered_value}"

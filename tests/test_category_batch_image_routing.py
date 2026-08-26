@@ -87,6 +87,9 @@ def test_gke_runtime_exposes_the_category_image_to_flows() -> None:
     assert "special_batch_on_dedicated_worker" in verifier
     assert 'if [[ "$normal_worker" == "$special_worker" ]]' in verifier
     assert "ENV_CATEGORY_BATCH_IMAGE | @base64d" in verifier
+    assert "workerGroup=controller" in verifier
+    assert "$'default\\nsystem'" in verifier
+    assert "workerGroup=gke-large" in verifier
 
 
 def test_worker_local_handoff_routes_both_tasks_to_one_stateful_worker() -> None:
@@ -96,26 +99,24 @@ def test_worker_local_handoff_routes_both_tasks_to_one_stateful_worker() -> None
     tasks = flow["tasks"]
 
     assert flow["inputs"][0]["type"] == "BOOL"
-    assert [task["workerSelector"] for task in tasks] == [
-        {
-            "tags": ["gke-large"],
-            "match": "ALL",
-            "fallback": "WAIT",
-            "broadcast": False,
-        },
-        {
-            "tags": ["gke-large"],
-            "match": "ALL",
-            "fallback": "WAIT",
-            "broadcast": False,
-        },
-    ]
+    expected_selector = {
+        "tags": ["gke-large"],
+        "match": "ALL",
+        "fallback": "WAIT",
+        "broadcast": False,
+    }
+    assert [task["workerSelector"] for task in tasks] == [expected_selector] * 3
     assert all(
-        task["taskRunner"]["type"] == "io.kestra.plugin.core.runner.Process" for task in tasks
+        task["taskRunner"]["type"] == "io.kestra.plugin.core.runner.Process" for task in tasks[:2]
     )
     assert "/var/lib/kestra-worker-local/{{ execution.id }}.txt" in tasks[0]["commands"][0]
     assert 'if [ ! -f "$path" ]' in tasks[1]["commands"][0]
     assert "exit 42" in tasks[1]["commands"][0]
+    assert '::{"outputs":{"handoff_value":"%s"}}::' in tasks[1]["commands"][0]
+    assert tasks[2]["id"] == "register_worker_local_file"
+    assert tasks[2]["type"] == "io.kestra.plugin.jdbc.postgresql.Queries"
+    assert "CREATE TABLE IF NOT EXISTS worker_local_handoffs" in tasks[2]["sql"]
+    assert "{{ outputs.read_worker_local_file.vars.handoff_value }}" in tasks[2]["sql"]
 
 
 def test_gke_workers_are_statefulsets_with_retained_local_volumes() -> None:
@@ -154,6 +155,9 @@ def test_live_workflow_verifies_success_and_missing_file_cases() -> None:
     assert "ensure_gke_kubectl_auth" in verifier
     assert '"$missing_id" FAILED' in verifier
     assert "worker-local-kestra-gke-worker-large-0" in verifier
+    assert "workerGroup=gke-large" in verifier
+    assert "SELECT handoff_value FROM worker_local_handoffs" in verifier
+    assert "SELECT count(*) FROM worker_local_handoffs" in verifier
     assert any(
         step.get("run") == "mise exec -- scripts/verify-live-worker-local-file-handoff.sh"
         for step in workflow["jobs"]["verify-routed"]["steps"]

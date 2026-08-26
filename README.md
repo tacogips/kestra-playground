@@ -468,9 +468,15 @@ separation, image reference, and batch logs on GKE.
 The GKE Kestra control-plane components and routed workers use one-replica StatefulSets. Each routed
 worker has a retained `ReadWriteOnce` worker-local volume mounted at
 `/var/lib/kestra-worker-local`. The `verify_worker_local_file_handoff` flow routes an ordered writer
-and reader to the single-member `gke-large` group, verifies both task runs report the same worker,
-and separately proves that the reader fails when the file is absent. Run
+and reader plus a PostgreSQL registration task to the single-member `gke-large` group, verifies all
+three task runs report the same worker, checks the value registered in `ecommerce_ops`, and
+separately proves that an absent file creates no database row. A task without `workerSelector` uses
+the `controller` worker group, whose only subscriptions are the reserved `default` and `system`
+queues; the dedicated workers subscribe only to their explicitly selected queues. Run
 `mise run kestra:live:run-worker-local-file-handoff` for that live GKE check.
+See
+[`design-stateful-worker-local-handoff.md`](design-docs/specs/design-stateful-worker-local-handoff.md)
+for the verified routing evidence, architecture, and persistence limits.
 
 The runtime image extends `kestra/kestra:latest` and bakes in `batch-groups/` (per-system flows,
 fixtures, and batch sources), `kestra/config/`, and the Python package source under `src/`. The
