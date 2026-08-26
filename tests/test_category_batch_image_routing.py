@@ -95,6 +95,7 @@ def test_worker_local_handoff_routes_both_tasks_to_one_stateful_worker() -> None
     )
     tasks = flow["tasks"]
 
+    assert flow["inputs"][0]["type"] == "BOOL"
     assert [task["workerSelector"] for task in tasks] == [
         {
             "tags": ["gke-large"],

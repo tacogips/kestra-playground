@@ -5,7 +5,7 @@ description: Verify two ordered batches use one dedicated worker and its local p
 
 inputs:
   - id: write_file
-    type: BOOLEAN
+    type: BOOL
     required: true
     defaults: true
 
