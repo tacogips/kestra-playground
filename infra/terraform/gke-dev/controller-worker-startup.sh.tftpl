@@ -8,6 +8,31 @@ if ! apt-get install -y docker-compose-plugin; then
 fi
 systemctl enable --now docker
 
+cat >/etc/systemd/system/kestra-worker-nightly-poweroff.service <<'EOF'
+[Unit]
+Description=Power off the Kestra GCE worker at the nightly cost boundary
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl poweroff
+EOF
+
+cat >/etc/systemd/system/kestra-worker-nightly-poweroff.timer <<'EOF'
+[Unit]
+Description=Power off the Kestra GCE worker daily at 23:00 JST
+
+[Timer]
+OnCalendar=*-*-* 23:00:00 Asia/Tokyo
+AccuracySec=1min
+Unit=kestra-worker-nightly-poweroff.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now kestra-worker-nightly-poweroff.timer
+
 compose() {
   if docker compose version >/dev/null 2>&1; then
     docker compose "$@"
@@ -26,7 +51,7 @@ if ! command -v gcloud >/dev/null 2>&1; then
   apt-get install -y google-cloud-cli
 fi
 
-mkdir -p /opt/kestra-worker/config /tmp/kestra-worker-wd
+mkdir -p /opt/kestra-worker/config /tmp/kestra-wd
 gcloud auth configure-docker "${artifact_registry_host}" --quiet
 
 read_secret() {
@@ -127,8 +152,9 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      - /tmp/kestra-worker-wd:/tmp/kestra-wd
+      - /tmp/kestra-wd:/tmp/kestra-wd
       - /opt/kestra-worker/config/application.yaml:/etc/kestra/application.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
 YAML
 
 compose -f /opt/kestra-worker/docker-compose.yml --env-file /opt/kestra-worker/.env up -d --force-recreate

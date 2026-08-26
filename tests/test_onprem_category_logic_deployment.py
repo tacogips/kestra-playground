@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import yaml
@@ -31,6 +32,16 @@ def test_deploy_targets_only_inventory_group_and_proves_worker_continuity() -> N
     assert "worker_after.State.StartedAt == worker_before.State.StartedAt" in serialized
     assert "- restart" not in serialized
     assert "ansible.builtin.service" not in serialized
+    assert playbook["vars"]["container_runtime_executable"] == "podman"
+
+
+def test_gce_workers_power_off_at_23_jst_without_a_catch_up_shutdown() -> None:
+    startup = _read("infra/terraform/gke-dev/controller-worker-startup.sh.tftpl")
+
+    assert "OnCalendar=*-*-* 23:00:00 Asia/Tokyo" in startup
+    assert "ExecStart=/usr/bin/systemctl poweroff" in startup
+    assert "systemctl enable --now kestra-worker-nightly-poweroff.timer" in startup
+    assert "Persistent=true" not in startup
 
 
 def test_periodic_flow_broadcasts_version_probe_to_every_selected_worker() -> None:
@@ -54,11 +65,118 @@ def test_local_verifier_deploys_two_versions_to_two_hosts_without_cold_start() -
 
     assert "host_a=" in verifier
     assert "host_b=" in verifier
-    assert "1.0.0" in verifier
+    assert "dev-local" in verifier
     assert "1.1.0" in verifier
     assert "9.9.0" in verifier
+    assert "DEV main-push workflow" in verifier
+    assert "STAGING tag workflow" in verifier
+    assert verifier.count('"$inventory" orders_workers') >= 3
+    assert "persist-category-logic-release.sh" in verifier
     assert "worker_a_before" in verifier
     assert "worker_a_after" in verifier
     assert "worker_b_before" in verifier
     assert "worker_b_after" in verifier
     assert "cold" not in verifier.lower()
+
+
+def test_gcp_verifier_uses_low_cost_persistent_workers_and_stops_them() -> None:
+    verifier = _read("scripts/verify-live-gcp-category-logic-ansible.sh")
+
+    assert "GCP_CATEGORY_LOGIC_MACHINE_TYPE:-e2-small" in verifier
+    assert "systemctl is-system-running" in verifier
+    assert '"$state" == "running" || "$state" == "degraded"' in verifier
+    assert '"$worker_container" docker' in verifier
+    assert "GCP_STOP_AFTER_VERIFY:-true" in verifier
+    assert 'gcloud compute instances stop "$instance_a" "$instance_b"' in verifier
+    assert "kestra-worker-nightly-poweroff.timer" in verifier
+    builder = _read("scripts/build-category-logic-bundle.sh")
+    assert "linux/amd64" in builder
+    assert "type=docker,dest=${archive_path}" in builder
+    assert "type=oci,dest=${archive_path}" not in builder
+
+
+def test_gcp_category_logic_flow_runs_deployed_image_on_both_workers() -> None:
+    flow = yaml.safe_load(_read("kestra/flows-onprem/verify_gcp_category_logic_deployment.yaml"))
+    normal, special = flow["tasks"]
+
+    assert normal["containerImage"] == "{{ inputs.logic_image }}"
+    assert normal["taskRunner"] == {
+        "type": "io.kestra.plugin.scripts.runner.docker.Docker",
+        "host": "unix:///var/run/docker.sock",
+        "pullPolicy": "NEVER",
+    }
+    assert normal["workerSelector"]["tags"] == ["gce-a"]
+    assert special["workerSelector"]["tags"] == ["gce-b"]
+    assert "/app/batches/version.sh" in normal["commands"][0]
+    assert "/app/batches/normal_batch.sh" in normal["commands"][0]
+    assert "/app/batches/special_batch.sh" in special["commands"][0]
+
+    startup = _read("infra/terraform/gke-dev/controller-worker-startup.sh.tftpl")
+    assert "/tmp/kestra-wd:/tmp/kestra-wd" in startup
+    assert "/var/run/docker.sock:/var/run/docker.sock" in startup
+
+
+def test_onprem_design_shows_server_contents_and_same_artifact_promotion() -> None:
+    design = _read("design-docs/specs/design-onprem-category-logic-deployment.md")
+
+    assert "flowchart LR" in design
+    assert "sequenceDiagram" in design
+    assert "Deployment server / self-hosted runner" in design
+    assert "CURRENT DEV + STAGING: orders-worker-01..N" in design
+    assert "PRODUCTION: prd-worker-01..N" in design
+    assert "Web server: running, unchanged" in design
+    assert "Kestra worker: running, unchanged" in design
+    assert "deploy the same stored archive" in design
+    assert "/var/lib/kestra-releases/<category>/<version>/" in design
+
+
+def test_dev_and_staging_workflows_deploy_to_the_same_configurable_inventory() -> None:
+    dev = yaml.load(
+        _read(".github/workflows/deploy-category-logic-dev.yml"), Loader=yaml.BaseLoader
+    )
+    staging = yaml.load(
+        _read(".github/workflows/deploy-category-logic-staging.yml"), Loader=yaml.BaseLoader
+    )
+
+    assert dev["on"]["push"]["branches"] == ["main"]
+    assert staging["on"]["push"]["tags"] == ["orders-v*"]
+    assert dev["jobs"]["deploy"]["environment"]["name"] == "development"
+    assert staging["jobs"]["deploy"]["environment"]["name"] == "staging"
+    assert dev["jobs"]["deploy"]["runs-on"] == ["self-hosted", "onprem", "category-deploy"]
+    assert staging["jobs"]["deploy"]["runs-on"] == [
+        "self-hosted",
+        "onprem",
+        "category-deploy",
+    ]
+    for variable in ["CATEGORY_LOGIC_INVENTORY", "CATEGORY_LOGIC_TARGET_GROUP"]:
+        assert dev["jobs"]["deploy"]["env"][variable] == "${{ vars." + variable + " }}"
+        assert staging["jobs"]["deploy"]["env"][variable] == "${{ vars." + variable + " }}"
+
+    staging_text = _read(".github/workflows/deploy-category-logic-staging.yml")
+    assert "persist-category-logic-release.sh" in staging_text
+    assert "git merge-base --is-ancestor" in staging_text
+
+
+def test_ansible_core_is_pinned_for_self_hosted_deployment() -> None:
+    mise = _read("mise.toml")
+
+    assert '"pipx:ansible-core" = "2.21.3"' in mise
+    assert "uvx --from 'ansible-core==2.21.3'" in _read("scripts/deploy-category-logic-ansible.sh")
+
+
+def test_category_logic_workflows_follow_action_security_baseline() -> None:
+    for path in [
+        ".github/workflows/deploy-category-logic-dev.yml",
+        ".github/workflows/deploy-category-logic-staging.yml",
+    ]:
+        workflow_text = _read(path)
+        workflow = yaml.load(workflow_text, Loader=yaml.BaseLoader)
+
+        assert workflow["permissions"] == {"contents": "read"}
+        assert workflow["concurrency"]["cancel-in-progress"] == "false"
+        assert "${{ github.event." not in workflow_text
+        for job in workflow["jobs"].values():
+            assert job["timeout-minutes"]
+            assert job["permissions"] == {"contents": "read"}
+        for action_reference in re.findall(r"uses:\s*([^\s]+)", workflow_text):
+            assert re.search(r"@[0-9a-f]{40}$", action_reference)

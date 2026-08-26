@@ -33,6 +33,7 @@ shellcheck = "latest"
 "github:docker/compose" = "latest"
 gitleaks = "latest"
 pre-commit = "latest"
+"pipx:ansible-core" = "2.21.3"
 
 [tasks."default"]
 description = "Show available tasks"
@@ -473,7 +474,8 @@ scripts/deploy-category-logic-ansible.sh \
   "${CATEGORY_LOGIC_IMAGE:?Set CATEGORY_LOGIC_IMAGE}" \
   "${CATEGORY_LOGIC_VERSION:?Set CATEGORY_LOGIC_VERSION}" \
   "${CATEGORY_LOGIC_REVISION:?Set CATEGORY_LOGIC_REVISION}" \
-  "${KESTRA_WORKER_CONTAINER:-kestra-worker}"
+  "${KESTRA_WORKER_CONTAINER:-kestra-worker}" \
+  "${CATEGORY_LOGIC_CONTAINER_RUNTIME:-podman}"
 '''
 
 [tasks."kestra:category-logic:audit"]
@@ -485,13 +487,20 @@ scripts/audit-category-logic-ansible.sh \
   "${CATEGORY_LOGIC_IMAGE:?Set CATEGORY_LOGIC_IMAGE}" \
   "${CATEGORY_LOGIC_VERSION:?Set CATEGORY_LOGIC_VERSION}" \
   "${CATEGORY_LOGIC_REVISION:-}" \
-  "${KESTRA_WORKER_CONTAINER:-kestra-worker}"
+  "${KESTRA_WORKER_CONTAINER:-kestra-worker}" \
+  "${CATEGORY_LOGIC_CONTAINER_RUNTIME:-podman}"
 '''
 
 [tasks."kestra:category-logic:verify-local"]
 description = "Verify two-host Podman category logic deployment without a worker restart"
 run = '''
 scripts/verify-local-category-logic-ansible.sh
+'''
+
+[tasks."kestra:category-logic:verify-gcp"]
+description = "Verify DEV and STAGING category logic deployment on two low-cost GCE workers"
+run = '''
+scripts/verify-live-gcp-category-logic-ansible.sh
 '''
 
 [tasks."kestra:live:run-k8s-pod-resources"]

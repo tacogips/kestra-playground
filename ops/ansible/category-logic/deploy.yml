@@ -5,7 +5,7 @@
   any_errors_fatal: true
   vars:
     remote_archive: "/tmp/{{ logic_image_archive | basename }}"
-    podman_executable: podman
+    container_runtime_executable: podman
 
   pre_tasks:
     - name: Validate required deployment values
@@ -23,7 +23,7 @@
     - name: Inspect the running Kestra worker before staging logic
       ansible.builtin.command:
         argv:
-          - "{{ podman_executable }}"
+          - "{{ container_runtime_executable }}"
           - container
           - inspect
           - "{{ worker_container_name }}"
@@ -42,7 +42,7 @@
     - name: Inspect the requested category logic image
       ansible.builtin.command:
         argv:
-          - "{{ podman_executable }}"
+          - "{{ container_runtime_executable }}"
           - image
           - inspect
           - "{{ logic_image }}"
@@ -82,7 +82,7 @@
         - name: Load only the category logic image
           ansible.builtin.command:
             argv:
-              - "{{ podman_executable }}"
+              - "{{ container_runtime_executable }}"
               - load
               - --input
               - "{{ remote_archive }}"
@@ -97,7 +97,7 @@
     - name: Inspect the staged category logic image
       ansible.builtin.command:
         argv:
-          - "{{ podman_executable }}"
+          - "{{ container_runtime_executable }}"
           - image
           - inspect
           - "{{ logic_image }}"
@@ -111,7 +111,7 @@
     - name: Execute the image-owned version task
       ansible.builtin.command:
         argv:
-          - "{{ podman_executable }}"
+          - "{{ container_runtime_executable }}"
           - run
           - --rm
           - --pull=never
@@ -139,7 +139,7 @@
     - name: Inspect the Kestra worker after staging logic
       ansible.builtin.command:
         argv:
-          - "{{ podman_executable }}"
+          - "{{ container_runtime_executable }}"
           - container
           - inspect
           - "{{ worker_container_name }}"

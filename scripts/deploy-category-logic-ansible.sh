@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "$#" -lt 6 || "$#" -gt 7 ]]; then
-  echo "Usage: $0 INVENTORY TARGET_GROUP OCI_ARCHIVE IMAGE VERSION REVISION [WORKER_CONTAINER]" >&2
+if [[ "$#" -lt 6 || "$#" -gt 8 ]]; then
+  echo "Usage: $0 INVENTORY TARGET_GROUP IMAGE_ARCHIVE IMAGE VERSION REVISION [WORKER_CONTAINER] [CONTAINER_RUNTIME]" >&2
   exit 2
 fi
 
@@ -13,6 +13,7 @@ logic_image="$4"
 logic_version="$5"
 logic_revision="$6"
 worker_container_name="${7:-kestra-worker}"
+container_runtime_executable="${8:-podman}"
 playbook="ops/ansible/category-logic/deploy.yml"
 
 for path in "$inventory" "$archive" "$playbook"; do
@@ -30,7 +31,7 @@ fi
 if command -v ansible-playbook >/dev/null 2>&1; then
   ansible_command=(ansible-playbook)
 elif command -v uvx >/dev/null 2>&1; then
-  ansible_command=(uvx --from ansible-core ansible-playbook)
+  ansible_command=(uvx --from 'ansible-core==2.21.3' ansible-playbook)
 else
   echo "Install ansible-playbook or uvx." >&2
   exit 1
@@ -51,6 +52,7 @@ extra_vars="$(
     --arg logic_revision "$logic_revision" \
     --arg logic_archive_sha256 "$archive_sha256" \
     --arg worker_container_name "$worker_container_name" \
+    --arg container_runtime_executable "$container_runtime_executable" \
     '{
       target_group: $target_group,
       logic_image_archive: $logic_image_archive,
@@ -58,7 +60,8 @@ extra_vars="$(
       logic_version: $logic_version,
       logic_revision: $logic_revision,
       logic_archive_sha256: $logic_archive_sha256,
-      worker_container_name: $worker_container_name
+      worker_container_name: $worker_container_name,
+      container_runtime_executable: $container_runtime_executable
     }'
 )"
 

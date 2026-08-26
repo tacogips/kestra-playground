@@ -17,33 +17,44 @@ runtime_dir="$(mktemp -d "${TMPDIR:-/tmp}/kestra-category-logic.XXXXXX")"
 suffix="$$"
 host_a="kestra-logic-host-a-${suffix}"
 host_b="kestra-logic-host-b-${suffix}"
-image_v1="localhost/kestra-category/orders:local-1.0.0-${suffix}"
-image_v2="localhost/kestra-category/orders:local-1.1.0-${suffix}"
+dev_version="dev-local-${suffix}"
+staging_version="1.1.0"
+dev_revision="local-dev"
+staging_revision="local-release"
+dev_image="localhost/kestra-category/orders:${dev_version}"
+staging_image="localhost/kestra-category/orders:${staging_version}"
+dev_bundle="${runtime_dir}/dev-bundle"
+staging_bundle="${runtime_dir}/staging-bundle"
+release_store="${runtime_dir}/release-store"
 collection_dir="${runtime_dir}/collections"
 inventory="${runtime_dir}/inventory.ini"
 marker_archive="${runtime_dir}/worker-marker.tar"
-archive_v1="${runtime_dir}/orders-1.0.0.tar"
-archive_v2="${runtime_dir}/orders-1.1.0.tar"
+docker_architecture="$(docker info --format '{{.Architecture}}')"
+case "$docker_architecture" in
+  aarch64 | arm64) local_platform="linux/arm64" ;;
+  x86_64 | amd64) local_platform="linux/amd64" ;;
+  *)
+    echo "Unsupported local Docker architecture: ${docker_architecture}" >&2
+    exit 1
+    ;;
+esac
 
 cleanup() {
   docker container rm --force "$host_a" "$host_b" >/dev/null 2>&1 || true
-  docker image rm "$image_v1" "$image_v2" >/dev/null 2>&1 || true
+  rm -rf "$runtime_dir"
 }
 trap cleanup EXIT
 
-docker build \
-  --build-arg LOGIC_VERSION=1.0.0 \
-  --build-arg REVISION=local-v1 \
-  --tag "$image_v1" \
-  examples/category-batch-image >/dev/null
-docker save --output "$archive_v1" "$image_v1"
+scripts/build-category-logic-bundle.sh \
+  "$dev_bundle" "$dev_version" "$dev_revision" "$dev_image" "$local_platform" >/dev/null
+scripts/build-category-logic-bundle.sh \
+  "$staging_bundle" "$staging_version" "$staging_revision" "$staging_image" "$local_platform" >/dev/null
+staging_release_directory="$(
+  scripts/persist-category-logic-release.sh "$staging_bundle" "$release_store"
+)"
 
-docker build \
-  --build-arg LOGIC_VERSION=1.1.0 \
-  --build-arg REVISION=local-v2 \
-  --tag "$image_v2" \
-  examples/category-batch-image >/dev/null
-docker save --output "$archive_v2" "$image_v2"
+staging_archive="$(jq -er '.archive' "${staging_bundle}/release-manifest.json")"
+cmp "${staging_bundle}/${staging_archive}" "${staging_release_directory}/${staging_archive}"
 
 docker pull alpine:3.22.1 >/dev/null
 docker save --output "$marker_archive" alpine:3.22.1
@@ -73,7 +84,7 @@ ${host_b} ansible_connection=community.docker.docker ansible_host=${host_b}
 ansible_python_interpreter=/usr/bin/python3
 EOF
 
-uvx --from ansible-core ansible-galaxy collection install \
+uvx --from 'ansible-core==2.21.3' ansible-galaxy collection install \
   'community.docker:==4.8.2' \
   --collections-path "$collection_dir" >/dev/null
 export ANSIBLE_COLLECTIONS_PATH="$collection_dir"
@@ -81,17 +92,20 @@ export ANSIBLE_COLLECTIONS_PATH="$collection_dir"
 worker_a_before="$(docker exec "$host_a" podman container inspect kestra-worker | jq -r '.[0] | [.Id, .State.StartedAt] | @tsv')"
 worker_b_before="$(docker exec "$host_b" podman container inspect kestra-worker | jq -r '.[0] | [.Id, .State.StartedAt] | @tsv')"
 
-scripts/deploy-category-logic-ansible.sh \
-  "$inventory" orders_workers "$archive_v1" "$image_v1" 1.0.0 local-v1 kestra-worker
-scripts/deploy-category-logic-ansible.sh \
-  "$inventory" orders_workers "$archive_v2" "$image_v2" 1.1.0 local-v2 kestra-worker
+echo "Simulating the DEV main-push workflow against the shared inventory."
+scripts/deploy-category-logic-bundle.sh \
+  "$dev_bundle" "$inventory" orders_workers kestra-worker
+
+echo "Simulating the STAGING tag workflow against the same shared inventory."
+scripts/deploy-category-logic-bundle.sh \
+  "$staging_release_directory" "$inventory" orders_workers kestra-worker
 if scripts/audit-category-logic-ansible.sh \
-  "$inventory" orders_workers "$image_v2" 9.9.0 local-v2 kestra-worker; then
+  "$inventory" orders_workers "$staging_image" 9.9.0 "$staging_revision" kestra-worker; then
   echo "The version audit accepted an unexpected logic version." >&2
   exit 1
 fi
 scripts/audit-category-logic-ansible.sh \
-  "$inventory" orders_workers "$image_v2" 1.1.0 local-v2 kestra-worker
+  "$inventory" orders_workers "$staging_image" "$staging_version" "$staging_revision" kestra-worker
 
 worker_a_after="$(docker exec "$host_a" podman container inspect kestra-worker | jq -r '.[0] | [.Id, .State.StartedAt] | @tsv')"
 worker_b_after="$(docker exec "$host_b" podman container inspect kestra-worker | jq -r '.[0] | [.Id, .State.StartedAt] | @tsv')"
@@ -105,16 +119,18 @@ for host in "$host_a" "$host_b"; do
   version_json="$(
     docker exec "$host" podman run --rm --pull=never \
       --env "WORKER_HOSTNAME=${host}" \
-      "$image_v2" \
+      "$staging_image" \
       /app/batches/version.sh
   )"
   jq -e \
     --arg host "$host" \
-    '.category == "orders" and .version == "1.1.0" and .revision == "local-v2" and .worker_host == $host' \
+    --arg version "$staging_version" \
+    --arg revision "$staging_revision" \
+    '.category == "orders" and .version == $version and .revision == $revision and .worker_host == $host' \
     <<<"$version_json" >/dev/null
   worker_json="$(docker exec "$host" podman container inspect kestra-worker)"
   worker_id="$(jq -r '.[0].Id' <<<"$worker_json")"
   printf 'host=%s logic=%s worker=%s\n' "$host" "$version_json" "$worker_id"
 done
 
-echo "Verified category logic 1.0.0 -> 1.1.0 on two Podman hosts without restarting either worker."
+echo "Verified separate DEV and STAGING flows on one shared two-host inventory without restarting either worker."

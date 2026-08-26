@@ -4,7 +4,7 @@
   gather_facts: false
   any_errors_fatal: false
   vars:
-    podman_executable: podman
+    container_runtime_executable: podman
 
   pre_tasks:
     - name: Validate required audit values
@@ -19,7 +19,7 @@
     - name: Inspect the running Kestra worker
       ansible.builtin.command:
         argv:
-          - "{{ podman_executable }}"
+          - "{{ container_runtime_executable }}"
           - container
           - inspect
           - "{{ worker_container_name }}"
@@ -29,7 +29,7 @@
     - name: Execute the image-owned version task
       ansible.builtin.command:
         argv:
-          - "{{ podman_executable }}"
+          - "{{ container_runtime_executable }}"
           - run
           - --rm
           - --pull=never

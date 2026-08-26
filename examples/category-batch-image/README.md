@@ -49,14 +49,14 @@ podman build \
   --build-arg REVISION="$(git rev-parse HEAD)" \
   --tag localhost/kestra-category/orders:1.1.0 \
   examples/category-batch-image
-podman save --format oci-archive \
-  --output orders-1.1.0.oci \
+podman save --format docker-archive \
+  --output orders-1.1.0.tar \
   localhost/kestra-category/orders:1.1.0
 
 scripts/deploy-category-logic-ansible.sh \
   ops/ansible/category-logic/inventory.ini \
   orders_workers \
-  orders-1.1.0.oci \
+  orders-1.1.0.tar \
   localhost/kestra-category/orders:1.1.0 \
   1.1.0 \
   "$(git rev-parse HEAD)"
@@ -65,3 +65,8 @@ scripts/deploy-category-logic-ansible.sh \
 This loads only the category image. It neither reloads nor restarts the Kestra worker image.
 See [the on-premises deployment design](../../design-docs/specs/design-onprem-category-logic-deployment.md)
 for deployment, monitoring, rollback, and host prerequisites.
+
+The separate on-premises automation paths are
+`.github/workflows/deploy-category-logic-dev.yml` for a `main` push and
+`.github/workflows/deploy-category-logic-staging.yml` for an `orders-vX.Y.Z` tag. During the initial
+simulation, both GitHub Environments point to the same Ansible inventory.

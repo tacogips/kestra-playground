@@ -1,0 +1,68 @@
+id: verify_gcp_category_logic_deployment
+namespace: playground.worker_routing
+
+description: Execute the deployed category image through Kestra on both routed GCE workers.
+
+inputs:
+  - id: logic_image
+    type: STRING
+    required: true
+  - id: expected_version
+    type: STRING
+    required: true
+  - id: expected_revision
+    type: STRING
+    required: true
+
+tasks:
+  - id: run_normal_batch_on_gce_a
+    type: io.kestra.plugin.scripts.shell.Commands
+    containerImage: "{{ inputs.logic_image }}"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      host: unix:///var/run/docker.sock
+      pullPolicy: NEVER
+    timeout: PT2M
+    workerSelector:
+      tags: [gce-a]
+      match: ALL
+      fallback: FAIL
+    env:
+      EXPECTED_VERSION: "{{ inputs.expected_version }}"
+      EXPECTED_REVISION: "{{ inputs.expected_revision }}"
+      SLEEP_SECONDS: "0"
+    commands:
+      - |
+        set -eu
+        test "$LOGIC_VERSION" = "$EXPECTED_VERSION"
+        test "$LOGIC_REVISION" = "$EXPECTED_REVISION"
+        /app/batches/version.sh
+        /app/batches/normal_batch.sh
+        printf 'kestra_category_batch_passed worker_group=gce-a version=%s revision=%s\n' \
+          "$LOGIC_VERSION" "$LOGIC_REVISION"
+
+  - id: run_special_batch_on_gce_b
+    type: io.kestra.plugin.scripts.shell.Commands
+    containerImage: "{{ inputs.logic_image }}"
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      host: unix:///var/run/docker.sock
+      pullPolicy: NEVER
+    timeout: PT2M
+    workerSelector:
+      tags: [gce-b]
+      match: ALL
+      fallback: FAIL
+    env:
+      EXPECTED_VERSION: "{{ inputs.expected_version }}"
+      EXPECTED_REVISION: "{{ inputs.expected_revision }}"
+      SLEEP_SECONDS: "0"
+    commands:
+      - |
+        set -eu
+        test "$LOGIC_VERSION" = "$EXPECTED_VERSION"
+        test "$LOGIC_REVISION" = "$EXPECTED_REVISION"
+        /app/batches/version.sh
+        /app/batches/special_batch.sh
+        printf 'kestra_category_batch_passed worker_group=gce-b version=%s revision=%s\n' \
+          "$LOGIC_VERSION" "$LOGIC_REVISION"

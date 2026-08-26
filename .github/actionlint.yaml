@@ -1,0 +1,6 @@
+self-hosted-runner:
+  labels:
+    - onprem
+    - category-deploy
+
+config-variables: null
