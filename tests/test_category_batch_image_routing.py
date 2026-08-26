@@ -164,6 +164,9 @@ def test_live_workflow_verifies_success_and_missing_file_cases() -> None:
     assert "$'default\\nsystem'" in verifier
     assert "SELECT handoff_value FROM worker_local_handoffs" in verifier
     assert "SELECT count(*) FROM worker_local_handoffs" in verifier
+    assert verifier.index("gcloud container clusters get-credentials") < verifier.index(
+        'batch_db_username="$('
+    )
     assert any(
         step.get("run") == "mise exec -- scripts/verify-live-worker-local-file-handoff.sh"
         for step in workflow["jobs"]["verify-routed"]["steps"]

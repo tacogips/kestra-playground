@@ -133,6 +133,11 @@ execution_log_messages() {
 gke_url="https://${LIVE_GKE_SUBDOMAIN}.${LIVE_DOMAIN_NAME}"
 gke_username="$(secret_value kestra-dev-gke-kestra-basic-auth-username)"
 gke_password="$(secret_value kestra-dev-gke-kestra-basic-auth-password)"
+
+gcloud container clusters get-credentials kestra-dev \
+  --region "$REGION" \
+  --project "$PROJECT_ID"
+
 batch_db_username="$(
   kubectl -n "$NAMESPACE" get secret kestra-secrets -o json \
     | jq -r '.data.ENV_BATCH_DB_USERNAME | @base64d'
@@ -141,10 +146,6 @@ batch_db_password="$(
   kubectl -n "$NAMESPACE" get secret kestra-secrets -o json \
     | jq -r '.data.ENV_BATCH_DB_PASSWORD | @base64d'
 )"
-
-gcloud container clusters get-credentials kestra-dev \
-  --region "$REGION" \
-  --project "$PROJECT_ID"
 
 export KESTRA_BASIC_AUTH_USERNAME="$gke_username"
 export KESTRA_BASIC_AUTH_PASSWORD="$gke_password"
