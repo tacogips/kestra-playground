@@ -273,6 +273,7 @@ def test_routed_live_deploy_enables_controller_and_routed_workers() -> None:
     assert "export LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true" in script
     assert "export LIVE_GKE_DATABASE_AUTOSCALE_ENABLED=true" in script
     assert "LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS:-300" in script
+    assert '"${#worker_instances[@]}" -ne 2' in verifier
 
 
 def test_execution_pollers_and_webconsole_handle_cancelled_as_terminal() -> None:

@@ -209,8 +209,8 @@ assert_gce_workers_running() {
       | jq -r '.[]'
   )
 
-  if [[ "${#worker_instances[@]}" -lt 3 ]]; then
-    echo "Expected at least 3 GCE worker instances, got ${#worker_instances[@]}" >&2
+  if [[ "${#worker_instances[@]}" -ne 2 ]]; then
+    echo "Expected 2 routed GCE worker instances, got ${#worker_instances[@]}" >&2
     return 1
   fi
 
