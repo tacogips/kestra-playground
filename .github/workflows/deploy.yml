@@ -316,9 +316,6 @@ jobs:
           else
             mise exec -- scripts/verify-live-environments.sh "$TARGET_ENVIRONMENT" "$BUSINESS_DATE" "$MODE"
           fi
-      - name: Verify routed full-stack scale-to-zero
-        if: ${{ inputs.target_environment == 'routed' }}
-        run: mise exec -- scripts/verify-live-gke-full-stack-scale-to-zero.sh
       - name: Verify worker-local file handoff
         if: ${{ inputs.target_environment == 'routed' }}
         run: mise exec -- scripts/verify-live-worker-local-file-handoff.sh
@@ -342,6 +339,9 @@ jobs:
               exit 1
               ;;
           esac
+      - name: Verify routed full-stack scale-to-zero
+        if: ${{ inputs.target_environment == 'routed' }}
+        run: mise exec -- scripts/verify-live-gke-full-stack-scale-to-zero.sh
 
   verify-routed:
     name: Verify Routed Scale-to-Zero
@@ -369,10 +369,10 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-      - name: Verify routed full-stack scale-to-zero
-        run: mise exec -- scripts/verify-live-gke-full-stack-scale-to-zero.sh
       - name: Verify worker-local file handoff
         run: mise exec -- scripts/verify-live-worker-local-file-handoff.sh
+      - name: Verify routed full-stack scale-to-zero
+        run: mise exec -- scripts/verify-live-gke-full-stack-scale-to-zero.sh
 
   diagnose-routed:
     name: Diagnose Routed Cold Start

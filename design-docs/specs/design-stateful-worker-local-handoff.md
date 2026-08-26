@@ -117,6 +117,10 @@ gh workflow run deploy.yml \
   -f operation_demo=none
 ```
 
+The workflow runs routing, file, database, category, and optional operation checks before the slow
+full-stack scale-to-zero/cold-start verification. This keeps functional failures visible early
+while preserving the lifecycle test as the final gate.
+
 For an already deployed matching revision, run
 `mise run kestra:live:run-category-batch-image-routing` and
 `mise run kestra:live:run-worker-local-file-handoff`.

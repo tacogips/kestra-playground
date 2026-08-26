@@ -100,6 +100,11 @@ def test_workflow_supports_verification_without_rebuilding_or_redeploying() -> N
     assert verify_job["permissions"] == {"contents": "read", "id-token": "write"}
     assert "inputs.target_environment != 'routed-verify'" in workflow["jobs"]["build-image"]["if"]
     assert "inputs.target_environment != 'routed-verify'" in workflow["jobs"]["deploy"]["if"]
+    assert verify_job["steps"][-2]["name"] == "Verify worker-local file handoff"
+    assert verify_job["steps"][-1]["name"] == "Verify routed full-stack scale-to-zero"
+    assert workflow["jobs"]["deploy"]["steps"][-1]["name"] == (
+        "Verify routed full-stack scale-to-zero"
+    )
 
 
 def test_workflow_supports_short_routed_diagnostics() -> None:
