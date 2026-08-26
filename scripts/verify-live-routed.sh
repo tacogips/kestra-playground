@@ -182,22 +182,9 @@ wait_for_execution() {
   return 1
 }
 
-assert_no_gke_worker() {
-  if kubectl -n "${NAMESPACE}" get deployment kestra-worker >/dev/null 2>&1; then
-    echo "Unexpected GKE worker deployment exists: kestra-worker" >&2
-    return 1
-  fi
-
-  local worker_pod_count
-  worker_pod_count="$(
-    kubectl -n "${NAMESPACE}" get pods \
-      -l app.kubernetes.io/name=kestra,app.kubernetes.io/component=worker \
-      -o json \
-      | jq '.items | length'
-  )"
-
-  if [[ "${worker_pod_count}" != "0" ]]; then
-    echo "Unexpected GKE worker pods exist: ${worker_pod_count}" >&2
+assert_gke_default_worker() {
+  if ! kubectl -n "${NAMESPACE}" get statefulset kestra-worker >/dev/null 2>&1; then
+    echo "Expected the GKE default worker StatefulSet: kestra-worker" >&2
     return 1
   fi
 }
@@ -305,7 +292,7 @@ echo "=== Routed shared-backend controller: GKE (${gke_url}) ==="
 export KESTRA_BASIC_AUTH_USERNAME="${gke_username}"
 export KESTRA_BASIC_AUTH_PASSWORD="${gke_password}"
 wait_for_ui "${gke_url}" "${gke_username}" "${gke_password}"
-assert_no_gke_worker
+assert_gke_default_worker
 assert_controller_grpc_service
 assert_gce_workers_running
 

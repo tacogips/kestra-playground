@@ -120,9 +120,17 @@ def test_worker_local_handoff_routes_both_tasks_to_one_stateful_worker() -> None
 
 def test_gke_workers_are_statefulsets_with_retained_local_volumes() -> None:
     values = yaml.safe_load(_read_text("k8s/helm/kestra-values.yaml"))
+    runtime_config = yaml.safe_load(_read_text("k8s/base/configmap.yaml"))
     apply_script = _read_text("scripts/apply-gke-dev.sh")
 
     assert values["common"]["kind"] == "StatefulSet"
+    assert values["deployments"]["worker"]["autoscaler"]["enabled"] is False
+    assert (
+        runtime_config["data"]["application.yaml"]
+        .split("routing:", 1)[1]
+        .lstrip()
+        .startswith("workerGroupId: controller")
+    )
     assert "kind: StatefulSet" in apply_script
     assert "persistentVolumeClaimRetentionPolicy:" in apply_script
     assert "mountPath: /var/lib/kestra-worker-local" in apply_script

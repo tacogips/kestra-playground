@@ -123,16 +123,7 @@ deployments:
         cpu: "1"
         memory: 1536Mi
     autoscaler:
-      enabled: true
-      minReplicas: 1
-      maxReplicas: 5
-      metrics:
-        - type: Resource
-          resource:
-            name: cpu
-            target:
-              type: Utilization
-              averageUtilization: 70
+      enabled: false
     extraEnv:
       - name: OTEL_SERVICE_NAME
         value: kestra-worker

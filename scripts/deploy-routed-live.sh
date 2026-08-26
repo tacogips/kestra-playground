@@ -28,11 +28,11 @@ require_command tofu
 
 export KESTRA_IMAGE
 export TF_VAR_zone="${TF_VAR_zone:-${ZONE}}"
-export GKE_WORKER_ENABLED=false
+export GKE_WORKER_ENABLED=true
 # This entrypoint is specifically for the routed topology. Do not allow an
 # inherited value from direnv or a generic CI environment to disable any of
 # the controller, GCE-routed, or Kubernetes-routed workers it requires.
-export LIVE_GKE_CONTROLLER_WORKER_ENABLED=true
+export LIVE_GKE_CONTROLLER_WORKER_ENABLED=false
 export LIVE_GKE_ROUTED_WORKERS_ENABLED=true
 # Route the public HTTPS ingress through the resident activator. It wakes the
 # PostgreSQL StatefulSet first, then the Kestra control plane and routed workers,

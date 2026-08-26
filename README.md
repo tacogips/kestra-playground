@@ -415,8 +415,7 @@ trying to attach remote workers to one OSS worker queue. In the live dev-as-prod
 - `gce-compose` is GCE worker A and receives `playground.ecommerce.server_gce_a`;
 - `gce-container` is GCE worker B and receives `playground.ecommerce.server_gce_b`;
 - `k8s` is the controller Kestra only and does not run a `kestra-worker` Deployment;
-- the `gke-dev` Terraform root also creates a GCE `controller-worker` VM that runs only
-  `kestra server worker` against the GKE controller backend;
+- GKE runs a one-replica `kestra-worker` StatefulSet for the default and system queues;
 - `batch-groups/ec/flows` is rendered and registered only on the two GCE child deployments;
 - `kestra/flows-federated` is registered only on the GKE controller.
 
@@ -425,10 +424,9 @@ execution IDs in its own task outputs. Rerunning the controller flow reruns the 
 executions. This keeps production-like workflow shape without using Enterprise Worker Groups or the
 removed DB-backed agent implementation.
 
-No Kestra worker process is allowed to run in GKE. Lightweight controller HTTP, polling, and
-assertion tasks are claimed by the GCE `controller-worker` VM because it uses the same GKE
-controller DB, queue, and GCS storage configuration. The two GCE child Kestra deployments remain the
-execution targets for ecommerce batch work; they are separate from the controller-worker process.
+The default GKE worker handles lightweight controller HTTP, polling, assertion, and unselected
+Kubernetes tasks. The two GCE child Kestra deployments remain the execution targets for ecommerce
+batch work, while explicitly selected tasks use the routed GCE or GKE worker groups.
 
 ```bash
 kinko exec --env PROJECT_ID,LIVE_DOMAIN_NAME,CLOUDFLARE_ZONE_ID,TOFU_STATE_BUCKET,CLOUDFLARE_API_TOKEN -- task kestra:live:deploy:federated

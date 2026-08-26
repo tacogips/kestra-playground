@@ -103,7 +103,7 @@ def test_k8s_otel_collector_receives_and_exports_all_signals() -> None:
     assert {port["port"] for port in service["spec"]["ports"]} == {4317, 4318, 13133}
 
 
-def test_k8s_helm_values_define_split_components_and_worker_hpa() -> None:
+def test_k8s_helm_values_define_split_stateful_components() -> None:
     kustomization = _yaml_load("k8s/base/kustomization.yaml")
     helm_values = _yaml_load("k8s/helm/kestra-values.yaml")
     controller_only_values = _yaml_load("k8s/helm/kestra-controller-only-values.yaml")
@@ -134,20 +134,8 @@ def test_k8s_helm_values_define_split_components_and_worker_hpa() -> None:
     ]
     assert {"secretRef": {"name": "kestra-secrets"}} in helm_values["common"]["extraEnvFrom"]
     assert deployments["standalone"]["enabled"] is False
-    assert deployments["worker"]["autoscaler"] == {
-        "enabled": True,
-        "minReplicas": 1,
-        "maxReplicas": 5,
-        "metrics": [
-            {
-                "type": "Resource",
-                "resource": {
-                    "name": "cpu",
-                    "target": {"type": "Utilization", "averageUtilization": 70},
-                },
-            }
-        ],
-    }
+    assert helm_values["common"]["kind"] == "StatefulSet"
+    assert deployments["worker"]["autoscaler"] == {"enabled": False}
     assert controller_only_values["deployments"]["worker"]["enabled"] is False
     assert controller_only_values["deployments"]["worker"]["autoscaler"]["enabled"] is False
 
@@ -277,8 +265,8 @@ def test_routed_live_deploy_enables_controller_and_routed_workers() -> None:
     assert 'ZONE="${ZONE:-asia-northeast1-a}"' in script
     assert 'ZONE="${ZONE:-asia-northeast1-a}"' in verifier
     assert 'export TF_VAR_zone="${TF_VAR_zone:-${ZONE}}"' in script
-    assert "export GKE_WORKER_ENABLED=false" in script
-    assert "export LIVE_GKE_CONTROLLER_WORKER_ENABLED=true" in script
+    assert "export GKE_WORKER_ENABLED=true" in script
+    assert "export LIVE_GKE_CONTROLLER_WORKER_ENABLED=false" in script
     assert "export LIVE_GKE_ROUTED_WORKERS_ENABLED=true" in script
     assert "export LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true" in script
     assert "export LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true" in script

@@ -547,6 +547,11 @@ if [[ "$LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED" == "true" ]]; then
       - kestra-executor
       - kestra-scheduler
       - kestra-indexer"
+  if [[ "$GKE_WORKER_ENABLED" == "true" ]]; then
+    activator_scale_statefulsets="${activator_scale_statefulsets} kestra-worker"
+    activator_scale_resource_names="${activator_scale_resource_names}
+      - kestra-worker"
+  fi
 fi
 if [[ "$LIVE_GKE_DATABASE_AUTOSCALE_ENABLED" == "true" ]]; then
   activator_scale_database_statefulsets="kestra-postgres"

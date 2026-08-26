@@ -13,6 +13,7 @@ MANAGED_STATEFULSETS=(
   kestra-executor
   kestra-scheduler
   kestra-indexer
+  kestra-worker
   kestra-gke-worker-small
   kestra-gke-worker-large
 )
