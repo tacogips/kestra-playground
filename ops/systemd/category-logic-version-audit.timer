@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the category logic version audit every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=category-logic-version-audit.service
+
+[Install]
+WantedBy=timers.target

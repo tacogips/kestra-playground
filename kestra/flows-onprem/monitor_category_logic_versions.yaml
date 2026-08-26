@@ -1,0 +1,49 @@
+id: monitor_category_logic_versions
+namespace: playground.worker_routing
+
+description: Periodically report the category logic version runnable on every orders worker.
+
+variables:
+  logicImage: localhost/kestra-category/orders:1.0.0
+  expectedVersion: 1.0.0
+  expectedRevision: replace-with-release-revision
+
+tasks:
+  - id: report_orders_logic_version
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    timeout: PT2M
+    workerSelector:
+      tags: [onprem-orders]
+      match: ALL
+      fallback: FAIL
+      broadcast: true
+    env:
+      LOGIC_IMAGE: "{{ vars.logicImage }}"
+      EXPECTED_VERSION: "{{ vars.expectedVersion }}"
+      EXPECTED_REVISION: "{{ vars.expectedRevision }}"
+    commands:
+      - |
+        set -eu
+        output="$(
+          podman run --rm --pull=never \
+            --env "WORKER_HOSTNAME=${HOSTNAME:-unknown}" \
+            "$LOGIC_IMAGE" \
+            /app/batches/version.sh
+        )"
+        actual_version="$(printf '%s' "$output" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+        actual_revision="$(printf '%s' "$output" | sed -n 's/.*"revision":"\([^"]*\)".*/\1/p')"
+        if [ "$actual_version" != "$EXPECTED_VERSION" ] || [ "$actual_revision" != "$EXPECTED_REVISION" ]; then
+          printf 'category_logic_version_mismatch expected_version=%s expected_revision=%s actual=%s\n' \
+            "$EXPECTED_VERSION" "$EXPECTED_REVISION" "$output" >&2
+          exit 44
+        fi
+        printf '%s\n' "$output"
+        printf '::{"outputs":{"category":"orders","logic_version":"%s","logic_revision":"%s","worker_host":"%s"}}::\n' \
+          "$actual_version" "$actual_revision" "${HOSTNAME:-unknown}"
+
+triggers:
+  - id: every_five_minutes
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "*/5 * * * *"

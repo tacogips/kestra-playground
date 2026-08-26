@@ -463,6 +463,37 @@ run = '''
 scripts/verify-live-worker-local-file-handoff.sh
 '''
 
+[tasks."kestra:category-logic:deploy"]
+description = "Deploy a category logic archive to an on-premises worker inventory group"
+run = '''
+scripts/deploy-category-logic-ansible.sh \
+  "${CATEGORY_LOGIC_INVENTORY:?Set CATEGORY_LOGIC_INVENTORY}" \
+  "${CATEGORY_LOGIC_TARGET_GROUP:?Set CATEGORY_LOGIC_TARGET_GROUP}" \
+  "${CATEGORY_LOGIC_ARCHIVE:?Set CATEGORY_LOGIC_ARCHIVE}" \
+  "${CATEGORY_LOGIC_IMAGE:?Set CATEGORY_LOGIC_IMAGE}" \
+  "${CATEGORY_LOGIC_VERSION:?Set CATEGORY_LOGIC_VERSION}" \
+  "${CATEGORY_LOGIC_REVISION:?Set CATEGORY_LOGIC_REVISION}" \
+  "${KESTRA_WORKER_CONTAINER:-kestra-worker}"
+'''
+
+[tasks."kestra:category-logic:audit"]
+description = "Audit the runnable category logic version on every target worker"
+run = '''
+scripts/audit-category-logic-ansible.sh \
+  "${CATEGORY_LOGIC_INVENTORY:?Set CATEGORY_LOGIC_INVENTORY}" \
+  "${CATEGORY_LOGIC_TARGET_GROUP:?Set CATEGORY_LOGIC_TARGET_GROUP}" \
+  "${CATEGORY_LOGIC_IMAGE:?Set CATEGORY_LOGIC_IMAGE}" \
+  "${CATEGORY_LOGIC_VERSION:?Set CATEGORY_LOGIC_VERSION}" \
+  "${CATEGORY_LOGIC_REVISION:-}" \
+  "${KESTRA_WORKER_CONTAINER:-kestra-worker}"
+'''
+
+[tasks."kestra:category-logic:verify-local"]
+description = "Verify two-host Podman category logic deployment without a worker restart"
+run = '''
+scripts/verify-local-category-logic-ansible.sh
+'''
+
 [tasks."kestra:live:run-k8s-pod-resources"]
 description = "Register and run the OSS K8s per-batch pod resource verification flow"
 run = '''

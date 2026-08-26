@@ -1,0 +1,64 @@
+---
+- name: Audit runnable category logic on every worker
+  hosts: "{{ target_group }}"
+  gather_facts: false
+  any_errors_fatal: false
+  vars:
+    podman_executable: podman
+
+  pre_tasks:
+    - name: Validate required audit values
+      ansible.builtin.assert:
+        that:
+          - target_group | length > 0
+          - logic_image | length > 0
+          - expected_logic_version | length > 0
+          - worker_container_name | length > 0
+
+  tasks:
+    - name: Inspect the running Kestra worker
+      ansible.builtin.command:
+        argv:
+          - "{{ podman_executable }}"
+          - container
+          - inspect
+          - "{{ worker_container_name }}"
+      register: worker_raw
+      changed_when: false
+
+    - name: Execute the image-owned version task
+      ansible.builtin.command:
+        argv:
+          - "{{ podman_executable }}"
+          - run
+          - --rm
+          - --pull=never
+          - --env
+          - "WORKER_HOSTNAME={{ inventory_hostname }}"
+          - "{{ logic_image }}"
+          - /app/batches/version.sh
+      register: logic_version_raw
+      changed_when: false
+
+    - name: Record the audit result
+      ansible.builtin.set_fact:
+        worker: "{{ (worker_raw.stdout | from_json)[0] }}"
+        logic: "{{ logic_version_raw.stdout | from_json }}"
+
+    - name: Require the expected logic version without restarting the worker
+      ansible.builtin.assert:
+        that:
+          - worker.State.Running
+          - logic.category == 'orders'
+          - logic.version == expected_logic_version
+          - expected_logic_revision | default(logic.revision, true) == logic.revision
+
+    - name: Report worker logic inventory
+      ansible.builtin.debug:
+        msg:
+          host: "{{ inventory_hostname }}"
+          category: "{{ logic.category }}"
+          version: "{{ logic.version }}"
+          revision: "{{ logic.revision }}"
+          worker_container_id: "{{ worker.Id }}"
+          worker_started_at: "{{ worker.State.StartedAt }}"

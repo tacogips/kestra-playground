@@ -1,0 +1,169 @@
+---
+- name: Stage category logic without restarting Kestra workers
+  hosts: "{{ target_group }}"
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    remote_archive: "/tmp/{{ logic_image_archive | basename }}"
+    podman_executable: podman
+
+  pre_tasks:
+    - name: Validate required deployment values
+      ansible.builtin.assert:
+        that:
+          - target_group | length > 0
+          - logic_image_archive | length > 0
+          - logic_image | length > 0
+          - logic_version | length > 0
+          - logic_revision | length > 0
+          - logic_archive_sha256 | length == 64
+          - worker_container_name | length > 0
+
+  tasks:
+    - name: Inspect the running Kestra worker before staging logic
+      ansible.builtin.command:
+        argv:
+          - "{{ podman_executable }}"
+          - container
+          - inspect
+          - "{{ worker_container_name }}"
+      register: worker_before_raw
+      changed_when: false
+
+    - name: Record the running Kestra worker identity
+      ansible.builtin.set_fact:
+        worker_before: "{{ (worker_before_raw.stdout | from_json)[0] }}"
+
+    - name: Require the Kestra worker to be running
+      ansible.builtin.assert:
+        that:
+          - worker_before.State.Running
+
+    - name: Inspect the requested category logic image
+      ansible.builtin.command:
+        argv:
+          - "{{ podman_executable }}"
+          - image
+          - inspect
+          - "{{ logic_image }}"
+      register: logic_before_raw
+      changed_when: false
+      failed_when: false
+
+    - name: Determine whether the requested logic version is already staged
+      ansible.builtin.set_fact:
+        logic_is_current: >-
+          {{
+            logic_before_raw.rc == 0
+            and ((logic_before_raw.stdout | from_json)[0].Config.Labels['org.opencontainers.image.version'] | default('')) == logic_version
+            and ((logic_before_raw.stdout | from_json)[0].Config.Labels['org.opencontainers.image.revision'] | default('')) == logic_revision
+          }}
+
+    - name: Stage and validate the category logic archive
+      when: not logic_is_current
+      block:
+        - name: Copy the category logic archive
+          ansible.builtin.copy:
+            src: "{{ logic_image_archive }}"
+            dest: "{{ remote_archive }}"
+            mode: "0600"
+
+        - name: Calculate the remote archive checksum
+          ansible.builtin.stat:
+            path: "{{ remote_archive }}"
+            checksum_algorithm: sha256
+          register: remote_archive_stat
+
+        - name: Verify the remote archive checksum
+          ansible.builtin.assert:
+            that:
+              - remote_archive_stat.stat.checksum == logic_archive_sha256
+
+        - name: Load only the category logic image
+          ansible.builtin.command:
+            argv:
+              - "{{ podman_executable }}"
+              - load
+              - --input
+              - "{{ remote_archive }}"
+          register: logic_load
+          changed_when: true
+      always:
+        - name: Remove the staged archive
+          ansible.builtin.file:
+            path: "{{ remote_archive }}"
+            state: absent
+
+    - name: Inspect the staged category logic image
+      ansible.builtin.command:
+        argv:
+          - "{{ podman_executable }}"
+          - image
+          - inspect
+          - "{{ logic_image }}"
+      register: logic_after_raw
+      changed_when: false
+
+    - name: Record the staged image metadata
+      ansible.builtin.set_fact:
+        logic_after: "{{ (logic_after_raw.stdout | from_json)[0] }}"
+
+    - name: Execute the image-owned version task
+      ansible.builtin.command:
+        argv:
+          - "{{ podman_executable }}"
+          - run
+          - --rm
+          - --pull=never
+          - --env
+          - "WORKER_HOSTNAME={{ inventory_hostname }}"
+          - "{{ logic_image }}"
+          - /app/batches/version.sh
+      register: logic_version_raw
+      changed_when: false
+
+    - name: Parse the image-owned version response
+      ansible.builtin.set_fact:
+        logic_version_response: "{{ logic_version_raw.stdout | from_json }}"
+
+    - name: Verify the loaded category logic
+      ansible.builtin.assert:
+        that:
+          - logic_after.Config.Labels['org.opencontainers.image.version'] == logic_version
+          - logic_after.Config.Labels['org.opencontainers.image.revision'] == logic_revision
+          - logic_version_response.category == 'orders'
+          - logic_version_response.version == logic_version
+          - logic_version_response.revision == logic_revision
+          - logic_version_response.worker_host == inventory_hostname
+
+    - name: Inspect the Kestra worker after staging logic
+      ansible.builtin.command:
+        argv:
+          - "{{ podman_executable }}"
+          - container
+          - inspect
+          - "{{ worker_container_name }}"
+      register: worker_after_raw
+      changed_when: false
+
+    - name: Record the final Kestra worker identity
+      ansible.builtin.set_fact:
+        worker_after: "{{ (worker_after_raw.stdout | from_json)[0] }}"
+
+    - name: Prove that the Kestra worker was not restarted
+      ansible.builtin.assert:
+        that:
+          - worker_after.State.Running
+          - worker_after.Id == worker_before.Id
+          - worker_after.State.StartedAt == worker_before.State.StartedAt
+
+    - name: Report the staged category logic version
+      ansible.builtin.debug:
+        msg:
+          host: "{{ inventory_hostname }}"
+          category: "{{ logic_version_response.category }}"
+          version: "{{ logic_version_response.version }}"
+          revision: "{{ logic_version_response.revision }}"
+          image_id: "{{ logic_after.Id }}"
+          worker_container_id: "{{ worker_after.Id }}"
+          worker_started_at: "{{ worker_after.State.StartedAt }}"

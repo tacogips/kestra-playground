@@ -13,6 +13,10 @@ one category image
 The image is immutable in deployments: GitHub Actions publishes a commit-SHA tag and injects that
 exact reference as `envs.category_batch_image`. The mutable `main` tag is only a convenience tag.
 
+The image also owns `/app/batches/version.sh`. It returns the category, semantic version, source
+revision, and executing worker host as JSON. On-premises deployments use that executable both as a
+post-load health check and as the scheduled per-worker version probe.
+
 On GKE, `PodCreate` starts each selected batch as a Kubernetes Pod because GKE nodes use containerd,
 not a Podman or Docker API socket. The `PodCreate` Kestra task itself executes on the selected Kestra
 worker. Kubernetes schedules the child batch Pod independently; add a `nodeSelector` to its Pod spec
@@ -35,3 +39,29 @@ the reader fails. Run it with:
 ```bash
 mise run kestra:live:run-worker-local-file-handoff
 ```
+
+For the registry-free on-premises deployment, build an immutable release archive and distribute it
+only to the category's worker inventory group:
+
+```bash
+podman build \
+  --build-arg LOGIC_VERSION=1.1.0 \
+  --build-arg REVISION="$(git rev-parse HEAD)" \
+  --tag localhost/kestra-category/orders:1.1.0 \
+  examples/category-batch-image
+podman save --format oci-archive \
+  --output orders-1.1.0.oci \
+  localhost/kestra-category/orders:1.1.0
+
+scripts/deploy-category-logic-ansible.sh \
+  ops/ansible/category-logic/inventory.ini \
+  orders_workers \
+  orders-1.1.0.oci \
+  localhost/kestra-category/orders:1.1.0 \
+  1.1.0 \
+  "$(git rev-parse HEAD)"
+```
+
+This loads only the category image. It neither reloads nor restarts the Kestra worker image.
+See [the on-premises deployment design](../../design-docs/specs/design-onprem-category-logic-deployment.md)
+for deployment, monitoring, rollback, and host prerequisites.

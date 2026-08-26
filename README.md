@@ -465,6 +465,13 @@ Pods use the same commit-pinned category image. Run
 `mise run kestra:live:run-category-batch-image-routing` to verify the selected commands, worker
 separation, image reference, and batch logs on GKE.
 
+For registry-free on-premises worker hosts, the same category image can be copied and loaded in
+parallel with Ansible without restarting the Kestra workers. The deploy verifies the image-owned
+version task on every target host and proves the worker container identity and start time are
+unchanged. See
+[`design-onprem-category-logic-deployment.md`](design-docs/specs/design-onprem-category-logic-deployment.md)
+for the deployment and periodic version-audit procedures.
+
 The GKE Kestra control-plane components and routed workers use one-replica StatefulSets. Each routed
 worker has a retained `ReadWriteOnce` worker-local volume mounted at
 `/var/lib/kestra-worker-local`. The `verify_worker_local_file_handoff` flow routes an ordered writer

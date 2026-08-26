@@ -1,0 +1,8 @@
+[Unit]
+Description=Audit category logic versions on Kestra worker servers
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/kestra/category-logic-audit.env
+WorkingDirectory=/opt/kestra-playground
+ExecStart=/opt/kestra-playground/scripts/audit-category-logic-ansible.sh ${INVENTORY} ${TARGET_GROUP} ${LOGIC_IMAGE} ${EXPECTED_VERSION} ${EXPECTED_REVISION} ${WORKER_CONTAINER}
