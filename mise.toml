@@ -451,6 +451,12 @@ run = '''
 scripts/verify-live-gke-node-routing.sh "${BUSINESS_DATE:-}"
 '''
 
+[tasks."kestra:live:run-category-batch-image-routing"]
+description = "Run category batches on the default worker with one routed to a dedicated GKE worker"
+run = '''
+scripts/verify-live-category-batch-image-routing.sh
+'''
+
 [tasks."kestra:live:run-k8s-pod-resources"]
 description = "Register and run the OSS K8s per-batch pod resource verification flow"
 run = '''

@@ -73,6 +73,7 @@ postgres_internal_ip="$(tf_output '.postgres_internal_ip.value')"
 gcp_service_account="$(tf_output '.gcp_service_account.value')"
 project_id="$(tf_output '.project_id.value')"
 kestra_image="${KESTRA_IMAGE:-$(tf_output '.kestra_image.value')}"
+category_batch_image="${CATEGORY_BATCH_IMAGE:-${kestra_image}}"
 kestra_https_url="$(tf_output '.kestra_https_url.value // empty')"
 ingress_static_ip_name="$(tf_output '.ingress_static_ip_name.value // empty')"
 controller_grpc_ip_address="$(tf_output '.controller_grpc_ip_address.value')"
@@ -182,6 +183,7 @@ stringData:
   ENV_BATCH_DB_USERNAME: $(runtime_secret_value ENV_BATCH_DB_USERNAME)
   ENV_BATCH_DB_PASSWORD: $(runtime_secret_value ENV_BATCH_DB_PASSWORD)
   ENV_RUNTIME_IMAGE: "${kestra_image}"
+  ENV_CATEGORY_BATCH_IMAGE: "${category_batch_image}"
   ENV_FEDERATED_GCE_A_URL: "${federated_gce_a_url}"
   ENV_FEDERATED_GCE_A_USERNAME: "${federated_gce_a_username}"
   ENV_FEDERATED_GCE_A_PASSWORD: "${federated_gce_a_password}"

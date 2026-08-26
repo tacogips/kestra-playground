@@ -458,6 +458,15 @@ Kestra runtime images are published to Artifact Registry:
 <region>-docker.pkg.dev/<project-id>/kestra-playground/kestra-oss-worker-routing
 ```
 
+The routed deployment also publishes
+`kestra-playground/batch-category-routing-example:<playground-commit>`. The self-contained
+[`examples/category-batch-image`](examples/category-batch-image) project puts two batch entrypoints
+in that one image. Its verification flow leaves the normal `PodCreate` task on the default worker
+queue and routes only the special task to the single-replica `gke-large` worker, while both child
+Pods use the same commit-pinned category image. Run
+`mise run kestra:live:run-category-batch-image-routing` to verify the selected commands, worker
+separation, image reference, and batch logs on GKE.
+
 The runtime image extends `kestra/kestra:latest` and bakes in `batch-groups/` (per-system flows,
 fixtures, and batch sources), `kestra/config/`, and the Python package source under `src/`. The
 deployment

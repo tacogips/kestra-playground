@@ -1,0 +1,71 @@
+id: verify_category_batch_image_routing
+namespace: playground.worker_routing
+
+description: Verify two batches from one category image with only one batch routed to a dedicated worker.
+
+inputs:
+  - id: kubernetes_namespace
+    type: STRING
+    required: true
+    defaults: kestra-dev
+
+tasks:
+  - id: run_category_batches
+    type: io.kestra.plugin.core.flow.Parallel
+    tasks:
+      - id: normal_batch_on_category_worker
+        type: io.kestra.plugin.kubernetes.core.PodCreate
+        namespace: "{{ inputs.kubernetes_namespace }}"
+        waitForLogInterval: PT2S
+        metadata:
+          labels:
+            app.kubernetes.io/name: kestra-category-batch-example
+            kestra-playground.tacogips.io/execution: "{{ execution.id }}"
+            kestra-playground.tacogips.io/batch: normal
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: main
+              image: "{{ envs.category_batch_image }}"
+              command:
+                - /app/batches/normal_batch.sh
+              env:
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: K8S_NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+
+      - id: special_batch_on_dedicated_worker
+        type: io.kestra.plugin.kubernetes.core.PodCreate
+        namespace: "{{ inputs.kubernetes_namespace }}"
+        waitForLogInterval: PT2S
+        workerSelector:
+          tags: [gke-large]
+          match: ALL
+          fallback: WAIT
+          broadcast: false
+        metadata:
+          labels:
+            app.kubernetes.io/name: kestra-category-batch-example
+            kestra-playground.tacogips.io/execution: "{{ execution.id }}"
+            kestra-playground.tacogips.io/batch: special
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: main
+              image: "{{ envs.category_batch_image }}"
+              command:
+                - /app/batches/special_batch.sh
+              env:
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: K8S_NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName

@@ -145,6 +145,7 @@ jobs:
       id-token: write
     outputs:
       image: ${{ steps.image.outputs.image }}
+      category_image: ${{ steps.category-image.outputs.image }}
     env:
       IMAGE_REPOSITORY: asia-northeast1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/kestra-playground/kestra-oss-worker-routing
       KESTRA_SOURCE_REF: 96e1be9b4b1ff88cbac11dbd0b5280a3445f7e2b
@@ -236,6 +237,24 @@ jobs:
             .
 
           printf 'image=%s\n' "$IMAGE" >>"$GITHUB_OUTPUT"
+      - name: Build and push category batch image
+        id: category-image
+        env:
+          CATEGORY_IMAGE_REPOSITORY: asia-northeast1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/kestra-playground/batch-category-routing-example
+        run: |
+          IMAGE="${CATEGORY_IMAGE_REPOSITORY}:${GITHUB_SHA}"
+          MAIN_IMAGE="${CATEGORY_IMAGE_REPOSITORY}:main"
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --provenance=false \
+            --push \
+            --build-arg "REVISION=${GITHUB_SHA}" \
+            --tag "$IMAGE" \
+            --tag "$MAIN_IMAGE" \
+            examples/category-batch-image
+
+          printf 'image=%s\n' "$IMAGE" >>"$GITHUB_OUTPUT"
 
   deploy:
     name: Deploy
@@ -261,6 +280,7 @@ jobs:
       TOFU_STATE_BUCKET: ${{ vars.TOFU_STATE_BUCKET }}
       TARGET_ENVIRONMENT: ${{ inputs.target_environment || 'all' }}
       KESTRA_IMAGE: ${{ inputs.target_environment == 'routed' && needs.build-routed-image.outputs.image || needs.build-image.outputs.image }}
+      CATEGORY_BATCH_IMAGE: ${{ inputs.target_environment == 'routed' && needs.build-routed-image.outputs.category_image || '' }}
       LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED: ${{ (inputs.operation_demo || 'none') == 'gke-pod-resources' && 'false' || 'true' }}
       GKE_WORKER_ENABLED: ${{ (inputs.operation_demo || 'none') == 'gke-pod-resources' && 'true' || 'false' }}
       LIVE_GKE_CONTROLLER_WORKER_ENABLED: "false"
@@ -299,6 +319,9 @@ jobs:
       - name: Verify routed full-stack scale-to-zero
         if: ${{ inputs.target_environment == 'routed' }}
         run: mise exec -- scripts/verify-live-gke-full-stack-scale-to-zero.sh
+      - name: Verify category batch image routing
+        if: ${{ inputs.target_environment == 'routed' }}
+        run: mise exec -- scripts/verify-live-category-batch-image-routing.sh
       - name: Run operation demo verification
         if: ${{ inputs.operation_demo != '' && inputs.operation_demo != 'none' }}
         env:
