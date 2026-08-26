@@ -48,7 +48,7 @@ secret_value() {
 dump_gke_diagnostics() {
   echo "=== GKE routed diagnostics ===" >&2
   kubectl -n "${NAMESPACE}" get pods -o wide >&2 || true
-  kubectl -n "${NAMESPACE}" get deployment kestra-webserver -o wide >&2 || true
+  kubectl -n "${NAMESPACE}" get statefulset kestra-webserver -o wide >&2 || true
   kubectl -n "${NAMESPACE}" get service kestra-webserver -o wide >&2 || true
   kubectl -n "${NAMESPACE}" get endpointslice -l kubernetes.io/service-name=kestra-webserver -o wide >&2 || true
   kubectl -n "${NAMESPACE}" get ingress kestra-webserver -o wide >&2 || true
@@ -56,7 +56,7 @@ dump_gke_diagnostics() {
   kubectl -n "${NAMESPACE}" describe ingress kestra-webserver >&2 || true
   kubectl -n "${NAMESPACE}" describe pods \
     -l app.kubernetes.io/name=kestra,app.kubernetes.io/component=webserver >&2 || true
-  kubectl -n "${NAMESPACE}" logs deployment/kestra-webserver -c kestra-webserver --tail=200 >&2 || true
+  kubectl -n "${NAMESPACE}" logs statefulset/kestra-webserver -c kestra-webserver --tail=200 >&2 || true
   # shellcheck disable=SC2016
   kubectl -n "${NAMESPACE}" run kestra-webserver-probe \
     --rm \

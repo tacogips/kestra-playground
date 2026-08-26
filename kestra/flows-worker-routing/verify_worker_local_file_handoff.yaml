@@ -1,0 +1,57 @@
+id: verify_worker_local_file_handoff
+namespace: playground.worker_routing
+
+description: Verify two ordered batches use one dedicated worker and its local persistent disk.
+
+inputs:
+  - id: write_file
+    type: BOOLEAN
+    required: true
+    defaults: true
+
+tasks:
+  - id: write_worker_local_file
+    type: io.kestra.plugin.scripts.shell.Commands
+    runIf: "{{ inputs.write_file }}"
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    workerSelector:
+      tags: [gke-large]
+      match: ALL
+      fallback: WAIT
+      broadcast: false
+    commands:
+      - |
+        set -eu
+        path="/var/lib/kestra-worker-local/{{ execution.id }}.txt"
+        value="orders-ready-{{ execution.id }}"
+        umask 077
+        printf '%s\n' "$value" >"$path"
+        printf 'local_handoff=written worker=%s path=%s value=%s\n' "$(hostname)" "$path" "$value"
+
+  - id: read_worker_local_file
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    workerSelector:
+      tags: [gke-large]
+      match: ALL
+      fallback: WAIT
+      broadcast: false
+    commands:
+      - |
+        set -eu
+        path="/var/lib/kestra-worker-local/{{ execution.id }}.txt"
+        expected="orders-ready-{{ execution.id }}"
+        if [ ! -f "$path" ]; then
+          printf 'local_handoff=missing worker=%s path=%s\n' "$(hostname)" "$path" >&2
+          exit 42
+        fi
+        actual="$(cat "$path")"
+        if [ "$actual" != "$expected" ]; then
+          printf 'local_handoff=invalid worker=%s path=%s expected=%s actual=%s\n' \
+            "$(hostname)" "$path" "$expected" "$actual" >&2
+          exit 43
+        fi
+        printf 'local_handoff=read worker=%s path=%s value=%s\n' "$(hostname)" "$path" "$actual"
+        rm -f "$path"

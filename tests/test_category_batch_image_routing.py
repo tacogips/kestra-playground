@@ -87,3 +87,59 @@ def test_gke_runtime_exposes_the_category_image_to_flows() -> None:
     assert "special_batch_on_dedicated_worker" in verifier
     assert 'if [[ "$normal_worker" == "$special_worker" ]]' in verifier
     assert "ENV_CATEGORY_BATCH_IMAGE | @base64d" in verifier
+
+
+def test_worker_local_handoff_routes_both_tasks_to_one_stateful_worker() -> None:
+    flow = yaml.safe_load(
+        _read_text("kestra/flows-worker-routing/verify_worker_local_file_handoff.yaml")
+    )
+    tasks = flow["tasks"]
+
+    assert [task["workerSelector"] for task in tasks] == [
+        {
+            "tags": ["gke-large"],
+            "match": "ALL",
+            "fallback": "WAIT",
+            "broadcast": False,
+        },
+        {
+            "tags": ["gke-large"],
+            "match": "ALL",
+            "fallback": "WAIT",
+            "broadcast": False,
+        },
+    ]
+    assert all(
+        task["taskRunner"]["type"] == "io.kestra.plugin.core.runner.Process" for task in tasks
+    )
+    assert "/var/lib/kestra-worker-local/{{ execution.id }}.txt" in tasks[0]["commands"][0]
+    assert 'if [ ! -f "$path" ]' in tasks[1]["commands"][0]
+    assert "exit 42" in tasks[1]["commands"][0]
+
+
+def test_gke_workers_are_statefulsets_with_retained_local_volumes() -> None:
+    values = yaml.safe_load(_read_text("k8s/helm/kestra-values.yaml"))
+    apply_script = _read_text("scripts/apply-gke-dev.sh")
+
+    assert values["common"]["kind"] == "StatefulSet"
+    assert "kind: StatefulSet" in apply_script
+    assert "persistentVolumeClaimRetentionPolicy:" in apply_script
+    assert "mountPath: /var/lib/kestra-worker-local" in apply_script
+    assert "volumeClaimTemplates:" in apply_script
+    assert "serviceName: kestra-gke-worker-${group_id#gke-}" in apply_script
+
+
+def test_live_workflow_verifies_success_and_missing_file_cases() -> None:
+    workflow = yaml.safe_load(_read_text(".github/workflows/deploy.yml"))
+    verifier = _read_text("scripts/verify-live-worker-local-file-handoff.sh")
+    verify_step = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step["name"] == "Verify worker-local file handoff"
+    )
+
+    assert verify_step["if"] == "${{ inputs.target_environment == 'routed' }}"
+    assert verify_step["run"] == "mise exec -- scripts/verify-live-worker-local-file-handoff.sh"
+    assert "wait_for_execution_state" in verifier
+    assert '"$missing_id" FAILED' in verifier
+    assert "worker-local-kestra-gke-worker-large-0" in verifier

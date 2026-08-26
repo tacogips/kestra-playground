@@ -17,6 +17,6 @@ gcloud container clusters get-credentials kestra-dev \
 kubectl -n "$NAMESPACE" get deployment,statefulset,pod,service,endpoints -o wide
 kubectl -n "$NAMESPACE" get endpointslice -o wide
 kubectl -n "$NAMESPACE" describe pod -l app.kubernetes.io/component=webserver
-kubectl -n "$NAMESPACE" logs deployment/kestra-webserver --all-containers --tail=300 || true
+kubectl -n "$NAMESPACE" logs statefulset/kestra-webserver --all-containers --tail=300 || true
 kubectl -n "$NAMESPACE" logs deployment/kestra-worker-activator --all-containers --tail=300 || true
 kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp | tail -n 100

@@ -431,16 +431,16 @@ def test_gke_apply_script_supports_access_driven_scale_to_zero() -> None:
 
     assert "routed_worker_replicas=0" in script
     assert "name: kestra-worker-activator" in script
-    assert "- deployments/scale" in script
+    assert "persistentVolumeClaimRetentionPolicy:" in script
     assert "- statefulsets/scale" in script
-    assert 'value: "${activator_scale_deployments}"' in script
+    assert 'value: "${activator_scale_database_statefulsets}"' in script
     assert 'value: "${activator_scale_statefulsets}"' in script
     assert 'value: "${activator_boot_state}"' in script
     assert 'reconcile "${want}"' in script
     assert "wait_for_statefulsets_ready" in script
-    assert "wait_for_deployments_stopped" in script
-    assert "scale_statefulsets 1" in script
-    assert "scale_statefulsets 0" in script
+    assert "wait_for_statefulsets_stopped" in script
+    assert 'scale_statefulsets "${SCALE_STATEFULSETS}" 1' in script
+    assert 'scale_statefulsets "${SCALE_STATEFULSETS}" 0' in script
     assert "location = /health" in script
     assert "Retry-After 5" in script
     assert "kestra-gke-worker-small kestra-gke-worker-large" in script
@@ -494,7 +494,7 @@ def test_gke_database_urls_use_postgres_service_without_cloud_sql_sidecars() -> 
     assert "extraContainers" not in helm_values["common"]
     routed_worker_renderer = apply_script[
         apply_script.index("render_routed_k8s_worker") : apply_script.index(
-            "activator_scale_deployments"
+            "activator_scale_statefulsets"
         )
     ]
     assert "cloud-sql-proxy" not in routed_worker_renderer
@@ -607,7 +607,7 @@ def test_gke_node_routing_verifier_registers_and_checks_flow() -> None:
     assert "verify_gke_node_worker_routing" in script
     assert "kestra/flows-worker-routing" in script
     assert "app.kubernetes.io/name=kestra-gke-routed-worker" in script
-    assert "logs deployment/kestra-gke-worker-small -c kestra-worker --tail=80" in script
+    assert "logs statefulset/kestra-gke-worker-small -c kestra-worker --tail=80" in script
 
 
 def test_k8s_pod_resource_flow_uses_distinct_pod_resources_without_node_pin() -> None:

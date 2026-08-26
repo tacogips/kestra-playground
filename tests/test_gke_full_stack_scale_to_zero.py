@@ -80,10 +80,10 @@ def test_live_verifier_uses_observed_readiness_and_reports_http_diagnostics() ->
     assert "2?? | 3?? | 401 | 502 | 503 | 504" in script
     assert "status.readyReplicas" in script
     assert "diagnose_http_failure" in script
-    assert "Deployment ${deployment} did not report one ready replica." in script
+    assert "StatefulSet ${statefulset} did not report one ready replica." in script
     assert script.count("diagnose_http_failure") >= 3
     assert "http://kestra-webserver/" in script
-    assert "logs deployment/kestra-webserver" in script
+    assert "logs statefulset/kestra-webserver" in script
     assert "logs deployment/kestra-worker-activator" in script
 
 

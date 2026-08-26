@@ -457,6 +457,12 @@ run = '''
 scripts/verify-live-category-batch-image-routing.sh
 '''
 
+[tasks."kestra:live:run-worker-local-file-handoff"]
+description = "Verify two routed batches exchange a worker-local file and fail when it is absent"
+run = '''
+scripts/verify-live-worker-local-file-handoff.sh
+'''
+
 [tasks."kestra:live:run-k8s-pod-resources"]
 description = "Register and run the OSS K8s per-batch pod resource verification flow"
 run = '''

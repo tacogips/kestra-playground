@@ -8,7 +8,7 @@ LIVE_GKE_SUBDOMAIN="${LIVE_GKE_SUBDOMAIN:-k8s}"
 LIVE_DOMAIN_NAME="${LIVE_DOMAIN_NAME:-}"
 POLL_SECONDS="${POLL_SECONDS:-5}"
 MARKER="${MARKER:-scale-zero-$(date -u +%Y%m%dT%H%M%SZ)}"
-MANAGED_DEPLOYMENTS=(
+MANAGED_STATEFULSETS=(
   kestra-webserver
   kestra-executor
   kestra-scheduler
@@ -62,7 +62,7 @@ idle_seconds="$(
 wait_for_zero() {
   local timeout_seconds=$((idle_seconds + 900))
   local deadline=$((SECONDS + timeout_seconds))
-  local deployment=""
+  local statefulset=""
   local all_zero=""
   local postgres_replicas=""
 
@@ -74,8 +74,8 @@ wait_for_zero() {
     if [[ "$postgres_replicas" != "0" ]]; then
       all_zero=false
     fi
-    for deployment in "${MANAGED_DEPLOYMENTS[@]}"; do
-      if [[ "$(kubectl -n "$NAMESPACE" get deployment "$deployment" -o jsonpath='{.spec.replicas}')" != "0" ]]; then
+    for statefulset in "${MANAGED_STATEFULSETS[@]}"; do
+      if [[ "$(kubectl -n "$NAMESPACE" get statefulset "$statefulset" -o jsonpath='{.spec.replicas}')" != "0" ]]; then
         all_zero=false
         break
       fi
@@ -88,20 +88,20 @@ wait_for_zero() {
 
   echo "The managed GKE stack did not reach zero replicas within ${timeout_seconds}s." >&2
   kubectl -n "$NAMESPACE" get statefulset kestra-postgres >&2
-  kubectl -n "$NAMESPACE" get deployment "${MANAGED_DEPLOYMENTS[@]}" >&2
+  kubectl -n "$NAMESPACE" get statefulset "${MANAGED_STATEFULSETS[@]}" >&2
   return 1
 }
 
 wait_for_warm() {
   local deadline=$((SECONDS + 1200))
-  local deployment=""
+  local statefulset=""
   local ready_replicas=""
 
   kubectl -n "$NAMESPACE" rollout status statefulset/kestra-postgres --timeout=10m
-  for deployment in "${MANAGED_DEPLOYMENTS[@]}"; do
+  for statefulset in "${MANAGED_STATEFULSETS[@]}"; do
     while ((SECONDS < deadline)); do
       ready_replicas="$(
-        kubectl -n "$NAMESPACE" get deployment "$deployment" \
+        kubectl -n "$NAMESPACE" get statefulset "$statefulset" \
           -o jsonpath='{.status.readyReplicas}'
       )"
       if [[ "$ready_replicas" == "1" ]]; then
@@ -110,7 +110,7 @@ wait_for_warm() {
       sleep "$POLL_SECONDS"
     done
     if [[ "$ready_replicas" != "1" ]]; then
-      echo "Deployment ${deployment} did not report one ready replica." >&2
+      echo "StatefulSet ${statefulset} did not report one ready replica." >&2
       diagnose_http_failure
       return 1
     fi
@@ -122,7 +122,7 @@ diagnose_http_failure() {
   kubectl -n "$NAMESPACE" get deployment,statefulset,pod,service,endpoints -o wide >&2 || true
   kubectl -n "$NAMESPACE" get endpointslice -o wide >&2 || true
   kubectl -n "$NAMESPACE" describe pod -l app.kubernetes.io/component=webserver >&2 || true
-  kubectl -n "$NAMESPACE" logs deployment/kestra-webserver --all-containers --tail=300 >&2 || true
+  kubectl -n "$NAMESPACE" logs statefulset/kestra-webserver --all-containers --tail=300 >&2 || true
   kubectl -n "$NAMESPACE" logs deployment/kestra-worker-activator --all-containers --tail=300 >&2 || true
   kubectl -n "$NAMESPACE" exec deployment/kestra-worker-activator -c nginx -- \
     wget --server-response --output-document=/dev/null http://kestra-webserver/ >&2 || true

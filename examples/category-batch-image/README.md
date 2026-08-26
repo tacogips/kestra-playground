@@ -26,3 +26,12 @@ mise run kestra:live:run-category-batch-image-routing
 
 The verifier checks both task states, distinct Kestra worker IDs, the shared immutable image used by
 both Pods, and the batch-specific log markers before deleting the example Pods.
+
+The companion `verify_worker_local_file_handoff` flow routes both ordered Process tasks to the
+single-replica `gke-large` StatefulSet. The first task writes to its mounted worker-local volume and
+the second task reads and removes the file. A live negative case skips the writer and verifies that
+the reader fails. Run it with:
+
+```bash
+mise run kestra:live:run-worker-local-file-handoff
+```

@@ -199,5 +199,5 @@ kubectl -n "${NAMESPACE}" get pods \
   -o custom-columns=NAME:.metadata.name,GROUP:.metadata.labels.kestra\\.worker/group,NODE:.spec.nodeName,PHASE:.status.phase
 
 echo "Recent GKE routed worker logs:"
-kubectl -n "${NAMESPACE}" logs deployment/kestra-gke-worker-small -c kestra-worker --tail=80
-kubectl -n "${NAMESPACE}" logs deployment/kestra-gke-worker-large -c kestra-worker --tail=80
+kubectl -n "${NAMESPACE}" logs statefulset/kestra-gke-worker-small -c kestra-worker --tail=80
+kubectl -n "${NAMESPACE}" logs statefulset/kestra-gke-worker-large -c kestra-worker --tail=80

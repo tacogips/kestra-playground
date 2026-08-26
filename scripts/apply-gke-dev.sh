@@ -234,8 +234,11 @@ lineage_of() {
 }
 target_lineage="$(lineage_of "$kestra_image")"
 current_image="$(
-  kubectl -n "$NAMESPACE" get deployment kestra-webserver \
-    -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true
+  kubectl -n "$NAMESPACE" get statefulset kestra-webserver \
+    -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null \
+    || kubectl -n "$NAMESPACE" get deployment kestra-webserver \
+      -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null \
+    || true
 )"
 if [[ -n "$current_image" && "$KESTRA_ALLOW_LINEAGE_SWITCH" != "true" ]]; then
   current_lineage="$(lineage_of "$current_image")"
@@ -390,7 +393,7 @@ data:
           workerGroupId: ${group_id}
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: kestra-gke-worker-${group_id#gke-}
   namespace: ${NAMESPACE}
@@ -400,7 +403,11 @@ metadata:
     app.kubernetes.io/instance: kestra
     kestra.worker/group: ${group_id}
 spec:
+  serviceName: kestra-gke-worker-${group_id#gke-}
   replicas: ${routed_worker_replicas}
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
   selector:
     matchLabels:
       app.kubernetes.io/name: kestra-gke-routed-worker
@@ -474,6 +481,8 @@ ${placement}      containers:
               subPath: worker-routing.yaml
             - name: tmp
               mountPath: /tmp/kestra-wd
+            - name: worker-local
+              mountPath: /var/lib/kestra-worker-local
       volumes:
         - name: kestra-config
           configMap:
@@ -495,17 +504,43 @@ ${placement}      containers:
                 path: worker-routing.yaml
         - name: tmp
           emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: worker-local
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kestra-gke-worker-${group_id#gke-}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: kestra-gke-routed-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/instance: kestra
+    kestra.worker/group: ${group_id}
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: kestra-gke-routed-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/instance: kestra
+    kestra.worker/group: ${group_id}
 EOF
 }
 
-activator_scale_deployments="kestra-gke-worker-small kestra-gke-worker-large"
-activator_scale_statefulsets=""
-activator_statefulset_rbac=""
+activator_scale_statefulsets="kestra-gke-worker-small kestra-gke-worker-large"
+activator_scale_database_statefulsets=""
 activator_boot_state="cold"
 activator_scale_resource_names="      - kestra-gke-worker-small
       - kestra-gke-worker-large"
 if [[ "$LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED" == "true" ]]; then
-  activator_scale_deployments="${activator_scale_deployments} kestra-webserver kestra-executor kestra-scheduler kestra-indexer"
+  activator_scale_statefulsets="${activator_scale_statefulsets} kestra-webserver kestra-executor kestra-scheduler kestra-indexer"
   activator_boot_state="warm"
   activator_scale_resource_names="${activator_scale_resource_names}
       - kestra-webserver
@@ -514,17 +549,9 @@ if [[ "$LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED" == "true" ]]; then
       - kestra-indexer"
 fi
 if [[ "$LIVE_GKE_DATABASE_AUTOSCALE_ENABLED" == "true" ]]; then
-  activator_scale_statefulsets="kestra-postgres"
-  activator_statefulset_rbac="  - apiGroups:
-      - apps
-    resources:
-      - statefulsets
-      - statefulsets/scale
-    resourceNames:
-      - kestra-postgres
-    verbs:
-      - get
-      - patch"
+  activator_scale_database_statefulsets="kestra-postgres"
+  activator_scale_resource_names="${activator_scale_resource_names}
+      - kestra-postgres"
 fi
 
 render_routed_worker_activator() {
@@ -621,26 +648,15 @@ scale_resource() {
     >/dev/null
 }
 
-scale_deployments() {
-  failed=0
-  for deployment in ${SCALE_DEPLOYMENTS}; do
-    if scale_resource deployments "${deployment}" "$1"; then
-      log "scaled deployment/${deployment} to replicas=$1"
-    else
-      log "failed to scale deployment/${deployment} to replicas=$1"
-      failed=1
-    fi
-  done
-  return "${failed}"
-}
-
 scale_statefulsets() {
+  statefulsets="$1"
+  replicas="$2"
   failed=0
-  for statefulset in ${SCALE_STATEFULSETS}; do
-    if scale_resource statefulsets "${statefulset}" "$1"; then
-      log "scaled statefulset/${statefulset} to replicas=$1"
+  for statefulset in ${statefulsets}; do
+    if scale_resource statefulsets "${statefulset}" "${replicas}"; then
+      log "scaled statefulset/${statefulset} to replicas=${replicas}"
     else
-      log "failed to scale statefulset/${statefulset} to replicas=$1"
+      log "failed to scale statefulset/${statefulset} to replicas=${replicas}"
       failed=1
     fi
   done
@@ -648,7 +664,8 @@ scale_statefulsets() {
 }
 
 wait_for_statefulsets_ready() {
-  for statefulset in ${SCALE_STATEFULSETS}; do
+  statefulsets="$1"
+  for statefulset in ${statefulsets}; do
     attempts=0
     while [ "${attempts}" -lt 180 ]; do
       status="$(api_request GET "/apis/apps/v1/namespaces/${POD_NAMESPACE}/statefulsets/${statefulset}")"
@@ -666,38 +683,39 @@ wait_for_statefulsets_ready() {
   done
 }
 
-wait_for_deployments_stopped() {
-  for deployment in ${SCALE_DEPLOYMENTS}; do
+wait_for_statefulsets_stopped() {
+  statefulsets="$1"
+  for statefulset in ${statefulsets}; do
     attempts=0
     while [ "${attempts}" -lt 180 ]; do
-      status="$(api_request GET "/apis/apps/v1/namespaces/${POD_NAMESPACE}/deployments/${deployment}")"
+      status="$(api_request GET "/apis/apps/v1/namespaces/${POD_NAMESPACE}/statefulsets/${statefulset}")"
       if ! printf '%s' "${status}" | grep -Eq '"(availableReplicas|readyReplicas|replicas)":[[:space:]]*([1-9][0-9]*)'; then
-        log "deployment/${deployment} is stopped"
+        log "statefulset/${statefulset} is stopped"
         break
       fi
       attempts=$(( attempts + 1 ))
       sleep 2
     done
     if [ "${attempts}" -ge 180 ]; then
-      log "timed out waiting for deployment/${deployment} to stop"
+      log "timed out waiting for statefulset/${statefulset} to stop"
       return 1
     fi
   done
 }
 
 wake_all() {
-  if [ -n "${SCALE_STATEFULSETS}" ]; then
-    scale_statefulsets 1 || return 1
-    wait_for_statefulsets_ready || return 1
+  if [ -n "${SCALE_DATABASE_STATEFULSETS}" ]; then
+    scale_statefulsets "${SCALE_DATABASE_STATEFULSETS}" 1 || return 1
+    wait_for_statefulsets_ready "${SCALE_DATABASE_STATEFULSETS}" || return 1
   fi
-  scale_deployments 1
+  scale_statefulsets "${SCALE_STATEFULSETS}" 1
 }
 
 park_all() {
-  scale_deployments 0 || return 1
-  wait_for_deployments_stopped || return 1
-  if [ -n "${SCALE_STATEFULSETS}" ]; then
-    scale_statefulsets 0 || return 1
+  scale_statefulsets "${SCALE_STATEFULSETS}" 0 || return 1
+  wait_for_statefulsets_stopped "${SCALE_STATEFULSETS}" || return 1
+  if [ -n "${SCALE_DATABASE_STATEFULSETS}" ]; then
+    scale_statefulsets "${SCALE_DATABASE_STATEFULSETS}" 0 || return 1
   fi
 }
 
@@ -717,7 +735,7 @@ else
 fi
 current=-1
 
-log "activator started boot_state=${BOOT_STATE} idle_seconds=${IDLE_SECONDS} poll_seconds=${POLL_SECONDS} deployments=${SCALE_DEPLOYMENTS} statefulsets=${SCALE_STATEFULSETS}"
+log "activator started boot_state=${BOOT_STATE} idle_seconds=${IDLE_SECONDS} poll_seconds=${POLL_SECONDS} statefulsets=${SCALE_STATEFULSETS} database_statefulsets=${SCALE_DATABASE_STATEFULSETS}"
 
 while :; do
   now="$(date +%s)"
@@ -759,14 +777,13 @@ rules:
   - apiGroups:
       - apps
     resources:
-      - deployments
-      - deployments/scale
+      - statefulsets
+      - statefulsets/scale
     resourceNames:
 ${activator_scale_resource_names}
     verbs:
       - get
       - patch
-${activator_statefulset_rbac}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -843,10 +860,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            - name: SCALE_DEPLOYMENTS
-              value: "${activator_scale_deployments}"
             - name: SCALE_STATEFULSETS
               value: "${activator_scale_statefulsets}"
+            - name: SCALE_DATABASE_STATEFULSETS
+              value: "${activator_scale_database_statefulsets}"
             - name: BOOT_STATE
               value: "${activator_boot_state}"
             - name: ACCESS_LOG
@@ -946,7 +963,15 @@ if [[ "$LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED" == "true" ]]; then
   fi
 else
   delete_routed_worker_activator
+  kubectl -n "$NAMESPACE" delete statefulset \
+    kestra-gke-worker-small \
+    kestra-gke-worker-large \
+    --ignore-not-found
   kubectl -n "$NAMESPACE" delete deployment \
+    kestra-gke-worker-small \
+    kestra-gke-worker-large \
+    --ignore-not-found
+  kubectl -n "$NAMESPACE" delete service \
     kestra-gke-worker-small \
     kestra-gke-worker-large \
     --ignore-not-found
@@ -957,19 +982,19 @@ else
 fi
 
 kubectl -n "$NAMESPACE" rollout status deployment/otel-collector --timeout=10m
-kubectl -n "$NAMESPACE" rollout status deployment/kestra-webserver --timeout=15m
-kubectl -n "$NAMESPACE" rollout status deployment/kestra-executor --timeout=15m
-kubectl -n "$NAMESPACE" rollout status deployment/kestra-scheduler --timeout=15m
-kubectl -n "$NAMESPACE" rollout status deployment/kestra-indexer --timeout=15m
+kubectl -n "$NAMESPACE" rollout status statefulset/kestra-webserver --timeout=15m
+kubectl -n "$NAMESPACE" rollout status statefulset/kestra-executor --timeout=15m
+kubectl -n "$NAMESPACE" rollout status statefulset/kestra-scheduler --timeout=15m
+kubectl -n "$NAMESPACE" rollout status statefulset/kestra-indexer --timeout=15m
 if [[ "$GKE_WORKER_ENABLED" == "true" ]]; then
-  kubectl -n "$NAMESPACE" rollout status deployment/kestra-worker --timeout=15m
+  kubectl -n "$NAMESPACE" rollout status statefulset/kestra-worker --timeout=15m
 fi
 if [[ "$LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED" == "true" ]]; then
   if [[ "$LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED" == "true" ]]; then
     kubectl -n "$NAMESPACE" rollout status deployment/kestra-worker-activator --timeout=10m
   else
-    kubectl -n "$NAMESPACE" rollout status deployment/kestra-gke-worker-small --timeout=15m
-    kubectl -n "$NAMESPACE" rollout status deployment/kestra-gke-worker-large --timeout=15m
+    kubectl -n "$NAMESPACE" rollout status statefulset/kestra-gke-worker-small --timeout=15m
+    kubectl -n "$NAMESPACE" rollout status statefulset/kestra-gke-worker-large --timeout=15m
   fi
 fi
 kubectl -n "$NAMESPACE" get ingress kestra-webserver

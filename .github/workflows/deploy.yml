@@ -322,6 +322,9 @@ jobs:
       - name: Verify category batch image routing
         if: ${{ inputs.target_environment == 'routed' }}
         run: mise exec -- scripts/verify-live-category-batch-image-routing.sh
+      - name: Verify worker-local file handoff
+        if: ${{ inputs.target_environment == 'routed' }}
+        run: mise exec -- scripts/verify-live-worker-local-file-handoff.sh
       - name: Run operation demo verification
         if: ${{ inputs.operation_demo != '' && inputs.operation_demo != 'none' }}
         env:

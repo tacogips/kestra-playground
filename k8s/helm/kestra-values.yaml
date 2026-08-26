@@ -18,6 +18,7 @@ configurations:
       key: application.yaml
 
 common:
+  kind: StatefulSet
   replicas: 1
   startupProbe:
     httpGet:

@@ -467,6 +467,13 @@ Pods use the same commit-pinned category image. Run
 `mise run kestra:live:run-category-batch-image-routing` to verify the selected commands, worker
 separation, image reference, and batch logs on GKE.
 
+The GKE Kestra control-plane components and routed workers use one-replica StatefulSets. Each routed
+worker has a retained `ReadWriteOnce` worker-local volume mounted at
+`/var/lib/kestra-worker-local`. The `verify_worker_local_file_handoff` flow routes an ordered writer
+and reader to the single-member `gke-large` group, verifies both task runs report the same worker,
+and separately proves that the reader fails when the file is absent. Run
+`mise run kestra:live:run-worker-local-file-handoff` for that live GKE check.
+
 The runtime image extends `kestra/kestra:latest` and bakes in `batch-groups/` (per-system flows,
 fixtures, and batch sources), `kestra/config/`, and the Python package source under `src/`. The
 deployment
