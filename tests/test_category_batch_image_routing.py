@@ -144,3 +144,7 @@ def test_live_workflow_verifies_success_and_missing_file_cases() -> None:
     assert "wait_for_execution_state" in verifier
     assert '"$missing_id" FAILED' in verifier
     assert "worker-local-kestra-gke-worker-large-0" in verifier
+    assert any(
+        step.get("run") == "mise exec -- scripts/verify-live-worker-local-file-handoff.sh"
+        for step in workflow["jobs"]["verify-routed"]["steps"]
+    )

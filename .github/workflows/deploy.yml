@@ -371,6 +371,10 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Verify routed full-stack scale-to-zero
         run: mise exec -- scripts/verify-live-gke-full-stack-scale-to-zero.sh
+      - name: Verify category batch image routing
+        run: mise exec -- scripts/verify-live-category-batch-image-routing.sh
+      - name: Verify worker-local file handoff
+        run: mise exec -- scripts/verify-live-worker-local-file-handoff.sh
 
   diagnose-routed:
     name: Diagnose Routed Cold Start
