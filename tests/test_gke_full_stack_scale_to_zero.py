@@ -79,6 +79,7 @@ def test_live_verifier_uses_observed_readiness_and_reports_http_diagnostics() ->
 
     assert "2?? | 3?? | 401 | 502 | 503 | 504" in script
     assert "status.readyReplicas" in script
+    assert "ensure_gke_kubectl_auth" in script
     assert "diagnose_http_failure" in script
     assert "StatefulSet ${statefulset} did not report one ready replica." in script
     assert script.count("diagnose_http_failure") >= 3

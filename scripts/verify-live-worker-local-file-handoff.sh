@@ -21,6 +21,10 @@ if [[ -z "$PROJECT_ID" || -z "$LIVE_DOMAIN_NAME" ]]; then
   exit 1
 fi
 
+# shellcheck source=scripts/lib/gke-auth.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/gke-auth.sh"
+ensure_gke_kubectl_auth
+
 secret_value() {
   gcloud secrets versions access latest --project="$PROJECT_ID" --secret="$1"
 }

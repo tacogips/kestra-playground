@@ -142,6 +142,7 @@ def test_live_workflow_verifies_success_and_missing_file_cases() -> None:
     assert verify_step["if"] == "${{ inputs.target_environment == 'routed' }}"
     assert verify_step["run"] == "mise exec -- scripts/verify-live-worker-local-file-handoff.sh"
     assert "wait_for_execution_state" in verifier
+    assert "ensure_gke_kubectl_auth" in verifier
     assert '"$missing_id" FAILED' in verifier
     assert "worker-local-kestra-gke-worker-large-0" in verifier
     assert any(

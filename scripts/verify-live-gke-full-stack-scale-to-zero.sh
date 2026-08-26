@@ -43,6 +43,10 @@ if ! [[ "$MARKER" =~ ^[A-Za-z0-9._:-]+$ ]]; then
   exit 1
 fi
 
+# shellcheck source=scripts/lib/gke-auth.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/gke-auth.sh"
+ensure_gke_kubectl_auth
+
 gcloud container clusters get-credentials kestra-dev \
   --region "$REGION" \
   --project "$PROJECT_ID"
