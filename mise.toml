@@ -508,7 +508,7 @@ description = "Deploy category flows to the Kestra controller without restarting
 run = '''
 scripts/deploy-category-controller-flows.sh \
   "${CATEGORY_CONTROLLER_VERSION:?Set CATEGORY_CONTROLLER_VERSION}" \
-  "${CATEGORY_CONTROLLER_FLOW_DIR:-kestra/flows-onprem/controller}"
+  "${CATEGORY:-orders}"
 '''
 
 [tasks."kestra:live:run-k8s-pod-resources"]

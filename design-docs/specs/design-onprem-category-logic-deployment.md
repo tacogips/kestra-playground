@@ -191,8 +191,8 @@ version probes and the separate fleet audit passed, both timers showed the next 
 (`23:00 JST`) firing, and both VMs were stopped afterward.
 
 The executable verification Flow is
-`kestra/flows-onprem/controller/verify_gcp_category_logic_deployment.yaml`; the orchestration and assertions
-are in `scripts/verify-live-gcp-category-logic-flow.sh` and
+`category-controllers/orders/flows/verify_gcp_category_logic_deployment.yaml`; the orchestration and
+assertions are in `scripts/verify-live-gcp-category-logic-flow.sh` and
 `scripts/verify-live-gcp-category-logic-ansible.sh`.
 
 Default-versus-dedicated routing is verified separately because the deployment check deliberately
@@ -227,11 +227,11 @@ These phases have separate tags because they change separate runtime layers:
 
 - `orders-vX.Y.Z` builds and loads category logic on the selected worker inventory. The Ansible
   playbook proves the worker container ID and start timestamp do not change.
-- `orders-controller-vX.Y.Z` registers every YAML file in `kestra/flows-onprem/controller` through
-  the Kestra API. This is the tag to push after adding a batch Flow or changing controller-side orchestration.
-  The workflow proves that the webserver, executor, scheduler, and indexer pod identities and restart
-  counts remain unchanged and that the external GCE worker VM identities, states, and start times
-  remain unchanged.
+- `orders-controller-vX.Y.Z` reconciles every YAML file in
+  `category-controllers/orders/flows` through the Kestra API. This is the tag to push after adding
+  or removing a batch Flow or changing controller-side orchestration. The workflow proves that the
+  webserver, executor, scheduler, and indexer pod identities and restart counts remain unchanged and
+  that the external GCE worker VM identities, states, and start times remain unchanged.
 
 Controller deployment means deploying Flow definitions, not redeploying the Kestra binary or GKE
 StatefulSets. Kestra stores the definitions through its API, so neither the controller components nor
@@ -242,23 +242,18 @@ dynamically.
 
 ### Category Namespace Reconciliation Contract
 
-The current `orders-controller-v*` implementation is an additive baseline, not the final staging
-contract. It loops over `kestra/flows-onprem/controller`, creates missing Flows, updates existing
-Flows, and checks that each resulting Flow can be read. It does not delete a server-side Flow when
-its YAML is removed from Git, skip an update when source content is unchanged, enforce one namespace
-for the directory, or prove that the deployed namespace exactly equals the tagged Git tree. The
-workflow also currently declares the `development` GitHub Environment rather than `staging`.
-
-The target staging release unit is one category and one complete namespace. A category manifest must
-bind the tag prefix, desired Flow directory, target namespace, deployment owner, and environment:
+The implemented staging release unit is one category and one complete namespace. A category
+manifest must bind the tag prefix, desired Flow directory, target namespace, deployment owner, and
+environment:
 
 ```yaml
 id: orders
 releaseTagPrefix: orders-controller-v
 flowDirectory: category-controllers/orders/flows
-namespace: playground.orders
+namespace: playground.orders.staging
 deploymentOwner: orders-controller
 environment: staging
+maxDeletes: 10
 ```
 
 If development, staging, and production share one Kestra controller, each environment needs a
@@ -282,6 +277,11 @@ The apply order is validate all desired Flows, report the complete plan, create 
 stale owned Flows only after every create/update succeeds, and finally compare the server ID set and
 normalized source hashes with Git. A failed create or update must prevent deletion. Reapplying the
 same tag must produce only `unchanged` entries and no new Flow revisions.
+
+`src/kestra_playground/kestra_reconcile.py` implements this contract with the Kestra Flow API.
+`scripts/reconcile-kestra-category-flows.sh` is the stable command wrapper used by CI and deployment
+servers. The tag workflow runs apply twice and rejects the release unless the second plan is a
+complete no-op.
 
 Deletion is enabled only when all of these boundaries hold:
 

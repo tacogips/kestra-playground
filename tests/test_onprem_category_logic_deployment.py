@@ -97,7 +97,7 @@ def test_gcp_verifier_uses_low_cost_persistent_workers_and_stops_them() -> None:
 
 def test_gcp_category_logic_flow_runs_deployed_image_on_both_workers() -> None:
     flow = yaml.safe_load(
-        _read("kestra/flows-onprem/controller/verify_gcp_category_logic_deployment.yaml")
+        _read("category-controllers/orders/flows/verify_gcp_category_logic_deployment.yaml")
     )
     normal, special = flow["tasks"]
 
@@ -170,16 +170,19 @@ def test_controller_tag_deploys_flows_and_checks_runtime_continuity() -> None:
     assert workflow["on"]["push"]["tags"] == ["orders-controller-v*"]
     assert "^orders-controller-v[0-9]+\\.[0-9]+\\.[0-9]+$" in workflow_text
     assert "git merge-base --is-ancestor" in workflow_text
-    assert workflow["jobs"]["deploy"]["environment"]["name"] == "development"
+    assert workflow["jobs"]["deploy"]["environment"]["name"] == "staging"
     assert workflow["jobs"]["deploy"]["permissions"] == {
         "contents": "read",
         "id-token": "write",
     }
     assert "deploy-category-controller-flows.sh" in workflow_text
 
-    assert 'flow_directory="${2:-kestra/flows-onprem/controller}"' in deploy_script
-    assert 'scripts/register-flows.sh "$kestra_url" "$flow_directory"' in deploy_script
-    assert "/api/v1/main/flows/${flow_namespace}/${flow_id}" in deploy_script
+    assert "reconcile-kestra-category-flows.sh" in deploy_script
+    assert "--environment staging" in deploy_script
+    assert "--apply" in deploy_script
+    assert "--delete" in deploy_script
+    assert "idempotency_output" in deploy_script
+    assert "scripts/register-flows.sh" not in deploy_script
     assert "controller_snapshot" in deploy_script
     assert "external_worker_snapshot" in deploy_script
     assert "require_expected_external_workers" in deploy_script
@@ -187,6 +190,17 @@ def test_controller_tag_deploys_flows_and_checks_runtime_continuity() -> None:
     assert "lastStartTimestamp" in deploy_script
     assert "rollout restart" not in deploy_script
     assert "ansible" not in deploy_script.lower()
+
+    manifest = yaml.safe_load(_read("category-controllers/orders/category.yaml"))
+    assert manifest == {
+        "id": "orders",
+        "releaseTagPrefix": "orders-controller-v",
+        "flowDirectory": "category-controllers/orders/flows",
+        "namespace": "playground.orders.staging",
+        "deploymentOwner": "orders-controller",
+        "environment": "staging",
+        "maxDeletes": 10,
+    }
 
     oidc_variables = _read("infra/terraform/github-actions/variables.tf")
     assert '"orders-controller-v"' in oidc_variables

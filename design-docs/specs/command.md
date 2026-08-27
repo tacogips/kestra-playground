@@ -1017,19 +1017,14 @@ gh run watch --exit-status <run-id>
 The tag must point to a commit already contained in `main`. The workflow authenticates to GCP with
 GitHub OIDC, wakes the scale-to-zero Kestra endpoint, records control-plane pod UIDs and restart
 counts plus external GCE worker VM identity/state/start timestamps, registers every flow under
-`kestra/flows-onprem/controller`, verifies every flow through the API, and fails if any recorded
-runtime identity changes. Adding a YAML file to that directory adds a batch definition to the next
-controller release. The workflow does not run Terraform, Helm, `kubectl rollout restart`, or
-Ansible.
+the category manifest, and fails if any recorded runtime identity changes. Adding a YAML file under
+`category-controllers/orders/flows` creates that batch definition in the next controller release;
+removing a YAML file deletes the stale owned Flow. The workflow uses the `staging` GitHub
+Environment and does not run Terraform, Helm, `kubectl rollout restart`, or Ansible.
 
-This is the current additive behavior. It does not yet make the namespace equal to the tagged Git
-tree: removing a YAML file does not remove the corresponding server-side Flow, unchanged files are
-still PUT again, and the directory is not rejected when it contains another namespace. The current
-workflow also uses the `development` GitHub Environment.
-
-The staging target is a category-scoped reconciliation command executed once from the on-premises
-deployment server. The tag prefix selects the category manifest; operators do not supply a free-form
-namespace at run time. Conceptually:
+The implemented release command is category-scoped and can also be executed once from an
+on-premises deployment server. The tag prefix selects the committed category manifest; operators do
+not supply a free-form namespace at run time. Check out the immutable tag before running it:
 
 ```bash
 scripts/reconcile-kestra-category-flows.sh \
@@ -1052,6 +1047,13 @@ before deletes, and compare the final server ID set and normalized sources with 
 desired directory, an ownership mismatch, or a deletion count over the configured limit is a hard
 failure. Another category namespace must never be listed or mutated.
 
+`--plan` never mutates Kestra. `--apply` refuses a plan containing deletions unless `--delete` is
+also present. The tag workflow performs the apply twice and requires the second result to contain no
+creates, updates, or deletes, proving that an unchanged release does not create another revision.
+Credentials are read from `KESTRA_BASIC_AUTH_USERNAME` and `KESTRA_BASIC_AUTH_PASSWORD`; Ansible may
+export those variables and invoke this command with `run_once` on a deployment server that can reach
+the controller API.
+
 The Workload Identity provider must allow the `orders-controller-v` ref prefix. This is declared by
 `github_release_tag_prefixes` in `infra/terraform/github-actions`; apply that root before enabling
 the tag workflow in a new project.
@@ -1060,7 +1062,7 @@ No controller or worker restart is required for a new or changed Flow definition
 batch code first with `orders-vX.Y.Z`; restart workers separately only when their Kestra runtime,
 plugins, static configuration, certificates, or subscribed worker groups change.
 
-For a local/manual invocation against the live development controller:
+For a local/manual invocation against the live staging controller, first check out the tag, then:
 
 ```bash
 PROJECT_ID=<project> \

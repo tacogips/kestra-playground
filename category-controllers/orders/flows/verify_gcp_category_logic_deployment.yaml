@@ -1,7 +1,13 @@
 id: verify_gcp_category_logic_deployment
-namespace: playground.worker_routing
+namespace: playground.orders.staging
 
 description: Execute the deployed category image through Kestra on both routed GCE workers.
+
+labels:
+  category: orders
+  environment: staging
+  deployment.owner: orders-controller
+  system.readOnly: "true"
 
 inputs:
   - id: logic_image

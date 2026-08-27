@@ -19,9 +19,8 @@ revision="$3"
 project_id="${GCP_PROJECT_ID:?Set GCP_PROJECT_ID}"
 live_domain_name="${LIVE_DOMAIN_NAME:?Set LIVE_DOMAIN_NAME}"
 kestra_url="${KESTRA_URL:-https://${LIVE_GKE_SUBDOMAIN:-k8s}.${live_domain_name}}"
-flow_namespace="playground.worker_routing"
+flow_namespace="playground.orders.staging"
 flow_id="verify_gcp_category_logic_deployment"
-flow_path="kestra/flows-onprem/controller/${flow_id}.yaml"
 username="$(gcloud secrets versions access latest \
   --project "$project_id" --secret kestra-dev-gke-kestra-basic-auth-username)"
 password="$(gcloud secrets versions access latest \
@@ -40,27 +39,9 @@ if ! curl --fail --silent --show-error --max-time 20 \
   exit 1
 fi
 
-response_file="$(mktemp "${TMPDIR:-/tmp}/kestra-flow-register.XXXXXX")"
-trap 'rm -f "$response_file"' EXIT
-status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
+curl --fail --silent --show-error \
   --user "${username}:${password}" \
-  --request POST \
-  --header 'Content-Type: application/x-yaml' \
-  --data-binary "@${flow_path}" \
-  "${kestra_url%/}/api/v1/main/flows")"
-if [[ "$status" == "422" ]] && grep -q 'Flow id already exists' "$response_file"; then
-  status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
-    --user "${username}:${password}" \
-    --request PUT \
-    --header 'Content-Type: application/x-yaml' \
-    --data-binary "@${flow_path}" \
-    "${kestra_url%/}/api/v1/main/flows/${flow_namespace}/${flow_id}")"
-fi
-if [[ ! "$status" =~ ^2 ]]; then
-  echo "Flow registration failed with HTTP ${status}." >&2
-  cat "$response_file" >&2
-  exit 1
-fi
+  "${kestra_url%/}/api/v1/main/flows/${flow_namespace}/${flow_id}" >/dev/null
 
 execution_json="$(curl --fail --silent --show-error \
   --user "${username}:${password}" \

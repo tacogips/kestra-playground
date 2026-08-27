@@ -2,12 +2,13 @@
 set -euo pipefail
 
 if [[ "$#" -lt 1 || "$#" -gt 2 ]]; then
-  echo "Usage: $0 CONTROLLER_VERSION [FLOW_DIRECTORY]" >&2
+  echo "Usage: $0 CONTROLLER_VERSION [CATEGORY]" >&2
   exit 2
 fi
 
 controller_version="$1"
-flow_directory="${2:-kestra/flows-onprem/controller}"
+category="${2:-orders}"
+release_ref="${category}-controller-v${controller_version}"
 project_id="${PROJECT_ID:-${GCP_PROJECT_ID:-}}"
 region="${REGION:-asia-northeast1}"
 namespace="${NAMESPACE:-kestra-dev}"
@@ -21,7 +22,7 @@ controller_statefulsets=(
   kestra-indexer
 )
 
-for command in curl gcloud jq kubectl ruby; do
+for command in curl gcloud jq kubectl uv; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Missing required command: ${command}" >&2
     exit 1
@@ -35,8 +36,8 @@ if [[ ! "$controller_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Controller version must match X.Y.Z: ${controller_version}" >&2
   exit 1
 fi
-if [[ ! -d "$flow_directory" ]]; then
-  echo "Controller flow directory does not exist: ${flow_directory}" >&2
+if [[ ! -f "category-controllers/${category}/category.yaml" ]]; then
+  echo "Category controller manifest does not exist: category-controllers/${category}/category.yaml" >&2
   exit 1
 fi
 
@@ -119,28 +120,6 @@ require_expected_external_workers() {
   fi
 }
 
-verify_registered_flows() {
-  local flow=""
-  local flow_id=""
-  local flow_namespace=""
-
-  shopt -s nullglob
-  local flows=("$flow_directory"/*.yaml)
-  if [[ "${#flows[@]}" -eq 0 ]]; then
-    echo "No controller flow YAML files found in ${flow_directory}." >&2
-    exit 1
-  fi
-
-  for flow in "${flows[@]}"; do
-    flow_id="$(ruby -ryaml -e 'puts YAML.load_file(ARGV[0]).fetch("id")' "$flow")"
-    flow_namespace="$(ruby -ryaml -e 'puts YAML.load_file(ARGV[0]).fetch("namespace")' "$flow")"
-    curl --fail --silent --show-error \
-      --user "${KESTRA_BASIC_AUTH_USERNAME}:${KESTRA_BASIC_AUTH_PASSWORD}" \
-      "${kestra_url%/}/api/v1/main/flows/${flow_namespace}/${flow_id}" >/dev/null
-    printf 'Verified controller flow: %s.%s\n' "$flow_namespace" "$flow_id"
-  done
-}
-
 runtime_directory="$(mktemp -d "${TMPDIR:-/tmp}/kestra-controller-deploy.XXXXXX")"
 cleanup() {
   rm -rf "$runtime_directory"
@@ -152,10 +131,33 @@ controller_snapshot >"${runtime_directory}/controller-before.tsv"
 external_worker_snapshot >"${runtime_directory}/workers-before.tsv"
 require_expected_external_workers "${runtime_directory}/workers-before.tsv"
 
-printf 'Deploying orders controller release %s from %s.\n' \
-  "$controller_version" "$flow_directory"
-scripts/register-flows.sh "$kestra_url" "$flow_directory"
-verify_registered_flows
+printf 'Reconciling %s controller release %s.\n' "$category" "$controller_version"
+reconcile_output="$(
+  scripts/reconcile-kestra-category-flows.sh \
+    --category "$category" \
+    --environment staging \
+    --ref "$release_ref" \
+    --apply \
+    --delete
+)"
+printf '%s\n' "$reconcile_output"
+
+# A second apply is a release gate: identical Git and server state must not create a revision.
+idempotency_output="$(
+  scripts/reconcile-kestra-category-flows.sh \
+    --category "$category" \
+    --environment staging \
+    --ref "$release_ref" \
+    --apply \
+    --delete
+)"
+printf '%s\n' "$idempotency_output"
+if ! jq -e \
+  '.create == [] and .update == [] and .delete == [] and (.unchanged | length > 0)' \
+  <<<"$idempotency_output" >/dev/null; then
+  echo "The second reconciliation was not an idempotent no-op." >&2
+  exit 1
+fi
 
 controller_snapshot >"${runtime_directory}/controller-after.tsv"
 external_worker_snapshot >"${runtime_directory}/workers-after.tsv"
@@ -174,5 +176,5 @@ if ! cmp -s "${runtime_directory}/workers-before.tsv" "${runtime_directory}/work
   exit 1
 fi
 
-printf 'Controller flow deployment passed: version=%s controller_restarted=false workers_restarted=false\n' \
-  "$controller_version"
+printf 'Controller flow deployment passed: category=%s version=%s exact_state=true idempotent=true controller_restarted=false workers_restarted=false\n' \
+  "$category" "$controller_version"

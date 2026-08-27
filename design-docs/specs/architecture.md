@@ -428,10 +428,10 @@ changed groups to staging, which is the only post-merge environment and always r
 group at one immutable ref, does not use change detection, and must pass a staged-content gate.
 Environments are kept distinct by what ref they receive and what substrate they run, not by name, so
 pre-merge iteration uses the local Kestra runtimes rather than a second deployed copy of staging.
-The target Flow deployment model reconciles one category-owned namespace per invocation: CI rejects
+The Flow deployment model reconciles one category-owned namespace per invocation: CI rejects
 any Flow outside the category manifest namespace, compares Git with only the owned server-side set,
-and deletes stale owned Flows only after all creates and updates succeed. The current hand-written
-POST/PUT loop is additive and does not yet implement this deletion or exact-state verification.
+and deletes stale owned Flows only after all creates and updates succeed. The Python reconciler
+normalizes YAML for no-op detection and verifies the complete namespace again after mutation.
 
 The detailed design is in `design-docs/specs/design-per-category-batch-group-cicd.md`.
 
