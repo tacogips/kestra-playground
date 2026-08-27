@@ -1022,6 +1022,36 @@ runtime identity changes. Adding a YAML file to that directory adds a batch defi
 controller release. The workflow does not run Terraform, Helm, `kubectl rollout restart`, or
 Ansible.
 
+This is the current additive behavior. It does not yet make the namespace equal to the tagged Git
+tree: removing a YAML file does not remove the corresponding server-side Flow, unchanged files are
+still PUT again, and the directory is not rejected when it contains another namespace. The current
+workflow also uses the `development` GitHub Environment.
+
+The staging target is a category-scoped reconciliation command executed once from the on-premises
+deployment server. The tag prefix selects the category manifest; operators do not supply a free-form
+namespace at run time. Conceptually:
+
+```bash
+scripts/reconcile-kestra-category-flows.sh \
+  --category orders \
+  --environment staging \
+  --ref orders-controller-vX.Y.Z \
+  --plan
+
+scripts/reconcile-kestra-category-flows.sh \
+  --category orders \
+  --environment staging \
+  --ref orders-controller-vX.Y.Z \
+  --apply \
+  --delete
+```
+
+The reconciler must validate all desired Flows before mutation, enforce the manifest namespace and
+`deployment.owner` label, report create/update/delete/unchanged sets, apply creates and updates
+before deletes, and compare the final server ID set and normalized sources with the tag. An empty
+desired directory, an ownership mismatch, or a deletion count over the configured limit is a hard
+failure. Another category namespace must never be listed or mutated.
+
 The Workload Identity provider must allow the `orders-controller-v` ref prefix. This is declared by
 `github_release_tag_prefixes` in `infra/terraform/github-actions`; apply that root before enabling
 the tag workflow in a new project.

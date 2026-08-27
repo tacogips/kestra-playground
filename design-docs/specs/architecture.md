@@ -428,10 +428,10 @@ changed groups to staging, which is the only post-merge environment and always r
 group at one immutable ref, does not use change detection, and must pass a staged-content gate.
 Environments are kept distinct by what ref they receive and what substrate they run, not by name, so
 pre-merge iteration uses the local Kestra runtimes rather than a second deployed copy of staging.
-Flow deployment uses the official Kestra deploy action, which takes one namespace per invocation and
-removes server-side flows absent from the directory by default, and CI rejects any flow whose
-namespace falls outside its group's prefix, so a food release is structurally unable to affect
-electronics.
+The target Flow deployment model reconciles one category-owned namespace per invocation: CI rejects
+any Flow outside the category manifest namespace, compares Git with only the owned server-side set,
+and deletes stale owned Flows only after all creates and updates succeed. The current hand-written
+POST/PUT loop is additive and does not yet implement this deletion or exact-state verification.
 
 The detailed design is in `design-docs/specs/design-per-category-batch-group-cicd.md`.
 
@@ -449,6 +449,13 @@ Kestra API without applying infrastructure or restarting controller components o
 batch that includes new image-owned code therefore stages the logic release first and deploys its
 Flow second. Worker replacement remains reserved for changes to the worker runtime, plugins, static
 configuration, certificates, or queue subscriptions.
+
+Each category controller release is also an independent namespace release unit. A tag prefix maps to
+one committed category manifest containing the Flow directory, namespace, deployment owner, and
+environment. The staging reconciler must make that owned namespace exactly match the tagged Git
+state while leaving every other category namespace untouched. Use separate environment namespaces
+when multiple stages share one controller; the same namespace may be reused when stages have
+separate controllers and databases.
 
 Terraform owns cloud infrastructure, DNS records, load balancing, service accounts, Secret Manager
 containers and versions, GCS, GCE, GKE cluster resources, and the shared Cloud Armor policy. The GKE

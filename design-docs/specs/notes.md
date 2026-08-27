@@ -254,3 +254,22 @@ into, including its current-implementation baseline and tag-convention decision.
   and `category-deploy` was registered, so the verification-created run was cancelled. That runner
   is required for worker-side Ansible releases but is not required for controller Flow releases,
   which use a GitHub-hosted runner and GCP OIDC.
+
+## Category Namespace Reconciliation Decision (2026-08-27)
+
+- A staging controller tag represents one category and one complete namespace, not a list of
+  independent upserts. The tag prefix resolves a committed category manifest; a caller cannot
+  choose an arbitrary namespace at deployment time.
+- The desired end state is create missing Flows, update content-different Flows, leave identical
+  Flows unchanged, and delete stale owned Flows. Final IDs and normalized source hashes must equal
+  the tagged Git tree.
+- Namespace deletion is unsafe for the current `playground.worker_routing` layout because unrelated
+  verification Flows share that namespace. Before deletion is implemented, category releases need a
+  dedicated namespace or an equivalent ownership migration. The selected long-term boundary is one
+  category per namespace plus a stable `deployment.owner` label.
+- An on-premises deployment server may use Ansible to invoke the reconciler once, but controller and
+  worker restart tasks are explicitly outside this release path. A tested script owns comparison,
+  planning, REST mutations, deletion guards, and final drift verification.
+- The live `orders-controller-v1.0.0` run proved additive create/update and runtime continuity only.
+  It did not prove deletion, unchanged no-op behavior, namespace enforcement, or exact-state
+  reconciliation; those remain implementation work.

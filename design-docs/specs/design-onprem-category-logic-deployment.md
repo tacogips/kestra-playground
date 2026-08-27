@@ -240,6 +240,66 @@ worker rollout is a separate runtime release and is required only when the worke
 gain a plugin, configuration, certificate, or queue/worker-group subscription that cannot be loaded
 dynamically.
 
+### Category Namespace Reconciliation Contract
+
+The current `orders-controller-v*` implementation is an additive baseline, not the final staging
+contract. It loops over `kestra/flows-onprem/controller`, creates missing Flows, updates existing
+Flows, and checks that each resulting Flow can be read. It does not delete a server-side Flow when
+its YAML is removed from Git, skip an update when source content is unchanged, enforce one namespace
+for the directory, or prove that the deployed namespace exactly equals the tagged Git tree. The
+workflow also currently declares the `development` GitHub Environment rather than `staging`.
+
+The target staging release unit is one category and one complete namespace. A category manifest must
+bind the tag prefix, desired Flow directory, target namespace, deployment owner, and environment:
+
+```yaml
+id: orders
+releaseTagPrefix: orders-controller-v
+flowDirectory: category-controllers/orders/flows
+namespace: playground.orders
+deploymentOwner: orders-controller
+environment: staging
+```
+
+If development, staging, and production share one Kestra controller, each environment needs a
+different namespace such as `playground.orders.staging`. If each environment has a separate
+controller and backing database, the same logical namespace can be used on each controller.
+
+Pushing `orders-controller-vX.Y.Z` must check out that immutable tag and resolve only the `orders`
+manifest. The reconciler then calculates:
+
+```text
+desired = every valid Flow in category-controllers/orders/flows at the tag
+actual  = every Flow owned by orders-controller in the target namespace
+
+create    = desired IDs - actual IDs
+delete    = actual IDs - desired IDs
+update    = common IDs whose normalized source hashes differ
+unchanged = common IDs whose normalized source hashes match
+```
+
+The apply order is validate all desired Flows, report the complete plan, create and update, delete
+stale owned Flows only after every create/update succeeds, and finally compare the server ID set and
+normalized source hashes with Git. A failed create or update must prevent deletion. Reapplying the
+same tag must produce only `unchanged` entries and no new Flow revisions.
+
+Deletion is enabled only when all of these boundaries hold:
+
+- every desired Flow has exactly the manifest namespace;
+- every managed Flow has `deployment.owner: orders-controller`;
+- the desired directory is not empty;
+- deletion is explicitly enabled and stays under a configured maximum count;
+- no Flow outside the target namespace and owner set is queried, updated, or deleted.
+
+Managed Flows should also carry `system.readOnly: "true"` so the UI cannot create silent source
+drift. The strongest boundary is a namespace dedicated to one category; an ownership label is a
+second guard, not a reason to mix independently managed categories in one namespace.
+
+Ansible may invoke the reconciliation command with `run_once` from an on-premises deployment server
+that can reach the Kestra API. Ansible must not restart or reconfigure the controller or workers for
+this operation. The desired/actual comparison, YAML normalization, plan, API calls, and post-apply
+verification belong in a tested reconciliation script rather than a long sequence of `uri` tasks.
+
 For a release that adds a batch and its image-owned code, deploy in this order:
 
 ```bash
