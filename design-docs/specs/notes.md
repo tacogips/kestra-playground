@@ -271,5 +271,23 @@ into, including its current-implementation baseline and tag-convention decision.
   planning, REST mutations, deletion guards, and final drift verification.
 - The live `orders-controller-v1.0.0` run proved additive create/update and runtime continuity only.
   It did not prove deletion, unchanged no-op behavior, namespace enforcement, or exact-state
-  reconciliation. The Python implementation and automated tests now cover those behaviors; live tag
-  revalidation remains pending.
+  reconciliation. The replacement Python implementation and automated tests cover those behaviors.
+
+## Category Namespace Reconciliation Verification (2026-08-27)
+
+- Tag `orders-controller-v1.1.0` at commit `ac7d5bf5fbc203bb2e0c086e8068263e27a3d2e6`
+  triggered GitHub Actions run `33053073015`. Validation and `Deploy Controller Flows Without
+  Restart` both succeeded.
+- Before the release, the dedicated `playground.orders.staging` namespace contained one deliberately
+  seeded, correctly owned stale Flow. The first apply reported
+  `create=[verify_gcp_category_logic_deployment]`,
+  `delete=[stale_reconciliation_probe]`, and no updates or unchanged entries.
+- The workflow's second apply reported no creates, updates, or deletes and one unchanged Flow. An
+  independent post-run plan produced the same no-op result. The namespace contained exactly the one
+  Git-managed Flow, the stale Flow returned HTTP 404, and the desired Flow had one revision.
+- The before/after runtime snapshots matched. The workflow reported `exact_state=true`,
+  `idempotent=true`, `controller_restarted=false`, and `workers_restarted=false`.
+- After successful migration, the single legacy copy at
+  `playground.worker_routing.verify_gcp_category_logic_deployment` was explicitly deleted and
+  verified absent with HTTP 404. It remains recoverable from tag `orders-controller-v1.0.0`; no
+  other Flow in the shared namespace was changed.

@@ -1,6 +1,6 @@
 # Category Namespace Reconciliation Implementation Plan
 
-**Status**: In Progress
+**Status**: Completed
 **Design Reference**: `design-docs/specs/design-onprem-category-logic-deployment.md#category-namespace-reconciliation-contract`
 **Created**: 2026-08-27
 **Last Updated**: 2026-08-27
@@ -88,7 +88,7 @@ production tenant isolation.
 **Checklist**:
 - [x] Replace conceptual commands with implemented commands
 - [x] Record migration and deletion safeguards
-- [ ] Execute and record tag verification evidence
+- [x] Execute and record tag verification evidence
 
 ## Status Table
 
@@ -96,7 +96,7 @@ production tenant isolation.
 |------------|--------------|--------|------------|
 | Reconciliation core | Python module and tests | COMPLETED | 7 focused tests passed |
 | Category release integration | Manifest, Flow, scripts, workflow | COMPLETED | Local checks passed |
-| Operations and verification | Runbook, design, live evidence | IN_PROGRESS | Live tag pending |
+| Operations and verification | Runbook, design, live evidence | COMPLETED | Run 33053073015 passed |
 
 ## Dependencies
 
@@ -108,13 +108,13 @@ production tenant isolation.
 
 ## Completion Criteria
 
-- [ ] Reconciler enforces one category namespace and ownership label.
-- [ ] Create, update, delete, unchanged, dry-run, and final verification are tested.
-- [ ] The same tag/ref reapplies without a new Flow revision.
-- [ ] Tag workflow uses the reconciler and performs no controller or worker restart.
-- [ ] Full project and script checks pass.
-- [ ] Changes are committed and pushed.
-- [ ] A controller tag run succeeds and records exact-state plus runtime-continuity evidence.
+- [x] Reconciler enforces one category namespace and ownership label.
+- [x] Create, update, delete, unchanged, dry-run, and final verification are tested.
+- [x] The same tag/ref reapplies without a new Flow revision.
+- [x] Tag workflow uses the reconciler and performs no controller or worker restart.
+- [x] Full project and script checks pass.
+- [x] Changes are committed and pushed.
+- [x] A controller tag run succeeds and records exact-state plus runtime-continuity evidence.
 
 ## Progress Log
 
@@ -123,9 +123,11 @@ production tenant isolation.
 **Tasks Completed**: Audited the additive implementation; implemented and tested the Python
 reconciler, category manifest, dedicated namespace, tag integration, and operational documentation.
 
-**Tasks In Progress**: Committing, pushing, and executing the live tag verification.
+**Tasks In Progress**: None.
 
 **Blockers**: None.
 
 **Notes**: Kestra's namespace bulk-update implementation deletes stale Flows before it performs
 creates and updates, so this release uses explicit mutations to guarantee deletion occurs last.
+Live run `33053073015` proved create/delete, exact final state, one-revision idempotency, and
+controller/worker runtime continuity.
