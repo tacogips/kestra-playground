@@ -250,7 +250,7 @@ into, including its current-implementation baseline and tag-convention decision.
 - The Workload Identity provider required an explicit `orders-controller-v` release-tag prefix.
   OpenTofu applied one in-place provider-condition update with zero resources added or destroyed.
 - The category-logic bundle build from the same main push succeeded after adding the missing Buildx
-  setup step. Its deployment job remained queued because no online self-hosted runner with labels
-  `onprem` and `category-deploy` was registered. That runner is required for worker-side Ansible
-  releases but is not required for controller Flow releases, which use a GitHub-hosted runner and
-  GCP OIDC.
+  setup step. Its deployment job queued because no online self-hosted runner with labels `onprem`
+  and `category-deploy` was registered, so the verification-created run was cancelled. That runner
+  is required for worker-side Ansible releases but is not required for controller Flow releases,
+  which use a GitHub-hosted runner and GCP OIDC.
