@@ -190,7 +190,7 @@ version probes and the separate fleet audit passed, both timers showed the next 
 (`23:00 JST`) firing, and both VMs were stopped afterward.
 
 The executable verification Flow is
-`kestra/flows-onprem/verify_gcp_category_logic_deployment.yaml`; the orchestration and assertions
+`kestra/flows-onprem/controller/verify_gcp_category_logic_deployment.yaml`; the orchestration and assertions
 are in `scripts/verify-live-gcp-category-logic-flow.sh` and
 `scripts/verify-live-gcp-category-logic-ansible.sh`.
 
@@ -221,6 +221,40 @@ Use two phases:
 
 1. Stage the new immutable image on all selected workers with Ansible.
 2. After every host passes validation, update the Flow to reference the new immutable image tag.
+
+These phases have separate tags because they change separate runtime layers:
+
+- `orders-vX.Y.Z` builds and loads category logic on the selected worker inventory. The Ansible
+  playbook proves the worker container ID and start timestamp do not change.
+- `orders-controller-vX.Y.Z` registers every YAML file in `kestra/flows-onprem/controller` through
+  the Kestra API. This is the tag to push after adding a batch Flow or changing controller-side orchestration.
+  The workflow proves that the webserver, executor, scheduler, and indexer pod identities and restart
+  counts remain unchanged and that the external GCE worker VM identities, states, and start times
+  remain unchanged.
+
+Controller deployment means deploying Flow definitions, not redeploying the Kestra binary or GKE
+StatefulSets. Kestra stores the definitions through its API, so neither the controller components nor
+already connected workers need a restart. Do not add an Ansible worker restart to this path. A
+worker rollout is a separate runtime release and is required only when the worker process itself must
+gain a plugin, configuration, certificate, or queue/worker-group subscription that cannot be loaded
+dynamically.
+
+For a release that adds a batch and its image-owned code, deploy in this order:
+
+```bash
+git tag orders-v1.2.0
+git push origin orders-v1.2.0
+# Wait for Deploy Tagged Category Logic to Staging to succeed.
+
+git tag orders-controller-v1.2.0
+git push origin orders-controller-v1.2.0
+# Wait for Deploy Tagged Category Controller Flows to succeed.
+```
+
+If only an existing batch's image-owned implementation changes, the logic tag is sufficient. If only
+Flow orchestration changes and every referenced immutable image already exists on all eligible
+workers, only the controller tag is needed. Never deploy a Flow that references an image or plugin
+that has not first been staged on every worker that may claim it.
 
 Do not use `latest` in a Flow. Staging first prevents a Flow from selecting a version that is absent
 on one of the workers. The playbook uses `any_errors_fatal`, validates the transferred SHA-256,

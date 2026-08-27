@@ -36,5 +36,5 @@ variable "github_release_tag_prefixes" {
     carries refs/tags/<tag> rather than the branch ref, so the tags need their own
     entries in the provider attribute condition.
   EOT
-  default     = ["EC-", "AFFILIATE-"]
+  default     = ["EC-", "AFFILIATE-", "orders-controller-v"]
 }

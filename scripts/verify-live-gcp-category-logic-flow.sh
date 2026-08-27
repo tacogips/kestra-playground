@@ -21,7 +21,7 @@ live_domain_name="${LIVE_DOMAIN_NAME:?Set LIVE_DOMAIN_NAME}"
 kestra_url="${KESTRA_URL:-https://${LIVE_GKE_SUBDOMAIN:-k8s}.${live_domain_name}}"
 flow_namespace="playground.worker_routing"
 flow_id="verify_gcp_category_logic_deployment"
-flow_path="kestra/flows-onprem/${flow_id}.yaml"
+flow_path="kestra/flows-onprem/controller/${flow_id}.yaml"
 username="$(gcloud secrets versions access latest \
   --project "$project_id" --secret kestra-dev-gke-kestra-basic-auth-username)"
 password="$(gcloud secrets versions access latest \

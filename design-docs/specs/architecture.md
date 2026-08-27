@@ -442,6 +442,14 @@ Kubernetes manifests; builds the runtime container; pushes it to Artifact Regist
 development infrastructure; and performs HTTPS health verification. Scheduled and manually requested
 batch runs reuse the same verification helper so operational behavior stays close to local scripts.
 
+Category logic and category controller definitions have independent release paths. An
+`orders-vX.Y.Z` tag stages an immutable logic image on eligible external workers without replacing
+their Kestra containers. An `orders-controller-vX.Y.Z` tag writes Flow definitions through the
+Kestra API without applying infrastructure or restarting controller components or workers. Adding a
+batch that includes new image-owned code therefore stages the logic release first and deploys its
+Flow second. Worker replacement remains reserved for changes to the worker runtime, plugins, static
+configuration, certificates, or queue subscriptions.
+
 Terraform owns cloud infrastructure, DNS records, load balancing, service accounts, Secret Manager
 containers and versions, GCS, GCE, GKE cluster resources, and the shared Cloud Armor policy. The GKE
 database is a retained PostgreSQL StatefulSet; its completed migration-source Cloud SQL instance is

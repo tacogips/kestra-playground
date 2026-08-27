@@ -1003,6 +1003,42 @@ gcloud compute instance-groups managed describe kestra-cluster-dev-mig \
   --format=json | jq '.targetSize,.currentActions'
 ```
 
+### Category Controller Flow Release
+
+Use a controller tag when a category adds a new batch Flow or changes controller-side orchestration:
+
+```bash
+git tag orders-controller-vX.Y.Z
+git push origin orders-controller-vX.Y.Z
+gh run list --workflow deploy-category-controller.yml --limit 1
+gh run watch --exit-status <run-id>
+```
+
+The tag must point to a commit already contained in `main`. The workflow authenticates to GCP with
+GitHub OIDC, wakes the scale-to-zero Kestra endpoint, records control-plane pod UIDs and restart
+counts plus external GCE worker VM identity/state/start timestamps, registers every flow under
+`kestra/flows-onprem/controller`, verifies every flow through the API, and fails if any recorded
+runtime identity changes. Adding a YAML file to that directory adds a batch definition to the next
+controller release. The workflow does not run Terraform, Helm, `kubectl rollout restart`, or
+Ansible.
+
+The Workload Identity provider must allow the `orders-controller-v` ref prefix. This is declared by
+`github_release_tag_prefixes` in `infra/terraform/github-actions`; apply that root before enabling
+the tag workflow in a new project.
+
+No controller or worker restart is required for a new or changed Flow definition. Stage image-owned
+batch code first with `orders-vX.Y.Z`; restart workers separately only when their Kestra runtime,
+plugins, static configuration, certificates, or subscribed worker groups change.
+
+For a local/manual invocation against the live development controller:
+
+```bash
+PROJECT_ID=<project> \
+KESTRA_URL=https://k8s.example.com \
+CATEGORY_CONTROLLER_VERSION=X.Y.Z \
+mise run kestra:category-controller:deploy
+```
+
 ### Drift Checks
 
 Before changing live infrastructure, render ignored live config from `kinko`, then run targeted

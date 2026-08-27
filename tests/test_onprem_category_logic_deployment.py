@@ -96,7 +96,9 @@ def test_gcp_verifier_uses_low_cost_persistent_workers_and_stops_them() -> None:
 
 
 def test_gcp_category_logic_flow_runs_deployed_image_on_both_workers() -> None:
-    flow = yaml.safe_load(_read("kestra/flows-onprem/verify_gcp_category_logic_deployment.yaml"))
+    flow = yaml.safe_load(
+        _read("kestra/flows-onprem/controller/verify_gcp_category_logic_deployment.yaml")
+    )
     normal, special = flow["tasks"]
 
     assert normal["containerImage"] == "{{ inputs.logic_image }}"
@@ -131,9 +133,8 @@ def test_onprem_design_shows_server_contents_and_same_artifact_promotion() -> No
 
 
 def test_dev_and_staging_workflows_deploy_to_the_same_configurable_inventory() -> None:
-    dev = yaml.load(
-        _read(".github/workflows/deploy-category-logic-dev.yml"), Loader=yaml.BaseLoader
-    )
+    dev_text = _read(".github/workflows/deploy-category-logic-dev.yml")
+    dev = yaml.load(dev_text, Loader=yaml.BaseLoader)
     staging = yaml.load(
         _read(".github/workflows/deploy-category-logic-staging.yml"), Loader=yaml.BaseLoader
     )
@@ -155,6 +156,38 @@ def test_dev_and_staging_workflows_deploy_to_the_same_configurable_inventory() -
     staging_text = _read(".github/workflows/deploy-category-logic-staging.yml")
     assert "persist-category-logic-release.sh" in staging_text
     assert "git merge-base --is-ancestor" in staging_text
+    assert "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e" in dev_text
+    assert "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e" in staging_text
+
+
+def test_controller_tag_deploys_flows_and_checks_runtime_continuity() -> None:
+    workflow_text = _read(".github/workflows/deploy-category-controller.yml")
+    workflow = yaml.load(workflow_text, Loader=yaml.BaseLoader)
+    deploy_script = _read("scripts/deploy-category-controller-flows.sh")
+
+    assert workflow["on"]["push"]["tags"] == ["orders-controller-v*"]
+    assert "^orders-controller-v[0-9]+\\.[0-9]+\\.[0-9]+$" in workflow_text
+    assert "git merge-base --is-ancestor" in workflow_text
+    assert workflow["jobs"]["deploy"]["environment"]["name"] == "development"
+    assert workflow["jobs"]["deploy"]["permissions"] == {
+        "contents": "read",
+        "id-token": "write",
+    }
+    assert "deploy-category-controller-flows.sh" in workflow_text
+
+    assert 'flow_directory="${2:-kestra/flows-onprem/controller}"' in deploy_script
+    assert 'scripts/register-flows.sh "$kestra_url" "$flow_directory"' in deploy_script
+    assert "/api/v1/main/flows/${flow_namespace}/${flow_id}" in deploy_script
+    assert "controller_snapshot" in deploy_script
+    assert "external_worker_snapshot" in deploy_script
+    assert "require_expected_external_workers" in deploy_script
+    assert "restartCount" in deploy_script
+    assert "lastStartTimestamp" in deploy_script
+    assert "rollout restart" not in deploy_script
+    assert "ansible" not in deploy_script.lower()
+
+    oidc_variables = _read("infra/terraform/github-actions/variables.tf")
+    assert '"orders-controller-v"' in oidc_variables
 
 
 def test_ansible_core_is_pinned_for_self_hosted_deployment() -> None:
@@ -180,3 +213,12 @@ def test_category_logic_workflows_follow_action_security_baseline() -> None:
             assert job["permissions"] == {"contents": "read"}
         for action_reference in re.findall(r"uses:\s*([^\s]+)", workflow_text):
             assert re.search(r"@[0-9a-f]{40}$", action_reference)
+
+    controller_text = _read(".github/workflows/deploy-category-controller.yml")
+    controller = yaml.load(controller_text, Loader=yaml.BaseLoader)
+    assert controller["permissions"] == {"contents": "read"}
+    assert controller["concurrency"]["cancel-in-progress"] == "false"
+    for job in controller["jobs"].values():
+        assert job["timeout-minutes"]
+    for action_reference in re.findall(r"uses:\s*([^\s]+)", controller_text):
+        assert re.search(r"@[0-9a-f]{40}$", action_reference)

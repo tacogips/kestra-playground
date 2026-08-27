@@ -503,6 +503,14 @@ run = '''
 scripts/verify-live-gcp-category-logic-ansible.sh
 '''
 
+[tasks."kestra:category-controller:deploy"]
+description = "Deploy category flows to the Kestra controller without restarting controller or workers"
+run = '''
+scripts/deploy-category-controller-flows.sh \
+  "${CATEGORY_CONTROLLER_VERSION:?Set CATEGORY_CONTROLLER_VERSION}" \
+  "${CATEGORY_CONTROLLER_FLOW_DIR:-kestra/flows-onprem/controller}"
+'''
+
 [tasks."kestra:live:run-k8s-pod-resources"]
 description = "Register and run the OSS K8s per-batch pod resource verification flow"
 run = '''
