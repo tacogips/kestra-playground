@@ -140,6 +140,8 @@ def test_dev_and_staging_workflows_deploy_to_the_same_configurable_inventory() -
     )
 
     assert dev["on"]["push"]["branches"] == ["main"]
+    assert "examples/category-batch-image/**" in dev["on"]["push"]["paths"]
+    assert "kestra/flows-onprem/controller/**" not in dev["on"]["push"]["paths"]
     assert staging["on"]["push"]["tags"] == ["orders-v*"]
     assert dev["jobs"]["deploy"]["environment"]["name"] == "development"
     assert staging["jobs"]["deploy"]["environment"]["name"] == "staging"

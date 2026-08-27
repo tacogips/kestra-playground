@@ -113,8 +113,9 @@ CATEGORY_LOGIC_RELEASE_STORE=/var/lib/kestra-releases
 Install `ops/ansible/category-logic/inventory.dev-staging.example.ini` at the inventory path and
 replace its example addresses and SSH identity. The two workflows are deliberately independent:
 
-- `.github/workflows/deploy-category-logic-dev.yml` runs for every `main` push, creates
-  `dev-<commit>` and deploys it directly to the shared inventory.
+- `.github/workflows/deploy-category-logic-dev.yml` runs for a `main` push that changes category
+  image, bundle, or Ansible deployment inputs, creates `dev-<commit>`, and deploys it directly to
+  the shared inventory. Controller-only Flow changes do not rebuild or reload the logic image.
 - `.github/workflows/deploy-category-logic-staging.yml` runs for an `orders-vX.Y.Z` tag whose commit
   belongs to `main`, persists the immutable release bundle, and deploys that tagged version to the
   same shared inventory.

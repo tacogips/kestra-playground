@@ -4,6 +4,15 @@ on:
   push:
     branches:
       - main
+    paths:
+      - ".github/workflows/deploy-category-logic-dev.yml"
+      - "examples/category-batch-image/**"
+      - "ops/ansible/category-logic/**"
+      - "scripts/audit-category-logic-ansible.sh"
+      - "scripts/build-category-logic-bundle.sh"
+      - "scripts/deploy-category-logic-ansible.sh"
+      - "scripts/deploy-category-logic-bundle.sh"
+      - "scripts/persist-category-logic-release.sh"
 
 permissions:
   contents: read

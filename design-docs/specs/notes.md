@@ -236,3 +236,21 @@ as it stands, not about the proposed design.
 
 See `design-docs/specs/design-per-category-batch-group-cicd.md` for the design these findings feed
 into, including its current-implementation baseline and tag-convention decision.
+
+## Category Controller Tag Deployment Verification (2026-08-27)
+
+- Tag `orders-controller-v1.0.0` at commit `eacbbfb4e56eb9045ebc38a9815b2284f3bd91ce`
+  triggered GitHub Actions run `33045520418`. Both `Validate Controller Release` and `Deploy
+  Controller Flows Without Restart` completed successfully.
+- The live deployment woke the parked GKE control plane, registered
+  `playground.worker_routing.verify_gcp_category_logic_deployment`, and read the Flow back through
+  the Kestra API. The before/after snapshots matched for the webserver, executor, scheduler, and
+  indexer pod UIDs and restart counts and for both external GCE worker VM IDs, states, and start
+  timestamps. The workflow reported `controller_restarted=false workers_restarted=false`.
+- The Workload Identity provider required an explicit `orders-controller-v` release-tag prefix.
+  OpenTofu applied one in-place provider-condition update with zero resources added or destroyed.
+- The category-logic bundle build from the same main push succeeded after adding the missing Buildx
+  setup step. Its deployment job remained queued because no online self-hosted runner with labels
+  `onprem` and `category-deploy` was registered. That runner is required for worker-side Ansible
+  releases but is not required for controller Flow releases, which use a GitHub-hosted runner and
+  GCP OIDC.
