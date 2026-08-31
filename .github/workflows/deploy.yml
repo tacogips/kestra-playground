@@ -21,6 +21,7 @@ on:
           - routed-diagnose
           - routed-refresh
           - routed-finalize
+          - emergency-shutdown
       run_batch:
         description: Execute the ecommerce batch after deployment
         required: true
@@ -51,8 +52,116 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  emergency-shutdown:
+    name: Emergency shutdown
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment == 'emergency-shutdown' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment:
+      name: development
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Delete project or remove all cost-bearing runtimes
+        shell: bash
+        run: |
+          set -u -o pipefail
+
+          if gcloud projects delete "$PROJECT_ID" --quiet; then
+            echo "Project deletion requested: $PROJECT_ID"
+            exit 0
+          fi
+
+          echo "Project deletion was not permitted; deleting runtime resources directly."
+
+          gcloud compute instance-groups managed list \
+            --project="$PROJECT_ID" \
+            --format='csv[no-heading](name,zone,region)' |
+          while IFS=, read -r name zone region; do
+            [ -n "$name" ] || continue
+            if [ -n "$zone" ]; then
+              scope="${zone##*/}"
+              gcloud compute instance-groups managed resize "$name" --size=0 \
+                --zone="$scope" --project="$PROJECT_ID" --quiet || true
+              gcloud compute instance-groups managed delete "$name" \
+                --zone="$scope" --project="$PROJECT_ID" --quiet || true
+            else
+              scope="${region##*/}"
+              gcloud compute instance-groups managed resize "$name" --size=0 \
+                --region="$scope" --project="$PROJECT_ID" --quiet || true
+              gcloud compute instance-groups managed delete "$name" \
+                --region="$scope" --project="$PROJECT_ID" --quiet || true
+            fi
+          done
+
+          gcloud compute instances list --project="$PROJECT_ID" \
+            --format='csv[no-heading](name,zone)' |
+          while IFS=, read -r name zone; do
+            [ -n "$name" ] || continue
+            gcloud compute instances delete "$name" --zone="${zone##*/}" \
+              --project="$PROJECT_ID" --delete-disks=all --quiet || true
+          done
+
+          gcloud container clusters list --project="$PROJECT_ID" \
+            --format='csv[no-heading](name,location)' |
+          while IFS=, read -r name location; do
+            [ -n "$name" ] || continue
+            gcloud container clusters delete "$name" --location="$location" \
+              --project="$PROJECT_ID" --quiet || true
+          done
+
+          gcloud sql instances list --project="$PROJECT_ID" \
+            --format='value(name)' |
+          while read -r name; do
+            [ -n "$name" ] || continue
+            gcloud sql instances delete "$name" --project="$PROJECT_ID" --quiet || true
+          done
+
+          gcloud run services list --platform=managed --project="$PROJECT_ID" \
+            --format='csv[no-heading](metadata.name,metadata.labels.cloud.googleapis.com/location)' |
+          while IFS=, read -r name region; do
+            [ -n "$name" ] || continue
+            gcloud run services delete "$name" --region="$region" \
+              --project="$PROJECT_ID" --quiet || true
+          done
+
+          gcloud compute forwarding-rules list --global --project="$PROJECT_ID" \
+            --format='value(name)' |
+          while read -r name; do
+            [ -n "$name" ] || continue
+            gcloud compute forwarding-rules delete "$name" --global \
+              --project="$PROJECT_ID" --quiet || true
+          done
+
+          gcloud compute forwarding-rules list --project="$PROJECT_ID" \
+            --filter='region:*' --format='csv[no-heading](name,region)' |
+          while IFS=, read -r name region; do
+            [ -n "$name" ] || continue
+            gcloud compute forwarding-rules delete "$name" --region="${region##*/}" \
+              --project="$PROJECT_ID" --quiet || true
+          done
+
+          gcloud compute disks list --project="$PROJECT_ID" \
+            --format='csv[no-heading](name,zone)' |
+          while IFS=, read -r name zone; do
+            [ -n "$name" ] || continue
+            gcloud compute disks delete "$name" --zone="${zone##*/}" \
+              --project="$PROJECT_ID" --quiet || true
+          done
+
+          echo "Emergency runtime cleanup completed."
+
   validate:
     name: Validate
+    if: ${{ inputs.target_environment != 'emergency-shutdown' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
