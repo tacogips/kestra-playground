@@ -125,8 +125,8 @@ jobs:
             gcloud sql instances delete "$name" --project="$PROJECT_ID" --quiet || true
           done
 
-          gcloud run services list --platform=managed --project="$PROJECT_ID" \
-            --format='csv[no-heading](metadata.name,metadata.labels.cloud.googleapis.com/location)' |
+          { gcloud run services list --platform=managed --project="$PROJECT_ID" \
+              --format='csv[no-heading](metadata.name,metadata.labels.cloud.googleapis.com/location)' || true; } |
           while IFS=, read -r name region; do
             [ -n "$name" ] || continue
             gcloud run services delete "$name" --region="$region" \
@@ -154,6 +154,39 @@ jobs:
           while IFS=, read -r name zone; do
             [ -n "$name" ] || continue
             gcloud compute disks delete "$name" --zone="${zone##*/}" \
+              --project="$PROJECT_ID" --quiet || true
+          done
+
+          gcloud compute addresses list --global --project="$PROJECT_ID" \
+            --format='value(name)' |
+          while read -r name; do
+            [ -n "$name" ] || continue
+            gcloud compute addresses delete "$name" --global \
+              --project="$PROJECT_ID" --quiet || true
+          done
+
+          gcloud compute addresses list --project="$PROJECT_ID" \
+            --filter='region:*' --format='csv[no-heading](name,region)' |
+          while IFS=, read -r name region; do
+            [ -n "$name" ] || continue
+            gcloud compute addresses delete "$name" --region="${region##*/}" \
+              --project="$PROJECT_ID" --quiet || true
+          done
+
+          gcloud storage buckets list --project="$PROJECT_ID" --format='value(name)' |
+          while read -r name; do
+            [ -n "$name" ] || continue
+            gcloud storage rm --recursive "gs://$name/**" || true
+            gcloud storage buckets delete "gs://$name" --quiet || true
+          done
+
+          gcloud artifacts repositories list --project="$PROJECT_ID" \
+            --format='csv[no-heading](name,format)' |
+          while IFS=, read -r repository format; do
+            [ -n "$repository" ] || continue
+            location="$(sed -n 's#.*locations/\([^/]*\)/repositories/.*#\1#p' <<<"$repository")"
+            repository_id="${repository##*/}"
+            gcloud artifacts repositories delete "$repository_id" --location="$location" \
               --project="$PROJECT_ID" --quiet || true
           done
 
