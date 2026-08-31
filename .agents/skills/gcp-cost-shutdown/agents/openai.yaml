@@ -1,0 +1,4 @@
+interface:
+  display_name: "GCP Cost Shutdown"
+  short_description: "Stop all cost-bearing GCP runtimes and audit spend"
+  default_prompt: "Use $gcp-cost-shutdown to stop every running GCE, GKE, Cloud SQL, and Cloud Run resource in the Kestra playground project and report what still costs money."

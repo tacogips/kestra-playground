@@ -70,6 +70,16 @@ When turning a design document or research question into a concrete execution pl
 
 Plans may describe implementation, testing, refactoring, or investigation work.
 
+## GCP Cost Control
+
+Before stopping, scaling down, or investigating the cost of any GCP resource, follow
+`.agents/skills/gcp-cost-shutdown/SKILL.md`.
+
+Shutdown defaults to a reversible stop via `scripts/gcp-stop-all.sh`. Never run the
+`emergency-shutdown` job in `.github/workflows/deploy.yml` unless the user explicitly asks for
+deletion: it deletes the project, wipes every GCS bucket, and has already destroyed the Terraform
+remote state once.
+
 ## Skills
 
 Use these specialized skills when relevant:
@@ -77,6 +87,8 @@ Use these specialized skills when relevant:
 1. `.agents/skills/python-coding-standards/SKILL.md`
 2. `.agents/skills/design-doc/SKILL.md`
 3. `.agents/skills/impl-plan/SKILL.md`
+4. `.agents/skills/kestra-gcp-operations/SKILL.md`
+5. `.agents/skills/gcp-cost-shutdown/SKILL.md`
 
 ## Coding Standards
 
