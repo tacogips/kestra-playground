@@ -1,0 +1,41 @@
+id: python_task_arguments
+namespace: playground.pythontask
+inputs:
+  - id: payload
+    type: STRING
+tasks:
+  - id: default_python
+    type: io.kestra.plugin.pythontask.PythonTask
+    cwd: /opt/python-task-examples
+    cmd: inspect_args.py
+    args:
+      - echo
+      - "{{ inputs.payload }}"
+      - ""
+      - "two words"
+      - "--flag=value"
+      - "日本語"
+  - id: explicit_python
+    type: io.kestra.plugin.pythontask.PythonTask
+    cwd: /opt/python-task-examples
+    pythonPath: /usr/bin/python3
+    cmd: /opt/python-task-examples/inspect_args.py
+    args: "{{ [inputs.payload, 'explicit'] }}"
+  - id: mapped_options
+    type: io.kestra.plugin.pythontask.PythonTask
+    cwd: /opt/python-task-examples
+    cmd: inspect_args.py
+    args: [echo]
+    options:
+      customer: "{{ inputs.payload }}"
+      output: report.csv
+      empty: ""
+    flags:
+      - verbose
+      - dry-run
+  - id: parsed_options
+    type: io.kestra.plugin.pythontask.PythonTask
+    cwd: /opt/python-task-examples
+    cmd: report.py
+    options: "{{ {'customer': inputs.payload, 'output': 'report.csv'} }}"
+    flags: "{{ ['verbose', 'dry-run'] }}"

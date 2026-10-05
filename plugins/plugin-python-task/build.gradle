@@ -1,0 +1,91 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'signing'
+}
+group = 'io.github.tacogips'
+description = 'Kestra Python task with structured, shell-free arguments'
+repositories { mavenCentral() }
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+    withSourcesJar()
+    withJavadocJar()
+}
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+    options.compilerArgs.add('-parameters')
+}
+dependencies {
+    annotationProcessor enforcedPlatform("io.kestra:platform:${kestraVersion}")
+    compileOnly enforcedPlatform("io.kestra:platform:${kestraVersion}")
+    annotationProcessor 'org.projectlombok:lombok'
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor "io.kestra:processor:${kestraVersion}"
+    compileOnly "io.kestra:core:${kestraVersion}"
+    testImplementation enforcedPlatform("io.kestra:platform:${kestraVersion}")
+    testImplementation "io.kestra:core:${kestraVersion}"
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+test { useJUnitPlatform() }
+jar {
+    manifest {
+        attributes(
+            'X-Kestra-Name': project.name,
+            'X-Kestra-Title': 'Python Task',
+            'X-Kestra-Group': 'io.kestra.plugin.pythontask',
+            'X-Kestra-Description': project.description,
+            'X-Kestra-Version': project.version
+        )
+    }
+}
+publishing {
+    publications {
+        plugin(MavenPublication) {
+            from components.java
+            pom {
+                name = project.name
+                description = project.description
+                url = 'https://github.com/tacogips/plugin-python-task'
+                licenses {
+                    license {
+                        name = 'Apache License, Version 2.0'
+                        url = 'https://www.apache.org/licenses/LICENSE-2.0'
+                    }
+                }
+                developers {
+                    developer { id = 'tacogips'; name = 'tacogips' }
+                }
+                scm {
+                    connection = 'scm:git:https://github.com/tacogips/plugin-python-task.git'
+                    developerConnection = 'scm:git:ssh://git@github.com/tacogips/plugin-python-task.git'
+                    url = 'https://github.com/tacogips/plugin-python-task'
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = 'release'
+            url = providers.gradleProperty('publishUrl').orElse(layout.buildDirectory.dir('repository').map { it.asFile.toURI().toString() }).get()
+            if (providers.gradleProperty('publishUrl').isPresent()) {
+                credentials {
+                    username = providers.environmentVariable('MAVEN_USERNAME').orNull
+                    password = providers.environmentVariable('MAVEN_PASSWORD').orNull
+                }
+            }
+        }
+    }
+}
+signing {
+    def key = providers.environmentVariable('SIGNING_KEY').orNull
+    if (key) {
+        useInMemoryPgpKeys(key, providers.environmentVariable('SIGNING_PASSWORD').orNull)
+        sign publishing.publications.plugin
+    }
+}
+tasks.withType(GenerateModuleMetadata).configureEach {
+    suppressedValidationErrors.add('enforced-platform')
+}

@@ -97,3 +97,14 @@ When adding new reference materials:
 1. Create a topic directory if it does not exist
 2. Add reference documents with clear naming
 3. Update this README.md with the reference entry
+
+## Python Task Plugin
+
+- [Kestra task plugin developer guide](https://kestra.io/docs/plugin-developer-guide/task):
+  runnable task structure, dynamic properties, outputs, and exceptions.
+- [Official Kestra plugin template](https://github.com/kestra-io/plugin-template):
+  annotation processor, plugin manifest, and publication conventions.
+- [Official Python Commands plugin](https://kestra.io/plugins/plugin-script-python/io.kestra.plugin.scripts.python.commands):
+  comparison point for string-based commands; the custom task uses direct argv execution.
+- [Kestra 1.3.39 source](https://github.com/kestra-io/kestra/tree/v1.3.39):
+  pinned runtime API used for build and Compose verification.

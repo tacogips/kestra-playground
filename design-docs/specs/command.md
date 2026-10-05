@@ -1134,3 +1134,24 @@ Basic Auth if needed. For failed GKE rollouts, prefer `kubectl -n kestra-dev des
 | (Add more exit codes as needed) | |
 
 ---
+
+### Standalone Python Task Plugin
+
+The publishable plugin lives in `plugins/plugin-python-task` and has its own Gradle wrapper,
+Maven publication, examples, and isolated Compose project. The current repository uses mise;
+the older Nix commands above do not apply to this plugin checkout.
+
+From the repository root:
+
+```bash
+mise exec -- plugins/plugin-python-task/gradlew -p plugins/plugin-python-task test assemble publishToMavenLocal
+docker compose -f plugins/plugin-python-task/local/compose.yaml up -d --build
+uv run python plugins/plugin-python-task/local/verify.py
+docker compose -f plugins/plugin-python-task/local/compose.yaml down
+```
+
+The verifier exercises the real plugin on Kestra 1.3.39 at localhost:18080 and stores execution
+IDs under the ignored `plugins/plugin-python-task/local/results/` directory.
+See the [plugin README](../../plugins/plugin-python-task/README.md) for YAML properties,
+installation, and release commands, and [the design note](design-python-task-plugin.md)
+for the security boundary and verification results.
