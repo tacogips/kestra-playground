@@ -1,4 +1,4 @@
-FROM oven/bun:1.3 AS build
+FROM oven/bun:1.4.4 AS build
 WORKDIR /app
 COPY package.json bun.lock tsconfig.json vite.config.ts index.html ./
 RUN bun install --frozen-lockfile
@@ -7,7 +7,7 @@ COPY server ./server
 COPY bundles ./bundles
 RUN bun run build
 
-FROM oven/bun:1.3-slim
+FROM oven/bun:1.4.4-slim
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
