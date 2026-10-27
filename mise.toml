@@ -18,7 +18,7 @@ fi
 
 [tools]
 python = "3.12"
-uv = "latest"
+uv = "0.13.6"
 java = "25"
 github-cli = "latest"
 gcloud = "latest"
