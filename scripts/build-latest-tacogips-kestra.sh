@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_REPOSITORY="${KESTRA_SOURCE_REPOSITORY:-https://github.com/tacogips/kestra.git}"
 SOURCE_REF="${KESTRA_SOURCE_REF:-main}"
 PLUGIN_FS_VERSION="${KESTRA_PLUGIN_FS_VERSION:-2.11.1}"
@@ -26,8 +25,9 @@ fi
 (cd "${SOURCE_DIR}/ui" && npm run build)
 (cd "${SOURCE_DIR}" && ./gradlew writeExecutableJar --no-daemon)
 
+source_version="$(sed -n 's/^version=//p' "${SOURCE_DIR}/gradle.properties")"
 cp \
-  "${SOURCE_DIR}/build/executable/kestra-2.0.0-SNAPSHOT" \
+  "${SOURCE_DIR}/build/executable/kestra-${source_version}" \
   "${SOURCE_DIR}/docker/app/kestra"
 chmod 755 "${SOURCE_DIR}/docker/app/kestra"
 "${SOURCE_DIR}/docker/app/kestra" plugins install \
@@ -35,7 +35,7 @@ chmod 755 "${SOURCE_DIR}/docker/app/kestra"
   --plugins "${SOURCE_DIR}/docker/app/plugins"
 
 docker build \
-  --file "${ROOT_DIR}/local/docker/tacogips-kestra.Dockerfile" \
+  --file "${SOURCE_DIR}/Dockerfile" \
   --label "org.opencontainers.image.revision=${source_sha}" \
   --label "org.opencontainers.image.source=https://github.com/tacogips/kestra" \
   --tag "${image}" \
