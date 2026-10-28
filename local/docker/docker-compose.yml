@@ -27,7 +27,7 @@ services:
   kestra-ec:
     # The EC batch group may run fork-based images (for example the tacogips/kestra
     # routed-worker build) by overriding EC_KESTRA_IMAGE.
-    image: ${EC_KESTRA_IMAGE:-kestra/kestra:latest}
+    image: ${EC_KESTRA_IMAGE:-tacogips/kestra-extended:2.0.7-brotli-eff9c74f0c}
     user: "root"
     command: server standalone --worker-thread=64 --config /etc/kestra/application.yaml
     depends_on:
