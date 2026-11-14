@@ -1,0 +1,66 @@
+common:
+  extraContainers:
+    - name: cloud-sql-proxy
+      image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1
+      args:
+        - --structured-logs
+        - --port=5432
+        - $(CLOUD_SQL_INSTANCE)
+      env:
+        - name: CLOUD_SQL_INSTANCE
+          valueFrom:
+            configMapKeyRef:
+              name: kestra-runtime-config
+              key: CLOUD_SQL_INSTANCE
+      resources:
+        requests:
+          cpu: 25m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+
+deployments:
+  webserver:
+    resources:
+      requests:
+        cpu: 150m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  executor:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 768Mi
+      limits:
+        cpu: "1"
+        memory: 1536Mi
+  scheduler:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  indexer:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  worker:
+    workerThreads: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    autoscaler:
+      maxReplicas: 1

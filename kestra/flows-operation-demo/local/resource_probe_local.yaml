@@ -1,0 +1,22 @@
+id: resource_probe_local
+namespace: playground.operation_demo
+description: Run the shared resource probe batch source directly in the local Kestra worker.
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+
+tasks:
+  - id: run_shared_batch_source
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - |
+        BATCH_ID=resource_probe_local \
+        RESOURCE_CLASS=local-process \
+        BUSINESS_DATE="{{ inputs.business_date }}" \
+        WORKER_GROUP=local-standalone \
+        /app/kestra-playground/batches/resource_probe/run.sh

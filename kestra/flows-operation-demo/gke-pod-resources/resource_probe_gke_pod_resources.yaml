@@ -1,0 +1,91 @@
+id: resource_probe_gke_pod_resources
+namespace: playground.operation_demo
+description: Run the shared resource probe batch source in two GKE-created pods with different resources.
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+  - id: kubernetes_namespace
+    type: STRING
+    required: true
+    defaults: kestra-dev
+
+tasks:
+  - id: run_resource_classes
+    type: io.kestra.plugin.core.flow.Parallel
+    tasks:
+      - id: batch_1_small_pod
+        type: io.kestra.plugin.kubernetes.core.PodCreate
+        namespace: "{{ inputs.kubernetes_namespace }}"
+        waitForLogInterval: PT2S
+        metadata:
+          labels:
+            app.kubernetes.io/name: kestra-operation-demo
+            kestra-playground.tacogips.io/execution: "{{ execution.id }}"
+            kestra-playground.tacogips.io/resource-class: small
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: main
+              image: "{{ envs.runtime_image }}"
+              command:
+                - /app/kestra-playground/batches/resource_probe/run.sh
+              env:
+                - name: BATCH_ID
+                  value: resource_probe_gke_pod_resources
+                - name: RESOURCE_CLASS
+                  value: small
+                - name: BUSINESS_DATE
+                  value: "{{ inputs.business_date }}"
+                - name: CPU_LIMIT
+                  value: "1"
+                - name: MEMORY_LIMIT
+                  value: 1Gi
+                - name: SLEEP_SECONDS
+                  value: "45"
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 512Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+
+      - id: batch_2_large_pod
+        type: io.kestra.plugin.kubernetes.core.PodCreate
+        namespace: "{{ inputs.kubernetes_namespace }}"
+        waitForLogInterval: PT2S
+        metadata:
+          labels:
+            app.kubernetes.io/name: kestra-operation-demo
+            kestra-playground.tacogips.io/execution: "{{ execution.id }}"
+            kestra-playground.tacogips.io/resource-class: large
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: main
+              image: "{{ envs.runtime_image }}"
+              command:
+                - /app/kestra-playground/batches/resource_probe/run.sh
+              env:
+                - name: BATCH_ID
+                  value: resource_probe_gke_pod_resources
+                - name: RESOURCE_CLASS
+                  value: large
+                - name: BUSINESS_DATE
+                  value: "{{ inputs.business_date }}"
+                - name: CPU_LIMIT
+                  value: "4"
+                - name: MEMORY_LIMIT
+                  value: 8Gi
+                - name: SLEEP_SECONDS
+                  value: "45"
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: 4Gi
+                limits:
+                  cpu: "4"
+                  memory: 8Gi

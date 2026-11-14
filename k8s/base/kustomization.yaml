@@ -1,0 +1,9 @@
+resources:
+  - namespace.yaml
+  - service-account.yaml
+  - configmap.yaml
+  - secret.yaml
+  - service.yaml
+  - controller-grpc-service.yaml
+  - otel-collector.yaml
+  - kestra-podcreate-rbac.yaml
