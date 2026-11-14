@@ -1,0 +1,28 @@
+id: verify_batch_group_broadcast
+namespace: playground.worker_routing
+description: Verify that one routed batch runs on every worker in the selected batch group.
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+
+tasks:
+  - id: broadcast_to_batch_group
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    timeout: PT2M
+    workerSelector:
+      tags: [gke-small]
+      match: ALL
+      fallback: FAIL
+      broadcast: true
+    commands:
+      - |
+        batch_group_member="${POD_NAME:-$(hostname)}"
+        echo "batch_id=verify_batch_group_broadcast"
+        echo "batch_group=gke-small"
+        echo "batch_group_member=${batch_group_member}"
+        echo "business_date={{ inputs.business_date }}"

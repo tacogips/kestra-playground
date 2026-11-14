@@ -1,0 +1,55 @@
+id: notify_affiliate_execution_result
+namespace: playground.affiliate.system
+description: |
+  Kestra 2 variant of the affiliate-category notifier.
+
+  batch-groups/affiliate/flows holds the canonical flow for the affiliate deploy
+  target, which runs the official kestra/kestra 1.x distribution and scopes the
+  Flow trigger with the `conditions` block. The GKE environment runs the
+  tacogips/kestra fork build, and Kestra 2 removed the condition plugins
+  outright - registering the 1.x flow there fails with
+  `Unrecognized field "conditions"` - so the same notifier is expressed here with
+  `states` and `when`.
+
+  Both variants watch the playground.affiliate namespace exactly, so the
+  notifier in playground.affiliate.system never triggers on its own executions.
+
+  The mail task carries a workerSelector because the GKE deployment only runs
+  routed workers; the fork-only workerSelector property is another reason this
+  variant cannot be shared with the official 1.x distribution.
+
+labels:
+  environment: playground
+  domain: affiliate
+
+tasks:
+  - id: mail_execution_summary
+    type: io.kestra.plugin.email.MailExecution
+    # The routed deployment has no worker on the default queue: the executor only
+    # runs core tasks in-process and subscribes a SystemWorker to the system
+    # queue, so a plugin task without a worker tag stays SUBMITTED forever.
+    workerSelector:
+      tags: [gke-small]
+      match: ALL
+      fallback: FAIL
+    executionId: "{{ trigger.executionId }}"
+    from: "{{ envs.notify_mail_from }}"
+    to: "{{ envs.notify_mail_to }}"
+    host: "{{ envs.notify_smtp_host }}"
+    port: "{{ envs.notify_smtp_port }}"
+    transportStrategy: SMTP
+    subject: "[{{ trigger.state }}] {{ trigger.namespace }}.{{ trigger.flowId }}"
+    customMessage: |
+      batch_group=affiliate
+      execution_id={{ trigger.executionId }}
+      state={{ trigger.state }}
+      first_failed_task={{ trigger.firstFailedTaskId ?? 'none' }}
+
+triggers:
+  - id: on_terminal_state
+    type: io.kestra.plugin.core.trigger.Flow
+    states:
+      - SUCCESS
+      - FAILED
+      - WARNING
+    when: "{{ flow.namespace == 'playground.affiliate' }}"
