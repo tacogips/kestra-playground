@@ -1,0 +1,7 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kestra-worker
+  namespace: kestra
+spec:
+  replicas: 2

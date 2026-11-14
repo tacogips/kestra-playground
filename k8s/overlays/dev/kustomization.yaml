@@ -1,0 +1,21 @@
+namespace: kestra-dev
+
+resources:
+  - ../../base
+  - backendconfig.yaml
+  - managed-certificate.yaml
+  - ingress.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: kestra-playground
+      app.kubernetes.io/environment: dev
+
+patches:
+  - path: namespace.yaml
+  - path: service-account.yaml
+  - path: configmap.yaml
+  - path: service.yaml
+  - path: deployment-resources.yaml
+  - path: worker-replicas.yaml
+  - path: secret.yaml

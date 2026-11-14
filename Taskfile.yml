@@ -1,0 +1,182 @@
+version: '3'
+
+vars:
+  PACKAGE_NAME: kestra-playground
+  MODULE_NAME: kestra_playground
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  sync:
+    desc: Sync project dependencies with uv
+    cmds:
+      - uv sync --dev
+
+  lock:
+    desc: Refresh uv.lock
+    cmds:
+      - uv lock
+
+  run:
+    desc: Run the application
+    cmds:
+      - uv run python -m {{.MODULE_NAME}}
+
+  test:
+    desc: Run tests
+    cmds:
+      - uv run pytest
+
+  test-verbose:
+    desc: Run tests with verbose output
+    cmds:
+      - uv run pytest -vv
+
+  test-cov:
+    desc: Run tests with coverage
+    cmds:
+      - uv run pytest --cov={{.MODULE_NAME}} --cov-report=term-missing
+
+  lint:
+    desc: Run Ruff lint checks
+    cmds:
+      - uv run ruff check .
+
+  typecheck:
+    desc: Run ty type checks
+    cmds:
+      - uv run ty check .
+
+  fmt:
+    desc: Format code with Ruff
+    cmds:
+      - uv run ruff format .
+
+  fmt-check:
+    desc: Check formatting without modifying files
+    cmds:
+      - uv run ruff format --check .
+
+  build:
+    desc: Build the package
+    cmds:
+      - uv build
+
+  gitleaks:
+    desc: Scan staged changes for secrets before commit
+    cmds:
+      - gitleaks git --pre-commit --redact --staged --verbose
+
+  kestra:local:apple:start:
+    desc: Start local Kestra and PostgreSQL with Apple container
+    cmds:
+      - local/apple-container/start.sh
+
+  kestra:local:apple:stop:
+    desc: Stop local Apple container Kestra services
+    cmds:
+      - local/apple-container/stop.sh
+
+  kestra:local:docker:start:
+    desc: Start local Kestra and PostgreSQL with Docker Compose fallback
+    cmds:
+      - local/docker/start.sh
+
+  kestra:local:docker:stop:
+    desc: Stop local Docker Compose Kestra services
+    cmds:
+      - local/docker/stop.sh
+
+  kestra:flows:register:
+    desc: Register local Kestra flows against KESTRA_URL or localhost
+    cmds:
+      - |
+        env_file="${KESTRA_ENV_FILE:-}"
+        if [ -z "$env_file" ]; then
+          if [ -f local/docker/.env ]; then
+            env_file=local/docker/.env
+          else
+            env_file=kestra/config/envs/local.env
+          fi
+        fi
+        KESTRA_ENV_FILE="$env_file" scripts/register-flows.sh "${KESTRA_URL:-http://localhost:8080}"
+
+  kestra:flows:generate:
+    desc: Execute the ecommerce mock data generator flow
+    cmds:
+      - |
+        env_file="${KESTRA_ENV_FILE:-}"
+        if [ -z "$env_file" ]; then
+          if [ -f local/docker/.env ]; then
+            env_file=local/docker/.env
+          else
+            env_file=kestra/config/envs/local.env
+          fi
+        fi
+        KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh generate_ecommerce_mock_data "${BUSINESS_DATE:-2026-06-25}" "${KESTRA_URL:-http://localhost:8080}"
+
+  kestra:flows:report:
+    desc: Execute the ecommerce daily report flow
+    cmds:
+      - |
+        env_file="${KESTRA_ENV_FILE:-}"
+        if [ -z "$env_file" ]; then
+          if [ -f local/docker/.env ]; then
+            env_file=local/docker/.env
+          else
+            env_file=kestra/config/envs/local.env
+          fi
+        fi
+        KESTRA_ENV_FILE="$env_file" scripts/run-flow.sh build_ecommerce_daily_report "${BUSINESS_DATE:-2026-06-25}" "${KESTRA_URL:-http://localhost:8080}"
+
+  kestra:live:deploy:
+    desc: Deploy live GCP environments from committed dev tfvars
+    cmds:
+      - scripts/deploy-live-environments.sh "${TARGET_ENVIRONMENT:-all}"
+
+  kestra:live:verify:
+    desc: Register flows and verify live HTTPS endpoints without running the batch
+    cmds:
+      - scripts/verify-live-environments.sh "${TARGET_ENVIRONMENT:-all}" "${BUSINESS_DATE:-2026-06-25}" health
+
+  kestra:live:run-batch:
+    desc: Register flows and run the ecommerce batch against live environments
+    cmds:
+      - scripts/verify-live-environments.sh "${TARGET_ENVIRONMENT:-all}" "${BUSINESS_DATE:-2026-06-25}" run-batch
+
+  infra:fmt:
+    desc: Format Terraform/OpenTofu files
+    cmds:
+      - tofu fmt -recursive infra/terraform
+
+  k8s:build:dev:
+    desc: Render the dev Kustomize overlay
+    cmds:
+      - kustomize build k8s/overlays/dev
+
+  k8s:apply:dev:
+    desc: Apply the dev GKE overlay using Terraform outputs for live secrets
+    cmds:
+      - scripts/apply-gke-dev.sh
+
+  install-git-hooks:
+    desc: Install the Nix-managed pre-commit hook configuration
+    cmds:
+      - nix develop -c pre-commit install --install-hooks
+
+  clean:
+    desc: Remove generated artifacts
+    cmds:
+      - rm -rf build dist htmlcov .coverage .pytest_cache .ruff_cache src/*.egg-info
+
+  ci:
+    desc: Run the standard CI checks
+    cmds:
+      - task: fmt-check
+      - task: lint
+      - task: typecheck
+      - task: test
+      - task: build

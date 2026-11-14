@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kestra-webserver
+  namespace: kestra-dev
+  annotations:
+    kubernetes.io/ingress.class: gce
+    kubernetes.io/ingress.global-static-ip-name: kestra-dev-ingress
+    networking.gke.io/managed-certificates: kestra
+spec:
+  rules:
+    - host: k8s.tacoserve.online
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kestra-webserver
+                port:
+                  number: 80

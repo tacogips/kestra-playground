@@ -1,0 +1,12 @@
+resources:
+  - namespace.yaml
+  - service-account.yaml
+  - configmap.yaml
+  - secret.yaml
+  - webserver.yaml
+  - executor.yaml
+  - scheduler.yaml
+  - indexer.yaml
+  - worker.yaml
+  - service.yaml
+  - hpa.yaml

@@ -1,0 +1,17 @@
+.direnv
+.git
+.github
+.pytest_cache
+.ruff_cache
+.terraform
+.venv
+__pycache__
+*.pyc
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+design-docs
+infra
+local
+scripts
+tests

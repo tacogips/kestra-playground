@@ -1,0 +1,3 @@
+project_id        = "kestra-playground-260625"
+github_repository = "tacogips/kestra-playground"
+github_ref        = "refs/heads/main"
