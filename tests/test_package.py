@@ -1,0 +1,998 @@
+import datetime
+import os
+import subprocess
+import tomllib
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from kestra_playground import greet
+
+
+def test_greet_returns_expected_message() -> None:
+    assert greet("uv") == "Hello, uv!"
+
+
+def test_ecommerce_fixture_sql_is_embedded_in_generator_flow() -> None:
+    flow = "batch-groups/ec/flows/generate_ecommerce_mock_data.yaml"
+
+    assert _flow_task_sql(flow, "seed_dimensions") == _read_text(
+        "batch-groups/ec/fixtures/seed_dimensions.sql"
+    )
+    assert _flow_tasks_sql(
+        flow,
+        [
+            "purge_daily_facts",
+            "insert_orders_and_items",
+            "insert_payments",
+            "insert_inventory_snapshots",
+            "insert_support_tickets",
+        ],
+    ) == _read_text("batch-groups/ec/fixtures/generate_daily_facts.sql")
+
+
+def test_customer_segments_fixture_sql_is_embedded_in_batch_flow() -> None:
+    assert _flow_tasks_sql(
+        "batch-groups/ec/flows/build_ecommerce_customer_segments.yaml",
+        [
+            "ensure_customer_segments_table",
+            "purge_customer_segments",
+            "write_customer_segments",
+        ],
+    ) == _read_text("batch-groups/ec/fixtures/build_customer_segments.sql")
+
+
+def test_batch_flows_are_split_into_granular_otel_audit_tasks() -> None:
+    assert _flow_task_ids("batch-groups/ec/flows/generate_ecommerce_mock_data.yaml") == [
+        "create_tables",
+        "seed_dimensions",
+        "purge_daily_facts",
+        "insert_orders_and_items",
+        "insert_payments",
+        "insert_inventory_snapshots",
+        "insert_support_tickets",
+        "summarize_generated_data",
+    ]
+    assert _flow_task_ids("batch-groups/ec/flows/build_ecommerce_daily_report.yaml") == [
+        "ensure_report_table",
+        "purge_report",
+        "write_sales_summary",
+        "write_order_status_summary",
+        "write_channel_summary",
+        "write_inventory_summary",
+        "write_support_summary",
+        "fetch_report",
+    ]
+    assert _flow_task_ids("batch-groups/ec/flows/build_ecommerce_customer_segments.yaml") == [
+        "ensure_customer_segments_table",
+        "purge_customer_segments",
+        "write_customer_segments",
+        "fetch_segment_summary",
+    ]
+
+
+def test_k8s_kestra_config_exports_otel_to_collector() -> None:
+    configmap = _yaml_document(
+        "k8s/base/configmap.yaml", kind="ConfigMap", name="kestra-runtime-config"
+    )
+    app_config = yaml.safe_load(configmap["data"]["application.yaml"])
+
+    assert app_config["micronaut"]["otel"]["enabled"] == "${OTEL_ENABLED:true}"
+    assert app_config["otel"]["traces"]["exporter"] == "${OTEL_TRACES_EXPORTER:otlp}"
+    assert app_config["otel"]["metrics"]["exporter"] == "${OTEL_METRICS_EXPORTER:otlp}"
+    assert app_config["otel"]["logs"]["exporter"] == "${OTEL_LOGS_EXPORTER:otlp}"
+    assert app_config["otel"]["exporter"]["otlp"]["endpoint"] == "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+    assert app_config["kestra"]["traces"]["root"] == "${KESTRA_TRACES_ROOT:DEFAULT}"
+
+
+def test_k8s_otel_collector_receives_and_exports_all_signals() -> None:
+    kustomization = _yaml_load("k8s/base/kustomization.yaml")
+    configmap = _yaml_document(
+        "k8s/base/otel-collector.yaml", kind="ConfigMap", name="otel-collector-config"
+    )
+    service = _yaml_document("k8s/base/otel-collector.yaml", kind="Service", name="otel-collector")
+    collector_config = yaml.safe_load(configmap["data"]["config.yaml"])
+
+    assert "otel-collector.yaml" in kustomization["resources"]
+    assert collector_config["receivers"]["otlp"]["protocols"]["grpc"]["endpoint"] == "0.0.0.0:4317"
+    assert collector_config["receivers"]["otlp"]["protocols"]["http"]["endpoint"] == "0.0.0.0:4318"
+    assert collector_config["service"]["pipelines"]["traces"]["exporters"] == ["debug"]
+    assert collector_config["service"]["pipelines"]["metrics"]["exporters"] == ["debug"]
+    assert collector_config["service"]["pipelines"]["logs"]["exporters"] == ["debug"]
+    assert {port["port"] for port in service["spec"]["ports"]} == {4317, 4318, 13133}
+
+
+def test_k8s_helm_values_define_split_components_and_worker_hpa() -> None:
+    kustomization = _yaml_load("k8s/base/kustomization.yaml")
+    helm_values = _yaml_load("k8s/helm/kestra-values.yaml")
+    controller_only_values = _yaml_load("k8s/helm/kestra-controller-only-values.yaml")
+    deployments = helm_values["deployments"]
+    common_env = {
+        item["name"]: item["value"] for item in helm_values["common"]["extraEnv"] if "value" in item
+    }
+
+    assert "webserver.yaml" not in kustomization["resources"]
+    assert "executor.yaml" not in kustomization["resources"]
+    assert "scheduler.yaml" not in kustomization["resources"]
+    assert "indexer.yaml" not in kustomization["resources"]
+    assert "worker.yaml" not in kustomization["resources"]
+    assert "hpa.yaml" not in kustomization["resources"]
+
+    for component in ("webserver", "executor", "scheduler", "indexer", "worker"):
+        deployment = deployments[component]
+        env = {item["name"]: item["value"] for item in deployment["extraEnv"]}
+
+        assert deployment["enabled"] is True
+        assert env["OTEL_SERVICE_NAME"] == f"kestra-{component}"
+        assert f"kestra.component={component}" in env["OTEL_RESOURCE_ATTRIBUTES"]
+
+    assert common_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://otel-collector:4317"
+    assert common_env["KESTRA_DB_MAX_POOL_SIZE"] == "4"
+    assert helm_values["configurations"]["configmaps"] == [
+        {"name": "kestra-runtime-config", "key": "application.yaml"}
+    ]
+    assert {"secretRef": {"name": "kestra-secrets"}} in helm_values["common"]["extraEnvFrom"]
+    assert deployments["standalone"]["enabled"] is False
+    assert deployments["worker"]["autoscaler"] == {
+        "enabled": True,
+        "minReplicas": 1,
+        "maxReplicas": 5,
+        "metrics": [
+            {
+                "type": "Resource",
+                "resource": {
+                    "name": "cpu",
+                    "target": {"type": "Utilization", "averageUtilization": 70},
+                },
+            }
+        ],
+    }
+    assert controller_only_values["deployments"]["worker"]["enabled"] is False
+    assert controller_only_values["deployments"]["worker"]["autoscaler"]["enabled"] is False
+
+
+def test_k8s_webserver_health_check_uses_management_port() -> None:
+    helm_values = _yaml_load("k8s/helm/kestra-values.yaml")
+    service = _yaml_document("k8s/base/service.yaml", kind="Service", name="kestra-webserver")
+    backend_config = _yaml_load("k8s/overlays/dev/backendconfig.yaml")
+
+    chart_ports = helm_values["service"]["ports"]
+    service_ports = {port["name"]: port for port in service["spec"]["ports"]}
+
+    assert chart_ports["http"]["containerPort"] == 8080
+    assert chart_ports["management"]["containerPort"] == 8081
+    assert chart_ports["grpc"]["containerPort"] == 50051
+    assert service_ports["http"]["port"] == 80
+    assert service_ports["http"]["targetPort"] == 8080
+    assert service_ports["management"]["port"] == 8081
+    assert service_ports["management"]["targetPort"] == 8081
+    assert backend_config["spec"]["healthCheck"] == {
+        "type": "HTTP",
+        "port": 8081,
+        "requestPath": "/health",
+    }
+
+
+def test_routed_image_build_installs_required_runtime_plugins() -> None:
+    workflow = _yaml_load(".github/workflows/deploy.yml")
+    build_routed_image = workflow["jobs"]["build-routed-image"]
+    install_step = next(
+        step for step in build_routed_image["steps"] if step["name"] == "Install runtime plugins"
+    )
+
+    assert "io.kestra.storage:storage-gcs:1.2.0" in install_step["run"]
+    assert "io.kestra.plugin:plugin-script-shell:1.9.0" in install_step["run"]
+    assert "io.kestra.plugin:plugin-kubernetes:1.9.5" in install_step["run"]
+    assert "io.kestra.plugin:plugin-jdbc-postgres:1.15.4" in install_step["run"]
+
+
+def test_gke_startup_probe_allows_routed_plugin_scan() -> None:
+    values = _yaml_load("k8s/helm/kestra-values.yaml")
+    startup_probe = values["common"]["startupProbe"]
+
+    assert startup_probe["timeoutSeconds"] == 5
+    assert startup_probe["failureThreshold"] == 300
+
+
+def test_k8s_podcreate_rbac_allows_batch_pod_lifecycle() -> None:
+    kustomization = _yaml_load("k8s/base/kustomization.yaml")
+    role = _yaml_document(
+        "k8s/base/kestra-podcreate-rbac.yaml", kind="Role", name="kestra-podcreate"
+    )
+    binding = _yaml_document(
+        "k8s/base/kestra-podcreate-rbac.yaml", kind="RoleBinding", name="kestra-podcreate"
+    )
+
+    assert "kestra-podcreate-rbac.yaml" in kustomization["resources"]
+    assert role["rules"] == [
+        {
+            "apiGroups": [""],
+            "resources": ["pods"],
+            "verbs": ["create", "delete", "get", "list", "watch"],
+        },
+        {"apiGroups": [""], "resources": ["pods/log"], "verbs": ["get", "list", "watch"]},
+    ]
+    assert binding["subjects"] == [
+        {"kind": "ServiceAccount", "name": "kestra", "namespace": "kestra"}
+    ]
+    assert binding["roleRef"]["name"] == "kestra-podcreate"
+
+
+def test_gke_apply_cleans_legacy_kustomize_resources_before_helm_install() -> None:
+    script = _read_text("scripts/apply-gke-dev.sh")
+    cleanup_block_start = script.index('if ! helm status "$HELM_RELEASE"')
+    helm_install_start = script.index('helm upgrade --install "$HELM_RELEASE"')
+    cleanup_block = script[cleanup_block_start:helm_install_start]
+
+    assert "delete configmap kestra-config --ignore-not-found" in cleanup_block
+    assert "delete service kestra --ignore-not-found" in cleanup_block
+    assert "kestra-webserver" in cleanup_block
+    assert "kestra-executor" in cleanup_block
+    assert "kestra-scheduler" in cleanup_block
+    assert "kestra-indexer" in cleanup_block
+    assert "delete hpa kestra-worker --ignore-not-found" in cleanup_block
+
+
+def test_live_external_gce_worker_mode_disables_gke_worker() -> None:
+    workflow = _yaml_load(".github/workflows/deploy.yml")
+    deploy_env = workflow["jobs"]["deploy"]["env"]
+    script = _read_text("scripts/apply-gke-dev.sh")
+    verify_script = _read_text("scripts/verify-live-environments.sh")
+
+    assert "operation_demo" in deploy_env["LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED"]
+    assert "gke-pod-resources" in deploy_env["LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED"]
+    assert "operation_demo" in deploy_env["GKE_WORKER_ENABLED"]
+    assert "gke-pod-resources" in deploy_env["GKE_WORKER_ENABLED"]
+    assert deploy_env["LIVE_GKE_CONTROLLER_WORKER_ENABLED"] == "false"
+    assert deploy_env["LIVE_GKE_ROUTED_WORKERS_ENABLED"] == "false"
+    assert deploy_env["KESTRA_K8S_ADDITIONAL_FLOW_DIRS"] == "kestra/flows-federated"
+    assert Path(deploy_env["KESTRA_K8S_ADDITIONAL_FLOW_DIRS"]).is_dir()
+    assert 'LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED:-false}" == "true"' in script
+    assert "GKE_WORKER_ENABLED=false" in script
+    assert 'GKE_WORKER_ENABLED="${GKE_WORKER_ENABLED:-true}"' in script
+    assert 'verify_environment k8s "https://${LIVE_GKE_SUBDOMAIN}.${LIVE_DOMAIN_NAME}" false' in (
+        verify_script
+    )
+
+
+def test_flow_registration_retries_transient_api_failures() -> None:
+    script = _read_text("scripts/register-flows.sh")
+
+    assert 'REGISTER_FLOW_ATTEMPTS="${REGISTER_FLOW_ATTEMPTS:-6}"' in script
+    assert "retryable_status" in script
+    assert '[[ "${status}" == "000"' in script
+    assert '"${status}" =~ ^5' in script
+    assert "Flow registration for ${flow} returned HTTP ${status}; retrying" in script
+    assert "shopt -s nullglob" in script
+    assert "No flow YAML files found in ${FLOW_DIR}" in script
+    assert "html_response" in script
+    assert 'status="599"' in script
+
+
+def test_routed_live_deploy_enables_controller_and_routed_workers() -> None:
+    script = _read_text("scripts/deploy-routed-live.sh")
+    verifier = _read_text("scripts/verify-live-routed.sh")
+
+    assert 'ZONE="${ZONE:-asia-northeast1-a}"' in script
+    assert 'ZONE="${ZONE:-asia-northeast1-a}"' in verifier
+    assert 'export TF_VAR_zone="${TF_VAR_zone:-${ZONE}}"' in script
+    assert "export GKE_WORKER_ENABLED=false" in script
+    assert "export LIVE_GKE_CONTROLLER_WORKER_ENABLED=true" in script
+    assert "export LIVE_GKE_ROUTED_WORKERS_ENABLED=true" in script
+    assert "export LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true" in script
+    assert "export LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true" in script
+    assert "export LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true" in script
+    assert "export LIVE_GKE_DATABASE_AUTOSCALE_ENABLED=true" in script
+    assert "LIVE_GKE_ROUTED_K8S_WORKER_IDLE_SECONDS:-300" in script
+
+
+def test_execution_pollers_and_webconsole_handle_cancelled_as_terminal() -> None:
+    pollers = (
+        "scripts/verify-local-remote-batch.sh",
+        "scripts/verify-live-remote-batch-routed.sh",
+        "scripts/verify-live-operation-demo-gke-pod-resources.sh",
+        "scripts/verify-live-gke-node-routing.sh",
+        "scripts/verify-live-operation-demo-routed.sh",
+        "scripts/verify-live-k8s-pod-resources.sh",
+        "scripts/verify-live-federated.sh",
+        "scripts/verify-live-routed.sh",
+        "scripts/verify-live-environments.sh",
+        "scripts/verify-local-operation-demo.sh",
+        "scripts/verify-local-federated.sh",
+    )
+
+    for poller in pollers:
+        assert "CANCELLED" in _read_text(poller), poller
+
+    assert 'case "CANCELLED":' in _read_text("webconsole/src/App.tsx")
+    federated_flow = _read_text("kestra/flows-federated/run_federated_ecommerce_batch.yaml")
+    assert federated_flow.count('.state.current == \\"CANCELLED\\"') == 4
+
+
+def test_live_health_check_accepts_root_when_ui_route_is_absent() -> None:
+    script = _read_text("scripts/verify-live-environments.sh")
+    wait_start = script.index("wait_for_ui()")
+    verify_start = script.index("verify_environment()", wait_start)
+    wait_block = script[wait_start:verify_start]
+
+    assert '"${url%/}/ui/"' in wait_block
+    assert '"${url%/}/"' in wait_block
+    assert "|| \\" in wait_block
+
+
+def test_live_config_disables_routed_gke_workers_by_default(tmp_path: Path) -> None:
+    result = _run_bash("scripts/render-live-config.sh", env=_live_config_env(tmp_path))
+    gke_tfvars = (tmp_path / "gke-dev.tfvars").read_text(encoding="utf-8")
+
+    assert result.returncode == 0
+    assert "controller_worker_enabled      = true" in gke_tfvars
+    assert "routed_workers                 = {}" in gke_tfvars
+    assert "gce-a = {" not in gke_tfvars
+    assert "gce-b = {" not in gke_tfvars
+
+
+def test_live_config_enables_routed_gke_workers_for_routed_deploy(tmp_path: Path) -> None:
+    result = _run_bash(
+        "scripts/render-live-config.sh",
+        env={
+            **_live_config_env(tmp_path),
+            "LIVE_GKE_ROUTED_WORKERS_ENABLED": "true",
+            "LIVE_GKE_ROUTED_WORKER_MACHINE_TYPE": "e2-medium",
+        },
+    )
+    gke_tfvars = (tmp_path / "gke-dev.tfvars").read_text(encoding="utf-8")
+
+    assert result.returncode == 0
+    assert 'worker_group_id = "gce-a"' in gke_tfvars
+    assert 'worker_group_id = "gce-b"' in gke_tfvars
+    assert 'machine_type    = "e2-medium"' in gke_tfvars
+    assert "routed_workers                 = {}" not in gke_tfvars
+
+
+def test_normal_gke_deploy_destroys_routed_workers_before_apply() -> None:
+    script = _read_text("scripts/deploy-live-environments.sh")
+    destroy_start = script.index("destroy_gke_routed_workers_if_disabled()")
+    deploy_start = script.index("deploy_gke_dev()")
+    destroy_block = script[destroy_start:deploy_start]
+    deploy_block = script[deploy_start : script.index("case ", deploy_start)]
+
+    assert '[[ "${LIVE_GKE_ROUTED_WORKERS_ENABLED:-false}" == "true" ]]' in destroy_block
+    assert 'tofu -chdir="infra/terraform/gke-dev" apply' in destroy_block
+    assert "-destroy \\" in destroy_block
+    assert '-target="google_compute_instance.routed_worker"' in destroy_block
+    assert deploy_block.index("destroy_gke_routed_workers_if_disabled") < deploy_block.index(
+        'apply_tofu "infra/terraform/gke-dev"'
+    )
+
+
+def test_routed_worker_verification_uses_process_task_runner() -> None:
+    flow = _yaml_load("kestra/flows-worker-routing/verify_gcp_worker_routing.yaml")
+
+    for task in flow["tasks"]:
+        assert task["workerSelector"]["fallback"] == "FAIL"
+        assert task["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
+        assert task["timeout"] == "PT2M"
+
+
+def test_gke_routed_worker_queues_are_declared() -> None:
+    configmap = _yaml_document(
+        "k8s/base/configmap.yaml", kind="ConfigMap", name="kestra-runtime-config"
+    )
+    app_config = yaml.safe_load(configmap["data"]["application.yaml"])
+    routing = app_config["kestra"]["worker"]["routing"]
+
+    assert routing["groupQueueMappings"]["gke-small"]["queues"] == [
+        {"workerQueueId": "gke-small", "reservedPercent": -1}
+    ]
+    assert routing["groupQueueMappings"]["gke-large"]["queues"] == [
+        {"workerQueueId": "gke-large", "reservedPercent": -1}
+    ]
+    assert routing["queues"]["gke-small"]["tags"] == ["gke-small"]
+    assert routing["queues"]["gke-large"]["tags"] == ["gke-large"]
+
+
+def test_gke_node_worker_routing_flow_uses_worker_selectors() -> None:
+    flow = _yaml_load("kestra/flows-worker-routing/verify_gke_node_worker_routing.yaml")
+
+    assert [task["id"] for task in flow["tasks"]] == [
+        "run_on_gke_small",
+        "run_on_gke_large",
+    ]
+    assert [task["workerSelector"]["tags"] for task in flow["tasks"]] == [
+        ["gke-small"],
+        ["gke-large"],
+    ]
+    for task in flow["tasks"]:
+        assert task["workerSelector"]["fallback"] == "FAIL"
+        assert task["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
+        assert task["timeout"] == "PT2M"
+
+
+def test_gke_apply_script_supports_optional_placement_constrained_routed_workers() -> None:
+    script = _read_text("scripts/apply-gke-dev.sh")
+
+    assert "LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED" in script
+    assert "kestra-gke-worker-small" in script
+    assert "kestra-gke-worker-large" in script
+    assert "workerGroupId: ${group_id}" in script
+    assert "nodeName: ${node_name}" in script
+    assert "${selector_key}: ${selector_value}" in script
+    assert "tolerations:" in script
+    assert "effect: NoSchedule" in script
+    assert "LIVE_GKE_ROUTED_K8S_WORKER_SMALL_NODE_NAME" in script
+    assert "LIVE_GKE_ROUTED_K8S_WORKER_LARGE_NODE_NAME" in script
+    assert "LIVE_GKE_ROUTED_K8S_WORKER_SMALL_NODE_SELECTOR_KEY" in script
+    assert "exec /app/kestra server worker --thread=${threads}" in script
+
+
+def test_gke_apply_script_supports_access_driven_scale_to_zero() -> None:
+    script = _read_text("scripts/apply-gke-dev.sh")
+
+    assert "routed_worker_replicas=0" in script
+    assert "name: kestra-worker-activator" in script
+    assert "- deployments/scale" in script
+    assert "- statefulsets/scale" in script
+    assert 'value: "${activator_scale_deployments}"' in script
+    assert 'value: "${activator_scale_statefulsets}"' in script
+    assert 'value: "${activator_boot_state}"' in script
+    assert 'reconcile "${want}"' in script
+    assert "wait_for_statefulsets_ready" in script
+    assert "wait_for_deployments_stopped" in script
+    assert "scale_statefulsets 1" in script
+    assert "scale_statefulsets 0" in script
+    assert "location = /health" in script
+    assert "Retry-After 5" in script
+    assert "kestra-gke-worker-small kestra-gke-worker-large" in script
+    for deployment in (
+        "kestra-webserver",
+        "kestra-executor",
+        "kestra-scheduler",
+        "kestra-indexer",
+    ):
+        assert deployment in script
+
+
+def test_gke_postgres_statefulset_retains_data_when_scaled_to_zero() -> None:
+    postgres = _yaml_document("k8s/base/postgres.yaml", kind="StatefulSet", name="kestra-postgres")
+    services = {
+        document["metadata"]["name"]: document
+        for document in yaml.safe_load_all(_read_text("k8s/base/postgres.yaml"))
+        if document["kind"] == "Service"
+    }
+
+    assert postgres["spec"]["replicas"] == 1
+    assert postgres["spec"]["persistentVolumeClaimRetentionPolicy"] == {
+        "whenDeleted": "Retain",
+        "whenScaled": "Retain",
+    }
+    claim = postgres["spec"]["volumeClaimTemplates"][0]["spec"]
+    assert claim["storageClassName"] == "standard-rwo"
+    assert claim["accessModes"] == ["ReadWriteOnce"]
+    assert claim["resources"]["requests"]["storage"] == "10Gi"
+    assert services["kestra-postgres"]["spec"]["type"] == "ClusterIP"
+    assert services["kestra-postgres-internal"]["spec"]["type"] == "LoadBalancer"
+    assert (
+        services["kestra-postgres-internal"]["metadata"]["annotations"][
+            "networking.gke.io/load-balancer-type"
+        ]
+        == "Internal"
+    )
+
+
+def test_gke_database_urls_use_postgres_service_without_cloud_sql_sidecars() -> None:
+    secret = _yaml_document("k8s/base/secret.yaml", kind="Secret", name="kestra-secrets")
+    helm_values = _yaml_load("k8s/helm/kestra-values.yaml")
+    apply_script = _read_text("scripts/apply-gke-dev.sh")
+
+    assert secret["stringData"]["KESTRA_DB_URL"] == (
+        "jdbc:postgresql://kestra-postgres:5432/kestra"
+    )
+    assert secret["stringData"]["ENV_BATCH_DB_URL"] == (
+        "jdbc:postgresql://kestra-postgres:5432/ecommerce_ops"
+    )
+    assert "extraContainers" not in helm_values["common"]
+    routed_worker_renderer = apply_script[
+        apply_script.index("render_routed_k8s_worker") : apply_script.index(
+            "activator_scale_deployments"
+        )
+    ]
+    assert "cloud-sql-proxy" not in routed_worker_renderer
+
+
+def test_routed_live_deploy_enables_public_full_stack_autoscaling() -> None:
+    script = _read_text("scripts/deploy-routed-live.sh")
+
+    assert "export LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true" in script
+    assert "export LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true" in script
+    assert "export LIVE_GKE_DATABASE_AUTOSCALE_ENABLED=true" in script
+
+
+def test_activator_backend_keeps_cloud_armor_and_independent_health_check() -> None:
+    backend = _yaml_load("k8s/overlays/dev/activator-backendconfig.yaml")
+    apply_script = _read_text("scripts/apply-gke-dev.sh")
+
+    assert backend["spec"]["securityPolicy"] == {"name": "replace-with-cloud-armor-policy"}
+    assert backend["spec"]["healthCheck"] == {
+        "type": "HTTP",
+        "port": 8080,
+        "requestPath": "/health",
+    }
+    assert '"${work_overlay}/activator-backendconfig.yaml"' in apply_script
+
+
+def test_full_stack_verifier_checks_two_wakes_and_persistent_data() -> None:
+    mise_config = _toml_load("mise.toml")
+    script = _read_text("scripts/verify-live-gke-full-stack-scale-to-zero.sh")
+
+    assert "kestra:live:verify-gke-full-stack-scale-to-zero" in mise_config["tasks"]
+    assert script.count("trigger_public_wake") == 3
+    assert script.count("wait_for_warm") == 3
+    assert "wait_for_zero" in script
+    assert "pvc_uid_before" in script
+    assert "pvc_uid_after" in script
+    assert "write_marker" in script
+    assert "assert_marker" in script
+    assert 'curl --fail --silent --show-error --max-time 30 "$url/health"' in script
+
+
+def test_gke_apply_script_rejects_invalid_autoscale_flag_combinations() -> None:
+    worker_result = _run_bash(
+        "scripts/apply-gke-dev.sh",
+        env={
+            "LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED": "false",
+            "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED": "true",
+        },
+    )
+    control_plane_result = _run_bash(
+        "scripts/apply-gke-dev.sh",
+        env={
+            "LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED": "true",
+            "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED": "false",
+            "LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED": "true",
+        },
+    )
+    database_result = _run_bash(
+        "scripts/apply-gke-dev.sh",
+        env={
+            "LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED": "true",
+            "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED": "true",
+            "LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED": "false",
+            "LIVE_GKE_DATABASE_AUTOSCALE_ENABLED": "true",
+        },
+    )
+
+    assert worker_result.returncode == 1
+    assert (
+        "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true requires "
+        "LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true"
+    ) in worker_result.stderr
+    assert control_plane_result.returncode == 1
+    assert (
+        "LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true requires "
+        "LIVE_GKE_ROUTED_K8S_WORKERS_ENABLED=true and "
+        "LIVE_GKE_ROUTED_K8S_WORKER_AUTOSCALE_ENABLED=true"
+    ) in control_plane_result.stderr
+    assert database_result.returncode == 1
+    assert (
+        "LIVE_GKE_DATABASE_AUTOSCALE_ENABLED=true requires "
+        "LIVE_GKE_CONTROL_PLANE_AUTOSCALE_ENABLED=true"
+    ) in database_result.stderr
+
+
+def test_gke_terraform_supports_standard_autoscaled_worker_node_pools() -> None:
+    main_tf = _read_text("infra/terraform/gke-dev/main.tf")
+    variables_tf = _read_text("infra/terraform/gke-dev/variables.tf")
+
+    assert 'variable "gke_autopilot_enabled"' in variables_tf
+    assert "default     = true" in variables_tf
+    assert 'variable "gke_standard_node_pools"' in variables_tf
+    assert '"kestra.tacogips.io/worker-group" = "gke-small"' in variables_tf
+    assert '"kestra.tacogips.io/worker-group" = "gke-large"' in variables_tf
+    assert 'effect = "NO_SCHEDULE"' in variables_tf
+    assert "enable_autopilot         = var.gke_autopilot_enabled" in main_tf
+    assert 'resource "google_container_node_pool" "standard_worker"' in main_tf
+    assert "for_each = var.gke_autopilot_enabled ? {} : var.gke_standard_node_pools" in main_tf
+    assert "min_node_count = each.value.min_count" in main_tf
+    assert "max_node_count = each.value.max_count" in main_tf
+    assert '"kestra.tacogips.io/node-pool" = each.key' in main_tf
+    assert 'dynamic "taint"' in main_tf
+
+
+def test_gke_node_routing_verifier_registers_and_checks_flow() -> None:
+    mise_config = _toml_load("mise.toml")
+    script = _read_text("scripts/verify-live-gke-node-routing.sh")
+
+    assert "kestra:live:run-gke-node-routing" in mise_config["tasks"]
+    assert "verify_gke_node_worker_routing" in script
+    assert "kestra/flows-worker-routing" in script
+    assert "app.kubernetes.io/name=kestra-gke-routed-worker" in script
+    assert "logs deployment/kestra-gke-worker-small -c kestra-worker --tail=80" in script
+
+
+def test_k8s_pod_resource_flow_uses_distinct_pod_resources_without_node_pin() -> None:
+    flow = _yaml_load("kestra/flows-k8s-pod-resources/verify_k8s_pod_resources.yaml")
+    tasks = {task["id"]: task for task in flow["tasks"]}
+
+    small = tasks["batch_1_small_pod"]["spec"]["containers"][0]["resources"]
+    large = tasks["batch_2_large_pod"]["spec"]["containers"][0]["resources"]
+
+    assert tasks["batch_1_small_pod"]["type"] == "io.kestra.plugin.kubernetes.core.PodCreate"
+    assert tasks["batch_2_large_pod"]["type"] == "io.kestra.plugin.kubernetes.core.PodCreate"
+    assert tasks["batch_1_small_pod"]["delete"] is False
+    assert tasks["batch_2_large_pod"]["delete"] is False
+    assert tasks["batch_1_small_pod"]["metadata"]["labels"] == {
+        "app.kubernetes.io/name": "kestra-pod-resource-verify",
+        "kestra-playground.tacogips.io/execution": "{{ execution.id }}",
+        "kestra-playground.tacogips.io/resource-class": "small",
+    }
+    assert tasks["batch_2_large_pod"]["metadata"]["labels"] == {
+        "app.kubernetes.io/name": "kestra-pod-resource-verify",
+        "kestra-playground.tacogips.io/execution": "{{ execution.id }}",
+        "kestra-playground.tacogips.io/resource-class": "large",
+    }
+    assert small == {
+        "requests": {"cpu": "500m", "memory": "512Mi"},
+        "limits": {"cpu": "1", "memory": "1Gi"},
+    }
+    assert large == {
+        "requests": {"cpu": "2", "memory": "4Gi"},
+        "limits": {"cpu": "4", "memory": "8Gi"},
+    }
+    for task in flow["tasks"]:
+        assert "nodeSelector" not in task["spec"]
+
+
+def test_k8s_pod_resource_verifier_registers_resource_flow() -> None:
+    mise_config = _toml_load("mise.toml")
+    script = _read_text("scripts/verify-live-k8s-pod-resources.sh")
+
+    assert "kestra:live:run-k8s-pod-resources" in mise_config["tasks"]
+    assert "kestra/flows-k8s-pod-resources" in script
+    assert 'FLOW_NAMESPACE="playground.k8s_pod_resources"' in script
+    assert '-F "kubernetes_namespace=${NAMESPACE}"' in script
+    assert "require_command kubectl" in script
+    assert "pod_resources_json" in script
+    assert "assert_pod_resources" in script
+    assert 'assert_pod_resources "${pods_json}" small 500m 512Mi 1 1Gi' in script
+    assert 'assert_pod_resources "${pods_json}" large 2 4Gi 4 8Gi' in script
+    assert "cleanup_resource_pods" in script
+
+
+def test_operation_demo_uses_one_batch_source_with_environment_specific_flows() -> None:
+    batch_source = Path("batch-groups/ec/batches/resource_probe/run.sh")
+    local_flow = _yaml_load("kestra/flows-operation-demo/local/resource_probe_local.yaml")
+    gke_flow = _yaml_load(
+        "kestra/flows-operation-demo/gke-pod-resources/resource_probe_gke_pod_resources.yaml"
+    )
+    routed_flow = _yaml_load(
+        "kestra/flows-operation-demo/routed-worker/resource_probe_routed_workers.yaml"
+    )
+
+    assert batch_source.is_file()
+    assert "ARG KESTRA_BASE_IMAGE=kestra/kestra:v1.3.15" in _read_text("Dockerfile")
+    assert "/app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh" in _read_text(
+        "Dockerfile"
+    )
+    assert "/app/kestra-playground/batch-groups/ec/batches" in _read_text(
+        "local/docker/docker-compose.yml"
+    )
+    assert "/app/kestra-playground/batch-groups/ec/batches" in _read_text(
+        "local/apple-container/start.sh"
+    )
+
+    assert local_flow["tasks"][0]["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
+    assert (
+        "/app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh"
+        in local_flow["tasks"][0]["commands"][0]
+    )
+
+    assert gke_flow["tasks"][0]["type"] == "io.kestra.plugin.core.flow.Parallel"
+    gke_tasks = {task["id"]: task for task in gke_flow["tasks"][0]["tasks"]}
+    assert gke_tasks["batch_1_small_pod"]["type"] == "io.kestra.plugin.kubernetes.core.PodCreate"
+    assert gke_tasks["batch_1_small_pod"]["spec"]["containers"][0]["image"] == (
+        "{{ envs.runtime_image }}"
+    )
+    assert gke_tasks["batch_1_small_pod"]["waitForLogInterval"] == "PT2S"
+    assert {
+        env["name"]: env["value"]
+        for env in gke_tasks["batch_1_small_pod"]["spec"]["containers"][0]["env"]
+    }["SLEEP_SECONDS"] == "45"
+    assert gke_tasks["batch_1_small_pod"]["spec"]["containers"][0]["resources"] == {
+        "requests": {"cpu": "500m", "memory": "512Mi"},
+        "limits": {"cpu": "1", "memory": "1Gi"},
+    }
+    assert gke_tasks["batch_2_large_pod"]["spec"]["containers"][0]["resources"] == {
+        "requests": {"cpu": "2", "memory": "4Gi"},
+        "limits": {"cpu": "4", "memory": "8Gi"},
+    }
+
+    routed_tasks = {task["id"]: task for task in routed_flow["tasks"]}
+    assert routed_tasks["batch_1_on_gce_a"]["workerSelector"]["tags"] == ["gce-a"]
+    assert routed_tasks["batch_2_on_gce_b"]["workerSelector"]["tags"] == ["gce-b"]
+    for task in routed_flow["tasks"]:
+        assert task["taskRunner"] == {"type": "io.kestra.plugin.core.runner.Process"}
+        assert (
+            "/app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh"
+            in task["commands"][0]
+        )
+
+
+def test_operation_demo_runtime_image_and_ci_entrypoints_are_configured() -> None:
+    mise_config = _toml_load("mise.toml")
+    workflow = _yaml_load(".github/workflows/deploy.yml")
+    apply_script = _read_text("scripts/apply-gke-dev.sh")
+
+    assert "ENV_RUNTIME_IMAGE" in _read_text("batch-groups/ec/config/envs/local.env.example")
+    assert "ENV_RUNTIME_IMAGE" not in _read_text("local/docker/.env.example")
+    assert 'ENV_RUNTIME_IMAGE: "${kestra_image}"' in apply_script
+    assert apply_script.index('--values "$helm_runtime_values"') < apply_script.index(
+        "kestra-controller-only-values.yaml"
+    )
+
+    for task_name in (
+        "kestra:flows:run-operation-demo-local",
+        "kestra:live:run-operation-demo-gke-pod-resources",
+        "kestra:live:run-operation-demo-routed",
+    ):
+        assert task_name in mise_config["tasks"]
+
+    operation_demo = workflow[True]["workflow_dispatch"]["inputs"]["operation_demo"]
+    assert operation_demo["options"] == ["none", "gke-pod-resources", "routed-workers"]
+    deploy_steps = workflow["jobs"]["deploy"]["steps"]
+    operation_step = next(
+        step for step in deploy_steps if step["name"] == "Run operation demo verification"
+    )
+    build_step = next(
+        step
+        for step in workflow["jobs"]["build-image"]["steps"]
+        if step["name"] == "Build and push runtime image"
+    )
+    assert "KESTRA_BASE_IMAGE=kestra/kestra:v1.3.15" in build_step["run"]
+    assert "scripts/verify-live-operation-demo-gke-pod-resources.sh" in operation_step["run"]
+    assert "scripts/verify-live-operation-demo-routed.sh" in operation_step["run"]
+    routed_build_steps = workflow["jobs"]["build-routed-image"]["steps"]
+    copy_step = next(
+        step for step in routed_build_steps if step["name"] == "Copy operation demo batch source"
+    )
+    assert "kestra-source/docker/app/kestra-playground/batch-groups/ec/batches" in copy_step["run"]
+    local_script = _read_text("scripts/verify-local-operation-demo.sh")
+    assert "KESTRA_ENV_FILE" in local_script
+    assert "kestra/flows-operation-demo/local" in local_script
+    gke_script = _read_text("scripts/verify-live-operation-demo-gke-pod-resources.sh")
+    assert "print_pod_resources" in gke_script
+    assert "pod_resources_json" in gke_script
+    assert "Expected one small and one large operation demo pod" in gke_script
+    assert "Flow execution response was not a Kestra execution JSON document" in gke_script
+    assert "Execution status response was not a Kestra execution JSON document" in gke_script
+    assert "| unique" in gke_script
+    assert "did not complete cleanly after pod resources were verified" in gke_script
+    routed_script = _read_text("scripts/verify-live-operation-demo-routed.sh")
+    assert "hostname=kestra-dev-gce-a" in routed_script
+    assert "worker_group=gce-a" in routed_script
+    assert "hostname=kestra-dev-gce-b" in routed_script
+    assert "worker_group=gce-b" in routed_script
+
+
+def test_business_date_helper_resolves_default_business_date() -> None:
+    result = _run_bash("source scripts/lib/business-date.sh; resolve_business_date")
+
+    assert result.returncode == 0
+    assert datetime.date.fromisoformat(result.stdout.strip())
+
+
+def test_business_date_helper_prefers_explicit_argument() -> None:
+    result = _run_bash(
+        "source scripts/lib/business-date.sh; resolve_business_date 2026-06-26",
+        env={"BUSINESS_DATE": "2026-06-25"},
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == "2026-06-26"
+
+
+def test_business_date_helper_rejects_invalid_calendar_date() -> None:
+    result = _run_bash("source scripts/lib/business-date.sh; resolve_business_date 2026-99-99")
+
+    assert result.returncode != 0
+    assert "Invalid business date: 2026-99-99" in result.stderr
+
+
+def test_business_date_helper_reports_missing_python() -> None:
+    result = _run_bash(
+        "source scripts/lib/business-date.sh; PATH=/nonexistent resolve_business_date 2026-06-26"
+    )
+
+    assert result.returncode != 0
+    assert "Missing required command: python or python3" in result.stderr
+
+
+def test_run_flow_rejects_invalid_business_date_before_curl() -> None:
+    result = subprocess.run(
+        [
+            "scripts/run-flow.sh",
+            "generate_ecommerce_mock_data",
+            "2026-99-99",
+            "http://127.0.0.1:1",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "Invalid business date: 2026-99-99" in result.stderr
+    assert "curl" not in result.stderr.lower()
+
+
+def test_run_flow_rejects_non_json_success_response() -> None:
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            """
+            set -euo pipefail
+            tmpdir="$(mktemp -d)"
+            cat >"${tmpdir}/curl" <<'SH'
+#!/usr/bin/env bash
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -o)
+      printf '<!doctype html><html></html>' >"$2"
+      shift 2
+      ;;
+    -w)
+      printf '200'
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+SH
+            chmod +x "${tmpdir}/curl"
+            PATH="${tmpdir}:${PATH}" scripts/run-flow.sh resource_probe_local 2026-06-25 http://example.invalid
+            """,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "not a Kestra execution JSON document" in result.stderr
+
+
+def test_live_health_verification_does_not_validate_unused_business_date(tmp_path: Path) -> None:
+    _stub_executable(tmp_path, "curl")
+    _stub_executable(tmp_path, "gcloud")
+    _stub_executable(tmp_path, "jq")
+
+    result = subprocess.run(
+        [
+            "scripts/verify-live-environments.sh",
+            "unknown-target",
+            "2026-99-99",
+            "health",
+        ],
+        check=False,
+        capture_output=True,
+        env={**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"},
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "Unknown target environment: unknown-target" in result.stderr
+    assert "Invalid business date" not in result.stderr
+
+
+def test_live_batch_verification_rejects_invalid_business_date_before_commands() -> None:
+    result = subprocess.run(
+        [
+            "scripts/verify-live-environments.sh",
+            "unknown-target",
+            "2026-99-99",
+            "run-batch",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "Invalid business date: 2026-99-99" in result.stderr
+    assert "Unknown target environment" not in result.stderr
+
+
+def test_scripts_check_syntax_validates_each_shell_script() -> None:
+    mise_config = _toml_load("mise.toml")
+    scripts_check_commands = mise_config["tasks"]["scripts:check"]["run"]
+
+    assert "xargs -0 -n 1 bash -n" in scripts_check_commands
+
+
+def _read_text(path: str) -> str:
+    return Path(path).read_text(encoding="utf-8").rstrip()
+
+
+def _toml_load(path: str) -> dict[str, Any]:
+    with Path(path).open("rb") as handle:
+        return tomllib.load(handle)
+
+
+def _flow_task_sql(path: str, task_id: str) -> str:
+    task = _flow_task(path, task_id)
+    try:
+        return task["sql"].rstrip()
+    except KeyError as exc:
+        raise AssertionError(f"Task {task_id!r} does not contain a SQL block") from exc
+
+
+def _flow_tasks_sql(path: str, task_ids: list[str]) -> str:
+    return "\n\n".join(_flow_task_sql(path, task_id) for task_id in task_ids)
+
+
+def _flow_task_ids(path: str) -> list[str]:
+    return [task["id"] for task in _yaml_load(path)["tasks"]]
+
+
+def _flow_task(path: str, task_id: str) -> dict[str, Any]:
+    for task in _yaml_load(path)["tasks"]:
+        if task["id"] == task_id:
+            return task
+
+    raise AssertionError(f"Task {task_id!r} was not found in {path}")
+
+
+def _yaml_load(path: str) -> dict[Any, Any]:
+    return yaml.safe_load(_read_text(path))
+
+
+def _yaml_document(path: str, *, kind: str, name: str) -> dict[str, Any]:
+    for document in yaml.safe_load_all(_read_text(path)):
+        if document["kind"] == kind and document["metadata"]["name"] == name:
+            return document
+
+    raise AssertionError(f"{kind} {name!r} was not found in {path}")
+
+
+def _container_by_name(deployment: dict[str, Any], name: str) -> dict[str, Any]:
+    for container in deployment["spec"]["template"]["spec"]["containers"]:
+        if container["name"] == name:
+            return container
+
+    deployment_name = deployment["metadata"]["name"]
+    raise AssertionError(f"Container {name!r} was not found in Deployment {deployment_name!r}")
+
+
+def _run_bash(
+    command: str, *, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", "-c", command],
+        check=False,
+        capture_output=True,
+        env={**os.environ, **(env or {})},
+        text=True,
+    )
+
+
+def _live_config_env(directory: Path) -> dict[str, str]:
+    return {
+        "LIVE_CONFIG_DIR": str(directory),
+        "PROJECT_ID": "test-project",
+        "LIVE_DOMAIN_NAME": "example.com",
+        "CLOUDFLARE_ZONE_ID": "zone-id",
+        "TOFU_STATE_BUCKET": "state-bucket",
+        "LIVE_GKE_CONTROLLER_WORKER_ENABLED": "",
+        "LIVE_GKE_ROUTED_WORKERS_ENABLED": "",
+        "LIVE_GKE_ROUTED_WORKER_MACHINE_TYPE": "",
+        "LIVE_GKE_EXTERNAL_GCE_WORKER_MACHINE_TYPE": "",
+    }
+
+
+def _stub_executable(directory: Path, name: str) -> None:
+    path = directory / name
+    path.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    path.chmod(0o755)
