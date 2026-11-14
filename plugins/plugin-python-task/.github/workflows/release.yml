@@ -1,0 +1,62 @@
+name: Package release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (for example 0.1.0)
+        required: true
+      publish:
+        description: Publish to configured Maven repository
+        type: boolean
+        default: false
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - name: Validate release version
+        run: |
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+      - run: ./gradlew test assemble publish "-Pversion=$RELEASE_VERSION"
+      - run: docker compose -f local/compose.yaml build --build-arg "PLUGIN_VERSION=$RELEASE_VERSION"
+      - run: docker compose -f local/compose.yaml up -d
+      - run: python local/verify.py
+      - if: failure()
+        run: docker compose -f local/compose.yaml logs --tail=150
+      - if: always()
+        run: docker compose -f local/compose.yaml down
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plugin-python-task-${{ inputs.version }}
+          path: |
+            build/libs/
+            build/repository/
+            local/results/
+      - if: inputs.publish
+        env:
+          MAVEN_REPOSITORY_URL: ${{ secrets.MAVEN_REPOSITORY_URL }}
+          MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          test -n "$MAVEN_REPOSITORY_URL"
+          ./gradlew publish "-Pversion=$RELEASE_VERSION" "-PpublishUrl=$MAVEN_REPOSITORY_URL"

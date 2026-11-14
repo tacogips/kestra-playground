@@ -1,0 +1,59 @@
+name: kestra-python-task
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: kestra
+      POSTGRES_USER: kestra
+      POSTGRES_PASSWORD: local-python-task-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kestra"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+  kestra:
+    build:
+      context: ..
+      dockerfile: local/Dockerfile
+    command: server standalone --worker-thread=4
+    ports:
+      - "127.0.0.1:${PYTHON_TASK_PORT:-18080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      KESTRA_CONFIGURATION: |
+        datasources:
+          postgres:
+            url: jdbc:postgresql://postgres:5432/kestra
+            driverClassName: org.postgresql.Driver
+            username: kestra
+            password: local-python-task-only
+        kestra:
+          server:
+            basic-auth:
+              username: local@example.com
+              password: LocalPythonTask123!
+          repository:
+            type: postgres
+          queue:
+            type: postgres
+          storage:
+            type: local
+            local:
+              base-path: /app/storage
+          tasks:
+            tmp-dir:
+              path: /tmp/kestra-wd
+          url: http://localhost:8080/
+    volumes:
+      - kestra-data:/app/storage
+    logging:
+      options:
+        max-size: "20m"
+        max-file: "2"
+volumes:
+  postgres-data:
+  kestra-data:
