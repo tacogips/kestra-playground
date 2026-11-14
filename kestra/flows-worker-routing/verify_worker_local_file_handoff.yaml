@@ -1,0 +1,91 @@
+id: verify_worker_local_file_handoff
+namespace: playground.worker_routing
+
+description: Verify ordered file and database tasks use one dedicated worker and its local persistent disk.
+
+inputs:
+  - id: write_file
+    type: BOOL
+    required: true
+    defaults: true
+
+tasks:
+  - id: verify_default_worker
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - printf 'default_route=executed worker=%s\n' "$(hostname)"
+
+  - id: write_worker_local_file
+    type: io.kestra.plugin.scripts.shell.Commands
+    runIf: "{{ inputs.write_file }}"
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    workerSelector:
+      tags: [gke-large]
+      match: ALL
+      fallback: WAIT
+      broadcast: false
+    commands:
+      - |
+        set -eu
+        path="/var/lib/kestra-worker-local/{{ execution.id }}.txt"
+        value="orders-ready-{{ execution.id }}"
+        umask 077
+        printf '%s\n' "$value" >"$path"
+        printf 'local_handoff=written worker=%s path=%s value=%s\n' "$(hostname)" "$path" "$value"
+
+  - id: read_worker_local_file
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    workerSelector:
+      tags: [gke-large]
+      match: ALL
+      fallback: WAIT
+      broadcast: false
+    commands:
+      - |
+        set -eu
+        path="/var/lib/kestra-worker-local/{{ execution.id }}.txt"
+        expected="orders-ready-{{ execution.id }}"
+        if [ ! -f "$path" ]; then
+          printf 'local_handoff=missing worker=%s path=%s\n' "$(hostname)" "$path" >&2
+          exit 42
+        fi
+        actual="$(cat "$path")"
+        if [ "$actual" != "$expected" ]; then
+          printf 'local_handoff=invalid worker=%s path=%s expected=%s actual=%s\n' \
+            "$(hostname)" "$path" "$expected" "$actual" >&2
+          exit 43
+        fi
+        printf 'local_handoff=read worker=%s path=%s value=%s\n' "$(hostname)" "$path" "$actual"
+        printf '::{"outputs":{"handoff_value":"%s"}}::\n' "$actual"
+        rm -f "$path"
+
+  - id: register_worker_local_file
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    url: "{{ envs.batch_db_url }}"
+    username: "{{ envs.batch_db_username }}"
+    password: "{{ envs.batch_db_password }}"
+    workerSelector:
+      tags: [gke-large]
+      match: ALL
+      fallback: WAIT
+      broadcast: false
+    fetchType: NONE
+    sql: |
+      CREATE TABLE IF NOT EXISTS worker_local_handoffs (
+        execution_id text PRIMARY KEY,
+        handoff_value text NOT NULL,
+        registered_at timestamptz NOT NULL DEFAULT now()
+      );
+      INSERT INTO worker_local_handoffs (execution_id, handoff_value)
+      VALUES (
+        '{{ execution.id }}',
+        '{{ outputs.read_worker_local_file.vars.handoff_value }}'
+      )
+      ON CONFLICT (execution_id) DO UPDATE
+      SET handoff_value = EXCLUDED.handoff_value,
+          registered_at = now();
