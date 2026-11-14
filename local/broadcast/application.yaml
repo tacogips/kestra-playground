@@ -1,0 +1,57 @@
+micronaut:
+  server:
+    port: ${KESTRA_HTTP_PORT:28080}
+
+endpoints:
+  all:
+    port: ${KESTRA_MANAGEMENT_PORT:28081}
+
+datasources:
+  postgres:
+    url: jdbc:postgresql://127.0.0.1:${KESTRA_BROADCAST_DB_PORT:55432}/kestra_broadcast
+    driver-class-name: org.postgresql.Driver
+    username: kestra
+    password: kestra
+    maximum-pool-size: 4
+
+kestra:
+  tutorial-flows:
+    enabled: false
+  server:
+    basic-auth:
+      username: admin@example.com
+      password: KestraBroadcast1234!
+  repository:
+    type: postgres
+  queue:
+    type: postgres
+  storage:
+    type: local
+    local:
+      base-path: ${KESTRA_BROADCAST_STORAGE_PATH:/tmp/kestra-broadcast/storage}
+  controller:
+    port: ${KESTRA_CONTROLLER_PORT:25051}
+  worker:
+    controllers:
+      type: STATIC
+      static:
+        endpoints:
+          - host: 127.0.0.1
+            port: ${KESTRA_CONTROLLER_PORT:25051}
+    routing:
+      workerGroupId: ${KESTRA_WORKER_GROUP_ID:controller}
+      groupQueueMappings:
+        controller:
+          queues:
+            - workerQueueId: default
+              reservedPercent: -1
+            - workerQueueId: system
+              reservedPercent: -1
+        broadcast-batch:
+          queues:
+            - workerQueueId: gke-small
+              reservedPercent: -1
+      queues:
+        gke-small:
+          tags: [gke-small]
+  url: http://127.0.0.1:${KESTRA_HTTP_PORT:28080}/

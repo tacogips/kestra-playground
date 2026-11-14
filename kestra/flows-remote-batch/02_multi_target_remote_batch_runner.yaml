@@ -1,0 +1,56 @@
+id: multi_target_remote_batch_runner
+namespace: playground.remote_batch
+description: Run one SSH batch child per target and retry only failed target children.
+
+inputs:
+  - id: targets
+    type: JSON
+    required: true
+    description: >-
+      Bounded array of unique target objects with id, host, port, username, password_secret, and
+      execute_failure_marker. Values name Kestra secrets but never contain secret payloads.
+
+  - id: script_name
+    type: STRING
+    required: true
+
+  - id: config_json
+    type: STRING
+    required: true
+
+  - id: output_file
+    type: STRING
+    required: true
+
+tasks:
+  - id: targets
+    type: io.kestra.plugin.core.flow.Loop
+    values: "{{ inputs.targets }}"
+    concurrencyLimit: 4
+    tasks:
+      - id: run_target
+        type: io.kestra.plugin.core.flow.Subflow
+        namespace: playground.remote_batch
+        flowId: remote_batch_runner
+        wait: true
+        transmitFailed: true
+        inputs:
+          target_id: "{{ fromJson(item.value).id }}"
+          script_name: "{{ inputs.script_name }}"
+          config_json: "{{ inputs.config_json }}"
+          output_file: "{{ inputs.output_file }}"
+          worker_host: "{{ fromJson(item.value).host }}"
+          worker_port: "{{ fromJson(item.value).port }}"
+          worker_username: "{{ fromJson(item.value).username }}"
+          worker_password_secret: "{{ fromJson(item.value).password_secret }}"
+          execute_failure_marker: "{{ fromJson(item.value).execute_failure_marker }}"
+        retry:
+          type: constant
+          maxAttempts: 3
+          interval: PT30S
+          maxDuration: PT30M
+
+outputs:
+  - id: target_executions
+    type: JSON
+    value: "{{ outputs.run_target is defined ? (outputs.run_target | toJson) : '{}' }}"
