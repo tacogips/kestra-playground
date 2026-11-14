@@ -1,0 +1,5 @@
+deployments:
+  worker:
+    enabled: false
+    autoscaler:
+      enabled: false

@@ -1,0 +1,199 @@
+id: routed_batch_runner
+namespace: playground.remote_batch
+description: Reusable uv runner for Namespace File batches on a selected routed Kestra worker.
+
+inputs:
+  - id: batch_bundle
+    type: FILE
+    required: true
+    description: Execution-scoped tar.gz bundle stored in Kestra internal storage.
+
+  - id: source_root
+    type: STRING
+    required: true
+    description: Bundle directory removed after execution.
+
+  - id: script_name
+    type: STRING
+    required: true
+    description: Python entry point below source_root.
+
+  - id: config_json
+    type: STRING
+    required: true
+    description: Business configuration passed to the batch as JSON.
+
+  - id: output_file
+    type: STRING
+    required: true
+    description: Artifact filename created in the task working directory.
+
+  - id: worker_group
+    type: STRING
+    required: true
+    description: Static OSS routing queue tag; supported values are gke-small and gke-large.
+
+  - id: python_version
+    type: STRING
+    defaults: "3.12"
+
+  - id: timeout
+    type: DURATION
+    defaults: PT10M
+
+tasks:
+  - id: select_worker
+    type: io.kestra.plugin.core.flow.Switch
+    value: "{{ inputs.worker_group }}"
+    cases:
+      gke-small:
+        - id: execute_batch_gke_small
+          type: io.kestra.plugin.scripts.shell.Commands
+          taskRunner:
+            type: io.kestra.plugin.core.runner.Process
+          timeout: "{{ inputs.timeout }}"
+          workerSelector:
+            tags: [gke-small]
+            match: ALL
+            fallback: FAIL
+          inputFiles:
+            batch.tar.gz: "{{ inputs.batch_bundle }}"
+          env:
+            KESTRA_BATCH_CONFIG: "{{ inputs.config_json }}"
+            KESTRA_BATCH_OUTPUT: "{{ inputs.output_file }}"
+            PYTHONUNBUFFERED: "1"
+            UV_CACHE_DIR: .uv-cache
+            UV_PYTHON_INSTALL_DIR: .uv-python
+          outputFiles:
+            - "{{ inputs.output_file }}"
+          commands:
+            - |
+              set -eu
+              cleanup_runtime() {
+                batch_status=$?
+                cleanup_status=0
+                for runtime_path in \
+                  batch.tar.gz \
+                  "{{ inputs.source_root }}" \
+                  "${UV_CACHE_DIR}" \
+                  "${UV_PYTHON_INSTALL_DIR}"
+                do
+                  rm -rf -- "${runtime_path}" || cleanup_status=1
+                done
+                for runtime_path in \
+                  batch.tar.gz \
+                  "{{ inputs.source_root }}" \
+                  "${UV_CACHE_DIR}" \
+                  "${UV_PYTHON_INSTALL_DIR}"
+                do
+                  if [ -e "${runtime_path}" ] || [ -L "${runtime_path}" ]; then
+                    printf '%s\n' "cleanup_error path=${runtime_path}" >&2
+                    cleanup_status=1
+                  fi
+                done
+                if [ "${cleanup_status}" -eq 0 ]; then
+                  printf '%s\n' 'progress phase=runtime_cleaned verified=true'
+                elif [ "${batch_status}" -eq 0 ]; then
+                  batch_status="${cleanup_status}"
+                fi
+                exit "${batch_status}"
+              }
+              trap cleanup_runtime EXIT
+              printf '%s\n' \
+                "progress phase=worker_ready group=gke-small pod=${POD_NAME:-unknown} node=${K8S_NODE_NAME:-unknown}"
+              uv run --no-project --python "{{ inputs.python_version }}" \
+                python -m tarfile -e batch.tar.gz .
+              uv run --no-project --python "{{ inputs.python_version }}" \
+                python "{{ inputs.script_name }}"
+              artifact_checksum="$(sha256sum "${KESTRA_BATCH_OUTPUT}" | cut -d ' ' -f 1)"
+              printf '::{"outputs":{"artifact_checksum":"%s","worker_group":"gke-small","worker_pod":"%s","worker_node":"%s"}}::\n' \
+                "${artifact_checksum}" \
+                "${POD_NAME:-unknown}" \
+                "${K8S_NODE_NAME:-unknown}"
+
+      gke-large:
+        - id: execute_batch_gke_large
+          type: io.kestra.plugin.scripts.shell.Commands
+          taskRunner:
+            type: io.kestra.plugin.core.runner.Process
+          timeout: "{{ inputs.timeout }}"
+          workerSelector:
+            tags: [gke-large]
+            match: ALL
+            fallback: FAIL
+          inputFiles:
+            batch.tar.gz: "{{ inputs.batch_bundle }}"
+          env:
+            KESTRA_BATCH_CONFIG: "{{ inputs.config_json }}"
+            KESTRA_BATCH_OUTPUT: "{{ inputs.output_file }}"
+            PYTHONUNBUFFERED: "1"
+            UV_CACHE_DIR: .uv-cache
+            UV_PYTHON_INSTALL_DIR: .uv-python
+          outputFiles:
+            - "{{ inputs.output_file }}"
+          commands:
+            - |
+              set -eu
+              cleanup_runtime() {
+                batch_status=$?
+                cleanup_status=0
+                for runtime_path in \
+                  batch.tar.gz \
+                  "{{ inputs.source_root }}" \
+                  "${UV_CACHE_DIR}" \
+                  "${UV_PYTHON_INSTALL_DIR}"
+                do
+                  rm -rf -- "${runtime_path}" || cleanup_status=1
+                done
+                for runtime_path in \
+                  batch.tar.gz \
+                  "{{ inputs.source_root }}" \
+                  "${UV_CACHE_DIR}" \
+                  "${UV_PYTHON_INSTALL_DIR}"
+                do
+                  if [ -e "${runtime_path}" ] || [ -L "${runtime_path}" ]; then
+                    printf '%s\n' "cleanup_error path=${runtime_path}" >&2
+                    cleanup_status=1
+                  fi
+                done
+                if [ "${cleanup_status}" -eq 0 ]; then
+                  printf '%s\n' 'progress phase=runtime_cleaned verified=true'
+                elif [ "${batch_status}" -eq 0 ]; then
+                  batch_status="${cleanup_status}"
+                fi
+                exit "${batch_status}"
+              }
+              trap cleanup_runtime EXIT
+              printf '%s\n' \
+                "progress phase=worker_ready group=gke-large pod=${POD_NAME:-unknown} node=${K8S_NODE_NAME:-unknown}"
+              uv run --no-project --python "{{ inputs.python_version }}" \
+                python -m tarfile -e batch.tar.gz .
+              uv run --no-project --python "{{ inputs.python_version }}" \
+                python "{{ inputs.script_name }}"
+              artifact_checksum="$(sha256sum "${KESTRA_BATCH_OUTPUT}" | cut -d ' ' -f 1)"
+              printf '::{"outputs":{"artifact_checksum":"%s","worker_group":"gke-large","worker_pod":"%s","worker_node":"%s"}}::\n' \
+                "${artifact_checksum}" \
+                "${POD_NAME:-unknown}" \
+                "${K8S_NODE_NAME:-unknown}"
+
+    defaults:
+      - id: unsupported_worker_group
+        type: io.kestra.plugin.core.execution.Fail
+        errorMessage: "Unsupported routed worker group: {{ inputs.worker_group }}"
+
+outputs:
+  - id: artifact
+    type: FILE
+    value: "{{ outputs.execute_batch_gke_small.outputFiles is defined ? outputs.execute_batch_gke_small.outputFiles[inputs.output_file] : (outputs.execute_batch_gke_large.outputFiles is defined ? outputs.execute_batch_gke_large.outputFiles[inputs.output_file] : inputs.batch_bundle) }}"
+
+  - id: artifact_checksum
+    type: STRING
+    value: "{{ outputs.execute_batch_gke_small.vars.artifact_checksum is defined ? outputs.execute_batch_gke_small.vars.artifact_checksum : (outputs.execute_batch_gke_large.vars.artifact_checksum is defined ? outputs.execute_batch_gke_large.vars.artifact_checksum : 'not-collected') }}"
+
+  - id: worker_group
+    type: STRING
+    value: "{{ outputs.execute_batch_gke_small.vars.worker_group is defined ? outputs.execute_batch_gke_small.vars.worker_group : (outputs.execute_batch_gke_large.vars.worker_group is defined ? outputs.execute_batch_gke_large.vars.worker_group : inputs.worker_group) }}"
+
+  - id: worker_pod
+    type: STRING
+    value: "{{ outputs.execute_batch_gke_small.vars.worker_pod is defined ? outputs.execute_batch_gke_small.vars.worker_pod : (outputs.execute_batch_gke_large.vars.worker_pod is defined ? outputs.execute_batch_gke_large.vars.worker_pod : 'not-started') }}"
