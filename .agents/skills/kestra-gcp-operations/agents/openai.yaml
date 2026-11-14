@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kestra GCP Operations"
+  short_description: "Operate Kestra deployments on GCP"
+  default_prompt: "Use $kestra-gcp-operations to deploy, verify, or troubleshoot the Kestra playground environments."

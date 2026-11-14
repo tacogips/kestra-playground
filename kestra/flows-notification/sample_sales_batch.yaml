@@ -1,0 +1,82 @@
+id: sample_sales_batch
+namespace: playground.notification
+description: |
+  Sample three-stage batch used to exercise both notification layers at once.
+
+  - `errors` sends the error mail as soon as a task fails, while the execution is
+    still being torn down, and names the failing task through `tasksWithState`.
+  - The execution then reaches FAILED, which is what the independent
+    playground.system.notify_execution_result flow mails as the fail mail.
+  - `finally` runs on every outcome and is used for cleanup only, because it runs
+    while the execution is still RUNNING and cannot see the final state.
+
+  Set `fail_stage` to extract, transform, or publish to fail that stage.
+
+labels:
+  environment: playground
+  domain: notification
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+    description: Business date the batch reports on.
+
+  - id: fail_stage
+    type: STRING
+    required: true
+    defaults: none
+    description: Stage that should fail; use none for the success path.
+
+pluginDefaults:
+  - type: io.kestra.plugin.email.MailSend
+    values:
+      from: "{{ envs.notify_mail_from }}"
+      to: "{{ envs.notify_mail_to }}"
+      host: "{{ envs.notify_smtp_host }}"
+      port: "{{ envs.notify_smtp_port }}"
+      transportStrategy: SMTP
+
+tasks:
+  - id: extract_orders
+    type: io.kestra.plugin.core.debug.Return
+    format: "extracted orders for {{ inputs.business_date }}"
+
+  - id: simulate_extract_failure
+    type: io.kestra.plugin.core.execution.Fail
+    condition: "{{ inputs.fail_stage == 'extract' }}"
+    errorMessage: "extract stage failed for {{ inputs.business_date }}"
+
+  - id: transform_orders
+    type: io.kestra.plugin.core.debug.Return
+    format: "transformed {{ outputs.extract_orders.value }}"
+
+  - id: simulate_transform_failure
+    type: io.kestra.plugin.core.execution.Fail
+    condition: "{{ inputs.fail_stage == 'transform' }}"
+    errorMessage: "transform stage failed for {{ inputs.business_date }}"
+
+  - id: publish_report
+    type: io.kestra.plugin.core.log.Log
+    message: "published {{ outputs.transform_orders.value }}"
+
+  - id: simulate_publish_failure
+    type: io.kestra.plugin.core.execution.Fail
+    condition: "{{ inputs.fail_stage == 'publish' }}"
+    errorMessage: "publish stage failed for {{ inputs.business_date }}"
+
+errors:
+  - id: mail_error_details
+    type: io.kestra.plugin.email.MailSend
+    subject: "[ERROR] {{ flow.namespace }}.{{ flow.id }} task={{ tasksWithState('FAILED')[0]['taskId'] }}"
+    plainTextContent: |
+      execution_id={{ execution.id }}
+      business_date={{ inputs.business_date }}
+      fail_stage={{ inputs.fail_stage }}
+      failed_tasks={{ tasksWithState('FAILED') }}
+
+finally:
+  - id: log_cleanup
+    type: io.kestra.plugin.core.log.Log
+    message: "cleanup done for {{ execution.id }}"
