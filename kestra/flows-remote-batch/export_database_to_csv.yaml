@@ -1,0 +1,59 @@
+id: export_database_to_csv
+namespace: playground.remote_batch
+description: Copy the database export program to a configured worker and retain its CSV artifact.
+
+labels:
+  pattern: remote-python-batch
+  example: database-export
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+
+  - id: worker_host
+    type: STRING
+    defaults: "{{ envs.remote_batch_host }}"
+
+  - id: worker_port
+    type: INT
+    defaults: 22
+
+  - id: worker_username
+    type: STRING
+    defaults: "{{ envs.remote_batch_username }}"
+
+  - id: worker_password_secret
+    type: STRING
+    defaults: REMOTE_BATCH_PASSWORD
+
+  - id: database_path
+    type: STRING
+    defaults: /opt/batch-inputs/ecommerce.db
+
+tasks:
+  - id: run_remote_batch
+    type: io.kestra.plugin.core.flow.Subflow
+    namespace: playground.remote_batch
+    flowId: remote_batch_runner
+    wait: true
+    transmitFailed: true
+    inputs:
+      script_name: batches/db_export/export_database.py
+      config_json: >-
+        {"database_path":"{{ inputs.database_path }}","query":"SELECT order_id, business_date, customer_id, status, net_amount FROM orders WHERE business_date = '{{ inputs.business_date }}' ORDER BY order_id"}
+      output_file: "orders-{{ inputs.business_date }}.csv"
+      worker_host: "{{ inputs.worker_host }}"
+      worker_port: "{{ inputs.worker_port }}"
+      worker_username: "{{ inputs.worker_username }}"
+      worker_password_secret: "{{ inputs.worker_password_secret }}"
+
+outputs:
+  - id: artifact
+    type: FILE
+    value: "{{ outputs.run_remote_batch.outputs is defined ? outputs.run_remote_batch.outputs.artifact : 'nsfile:///batches/db_export/export_database.py' }}"
+
+  - id: artifact_checksum
+    type: STRING
+    value: "{{ outputs.run_remote_batch.outputs is defined ? outputs.run_remote_batch.outputs.artifact_checksum : 'not-collected' }}"
