@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+apt-get update
+apt-get install -y ca-certificates curl gnupg docker.io
+if ! apt-get install -y docker-compose-plugin; then
+  apt-get install -y docker-compose
+fi
+systemctl enable --now docker
+
+compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  else
+    docker-compose "$@"
+  fi
+}
+
+if ! command -v gcloud >/dev/null 2>&1; then
+  install -m 0755 -d /usr/share/keyrings
+  curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+    | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+  echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+    >/etc/apt/sources.list.d/google-cloud-sdk.list
+  apt-get update
+  apt-get install -y google-cloud-cli
+fi
+
+mkdir -p /opt/kestra-worker/config /tmp/kestra-worker-wd
+gcloud auth configure-docker "${artifact_registry_host}" --quiet
+
+read_secret() {
+  gcloud secrets versions access latest --project="${project_id}" --secret="${name_prefix}-gke-$1"
+}
+
+KESTRA_DB_USERNAME="$(read_secret kestra-db-username)"
+KESTRA_DB_PASSWORD="$(read_secret kestra-db-password)"
+KESTRA_BASIC_AUTH_USERNAME="$(read_secret kestra-basic-auth-username)"
+KESTRA_BASIC_AUTH_PASSWORD="$(read_secret kestra-basic-auth-password)"
+ENV_BATCH_DB_USERNAME="$(read_secret batch-db-username)"
+ENV_BATCH_DB_PASSWORD="$(read_secret batch-db-password)"
+CLOUD_SQL_INSTANCE="$(read_secret cloud-sql-instance)"
+KESTRA_GCS_BUCKET="$(read_secret kestra-gcs-bucket)"
+
+cat >/opt/kestra-worker/config/application.yaml <<'YAML'
+datasources:
+  postgres:
+    url: $${KESTRA_DB_URL}
+    driver-class-name: org.postgresql.Driver
+    username: $${KESTRA_DB_USERNAME}
+    password: $${KESTRA_DB_PASSWORD}
+    maximum-pool-size: $${KESTRA_DB_MAX_POOL_SIZE:2}
+kestra:
+  server:
+    basic-auth:
+      username: $${KESTRA_BASIC_AUTH_USERNAME}
+      password: $${KESTRA_BASIC_AUTH_PASSWORD}
+  repository:
+    type: postgres
+  queue:
+    type: postgres
+  storage:
+    type: gcs
+    gcs:
+      bucket: $${KESTRA_GCS_BUCKET}
+  tasks:
+    tmp-dir:
+      path: /tmp/kestra-wd/tmp
+  worker:
+    controllers:
+      type: STATIC
+      static:
+        endpoints:
+          - host: ${controller_grpc_host}
+            port: 50051
+    routing:
+      workerGroupId: $${KESTRA_WORKER_GROUP_ID}
+      groups:
+        controller:
+          queues:
+            - workerQueueId: default
+              reservedPercent: -1
+            - workerQueueId: system
+              reservedPercent: -1
+        gce-a:
+          queues:
+            - workerQueueId: gce-a
+              reservedPercent: -1
+        gce-b:
+          queues:
+            - workerQueueId: gce-b
+              reservedPercent: -1
+      queues:
+        gce-a:
+          tags: [gce-a]
+        gce-b:
+          tags: [gce-b]
+  url: ${kestra_url}
+  variables:
+    env-vars-prefix: "ENV_"
+YAML
+
+cat >/opt/kestra-worker/.env <<EOF
+KESTRA_DB_URL=jdbc:postgresql://cloud-sql-proxy:5432/kestra
+KESTRA_DB_USERNAME=$${KESTRA_DB_USERNAME}
+KESTRA_DB_PASSWORD=$${KESTRA_DB_PASSWORD}
+KESTRA_DB_MAX_POOL_SIZE=2
+KESTRA_BASIC_AUTH_USERNAME=$${KESTRA_BASIC_AUTH_USERNAME}
+KESTRA_BASIC_AUTH_PASSWORD=$${KESTRA_BASIC_AUTH_PASSWORD}
+KESTRA_GCS_BUCKET=$${KESTRA_GCS_BUCKET}
+KESTRA_WORKER_GROUP_ID=${worker_group_id}
+ENV_BATCH_DB_URL=jdbc:postgresql://cloud-sql-proxy:5432/ecommerce_ops
+ENV_BATCH_DB_USERNAME=$${ENV_BATCH_DB_USERNAME}
+ENV_BATCH_DB_PASSWORD=$${ENV_BATCH_DB_PASSWORD}
+CLOUD_SQL_INSTANCE=$${CLOUD_SQL_INSTANCE}
+KESTRA_IMAGE=${kestra_image}
+KESTRA_WORKER_THREADS=${worker_threads}
+EOF
+
+cat >/opt/kestra-worker/docker-compose.yml <<'YAML'
+services:
+  cloud-sql-proxy:
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1
+    command:
+      - "--structured-logs"
+      - "--address=0.0.0.0"
+      - "--port=5432"
+      - "$${CLOUD_SQL_INSTANCE}"
+    restart: unless-stopped
+
+  kestra-worker:
+    image: $${KESTRA_IMAGE}
+    user: "root"
+    hostname: ${worker_name}
+    command: server worker --thread=$${KESTRA_WORKER_THREADS} --config /etc/kestra/application.yaml
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - /tmp/kestra-worker-wd:/tmp/kestra-wd
+      - /opt/kestra-worker/config/application.yaml:/etc/kestra/application.yaml:ro
+    depends_on:
+      - cloud-sql-proxy
+YAML
+
+compose -f /opt/kestra-worker/docker-compose.yml --env-file /opt/kestra-worker/.env up -d --force-recreate
