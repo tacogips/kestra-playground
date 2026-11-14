@@ -1,0 +1,59 @@
+id: demo_inline_notification
+namespace: playground.inline
+description: |
+  Same-flow alternative to playground.system.notify_execution_result: the mail
+  tasks live in `afterExecution`, which runs once the execution has reached its
+  final state, so `execution.state` is resolved and the two branches can be split
+  with `runIf`. Use this shape when a single flow needs a custom message; use the
+  Flow-trigger flow when many flows should share one notifier.
+
+  The namespace is deliberately outside playground.notification so this flow is
+  not also picked up by the central notifier.
+
+labels:
+  environment: playground
+  domain: notification
+
+inputs:
+  - id: should_fail
+    type: BOOL
+    required: true
+    defaults: false
+    description: Set to true to exercise the failure branch.
+
+pluginDefaults:
+  - type: io.kestra.plugin.email.MailSend
+    values:
+      from: "{{ envs.notify_mail_from }}"
+      to: "{{ envs.notify_mail_to }}"
+      host: "{{ envs.notify_smtp_host }}"
+      port: "{{ envs.notify_smtp_port }}"
+      transportStrategy: SMTP
+
+tasks:
+  - id: load_data
+    type: io.kestra.plugin.core.log.Log
+    message: "inline demo loaded {{ execution.id }}"
+
+  - id: publish_report
+    type: io.kestra.plugin.core.execution.Fail
+    condition: "{{ inputs.should_fail }}"
+    errorMessage: "simulated inline failure"
+
+afterExecution:
+  - id: notify_success
+    type: io.kestra.plugin.email.MailSend
+    runIf: "{{ execution.state == 'SUCCESS' }}"
+    subject: "[SUCCESS] {{ flow.namespace }}.{{ flow.id }}"
+    plainTextContent: |
+      execution_id={{ execution.id }}
+      state={{ execution.state }}
+
+  - id: notify_failure
+    type: io.kestra.plugin.email.MailSend
+    runIf: "{{ execution.state == 'FAILED' or execution.state == 'WARNING' }}"
+    subject: "[{{ execution.state }}] {{ flow.namespace }}.{{ flow.id }}"
+    plainTextContent: |
+      execution_id={{ execution.id }}
+      state={{ execution.state }}
+      failed_tasks={{ tasksWithState('FAILED') }}

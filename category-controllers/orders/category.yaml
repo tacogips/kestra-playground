@@ -1,0 +1,7 @@
+id: orders
+releaseTagPrefix: orders-controller-v
+flowDirectory: category-controllers/orders/flows
+namespace: playground.orders.staging
+deploymentOwner: orders-controller
+environment: staging
+maxDeletes: 10

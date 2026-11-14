@@ -1,0 +1,151 @@
+id: build_affiliate_daily_report
+namespace: playground.affiliate
+description: Build an affiliate operations report from generated mock activity.
+
+labels:
+  environment: playground
+  domain: affiliate
+
+inputs:
+  - id: business_date
+    type: DATE
+    required: true
+    defaults: "2026-06-25"
+    description: Date to report.
+
+pluginDefaults:
+  - type: io.kestra.plugin.jdbc.postgresql
+    values:
+      url: "{{ envs.batch_db_url }}"
+      username: "{{ envs.batch_db_username }}"
+      password: "{{ envs.batch_db_password }}"
+
+tasks:
+  - id: ensure_report_table
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      CREATE TABLE IF NOT EXISTS affiliate_daily_reports (
+        business_date date NOT NULL,
+        metric_group text NOT NULL,
+        metric_name text NOT NULL,
+        metric_value numeric(14, 2) NOT NULL,
+        dimension text NOT NULL DEFAULT 'all',
+        generated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (business_date, metric_group, metric_name, dimension)
+      );
+
+  - id: purge_report
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      DELETE FROM affiliate_daily_reports
+      WHERE business_date = '{{ inputs.business_date }}'::date;
+
+  - id: write_traffic_summary
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      INSERT INTO affiliate_daily_reports (
+        business_date,
+        metric_group,
+        metric_name,
+        metric_value,
+        dimension
+      )
+      SELECT
+        '{{ inputs.business_date }}'::date,
+        'traffic',
+        'clicks',
+        COALESCE(SUM(clicks), 0),
+        channel
+      FROM affiliate_clicks
+      WHERE business_date = '{{ inputs.business_date }}'::date
+      GROUP BY channel;
+
+      INSERT INTO affiliate_daily_reports (
+        business_date,
+        metric_group,
+        metric_name,
+        metric_value,
+        dimension
+      )
+      SELECT
+        '{{ inputs.business_date }}'::date,
+        'traffic',
+        'unique_visitors',
+        COALESCE(SUM(unique_visitors), 0),
+        'all'
+      FROM affiliate_clicks
+      WHERE business_date = '{{ inputs.business_date }}'::date;
+
+  - id: write_conversion_summary
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      INSERT INTO affiliate_daily_reports (
+        business_date,
+        metric_group,
+        metric_name,
+        metric_value,
+        dimension
+      )
+      SELECT
+        '{{ inputs.business_date }}'::date,
+        'conversions',
+        'conversion_count',
+        COALESCE(SUM(conversions), 0),
+        status
+      FROM affiliate_conversions
+      WHERE business_date = '{{ inputs.business_date }}'::date
+      GROUP BY status;
+
+  - id: write_commission_summary
+    type: io.kestra.plugin.jdbc.postgresql.Queries
+    fetchType: NONE
+    sql: |
+      INSERT INTO affiliate_daily_reports (
+        business_date,
+        metric_group,
+        metric_name,
+        metric_value,
+        dimension
+      )
+      SELECT
+        '{{ inputs.business_date }}'::date,
+        'commission',
+        'commission_amount',
+        COALESCE(SUM(commission_amount), 0),
+        status
+      FROM affiliate_conversions
+      WHERE business_date = '{{ inputs.business_date }}'::date
+      GROUP BY status;
+
+      INSERT INTO affiliate_daily_reports (
+        business_date,
+        metric_group,
+        metric_name,
+        metric_value,
+        dimension
+      )
+      SELECT
+        '{{ inputs.business_date }}'::date,
+        'commission',
+        'gross_sales',
+        COALESCE(SUM(gross_sales), 0),
+        'all'
+      FROM affiliate_conversions
+      WHERE business_date = '{{ inputs.business_date }}'::date;
+
+  - id: fetch_report
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    fetchType: FETCH
+    sql: |
+      SELECT
+        metric_group,
+        metric_name,
+        dimension,
+        metric_value
+      FROM affiliate_daily_reports
+      WHERE business_date = '{{ inputs.business_date }}'::date
+      ORDER BY metric_group, metric_name, dimension;
