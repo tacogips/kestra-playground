@@ -1,0 +1,8 @@
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: kestra
+  namespace: kestra-dev
+spec:
+  domains:
+    - k8s.example.com
