@@ -1,0 +1,81 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      BATCH_DB: ${BATCH_DB}
+      BATCH_DB_USER: ${BATCH_DB_USER}
+      BATCH_DB_PASSWORD: ${BATCH_DB_PASSWORD}
+      AFFILIATE_KESTRA_DB: ${AFFILIATE_KESTRA_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-batch-db.sh:/docker-entrypoint-initdb.d/20-init-batch-db.sh:ro
+    networks:
+      default:
+        aliases:
+          - kestra-postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kestra-ec:
+    # The EC batch group may run fork-based images (for example the tacogips/kestra
+    # routed-worker build) by overriding EC_KESTRA_IMAGE.
+    image: ${EC_KESTRA_IMAGE:-kestra/kestra:latest}
+    user: "root"
+    command: server standalone --worker-thread=64 --config /etc/kestra/application.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ../../batch-groups/ec/config/envs/local.env
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    volumes:
+      - kestra-ec-data:/app/storage
+      - /tmp/kestra-wd:/tmp/kestra-wd
+      - ../../kestra/config/application.yaml:/etc/kestra/application.yaml:ro
+      - ../../batch-groups/ec/batches:/app/kestra-playground/batch-groups/ec/batches:ro
+
+  kestra-affiliate:
+    # The affiliate batch group always runs the official kestra/kestra image; never
+    # point AFFILIATE_KESTRA_IMAGE at a tacogips/kestra fork build.
+    image: ${AFFILIATE_KESTRA_IMAGE:-kestra/kestra:latest}
+    user: "root"
+    command: server standalone --worker-thread=64 --config /etc/kestra/application.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ../../batch-groups/affiliate/config/envs/local.env
+    ports:
+      - "8082:8080"
+      - "8083:8081"
+    volumes:
+      - kestra-affiliate-data:/app/storage
+      - /tmp/kestra-affiliate-wd:/tmp/kestra-wd
+      - ../../kestra/config/application.yaml:/etc/kestra/application.yaml:ro
+      - ../../batch-groups/affiliate/batches:/app/kestra-playground/batch-groups/affiliate/batches:ro
+
+  remote-worker:
+    build:
+      context: ./remote-worker
+    env_file:
+      - ../../batch-groups/ec/config/envs/local.env
+    healthcheck:
+      test: ["CMD-SHELL", "ssh-keyscan -4 -T 2 127.0.0.1 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  postgres-data:
+  kestra-ec-data:
+  kestra-affiliate-data:

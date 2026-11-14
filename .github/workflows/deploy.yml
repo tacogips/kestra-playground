@@ -1,0 +1,341 @@
+name: Deploy Kestra Playground
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: Environment to deploy or execute
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - gce-compose
+          - gce-container
+          - k8s
+          - routed
+      run_batch:
+        description: Execute the ecommerce batch after deployment
+        required: true
+        default: false
+        type: boolean
+      business_date:
+        description: Batch business date. Leave blank to use the current Asia/Tokyo date.
+        required: false
+        default: ""
+        type: string
+      operation_demo:
+        description: Optional operation demo verification after deployment.
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - gke-pod-resources
+          - routed-workers
+  schedule:
+    - cron: "15 18 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kestra-playground-deploy
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Run project checks
+        run: nix develop -c task ci
+      - name: Run infrastructure checks
+        run: |
+          nix develop -c task scripts:check
+          nix develop -c tofu fmt -check -recursive infra/terraform
+          nix develop -c kubectl version --client=true
+          nix develop -c tofu -chdir=infra/terraform/cloud-armor init -backend=false -input=false
+          nix develop -c tofu -chdir=infra/terraform/cloud-armor validate
+          nix develop -c tofu -chdir=infra/terraform/gce-single init -backend=false -input=false
+          nix develop -c tofu -chdir=infra/terraform/gce-single validate
+          nix develop -c tofu -chdir=infra/terraform/gce-cluster init -backend=false -input=false
+          nix develop -c tofu -chdir=infra/terraform/gce-cluster validate
+          nix develop -c tofu -chdir=infra/terraform/gke-dev init -backend=false -input=false
+          nix develop -c tofu -chdir=infra/terraform/gke-dev validate
+          nix develop -c tofu -chdir=infra/terraform/github-actions init -backend=false -input=false
+          nix develop -c tofu -chdir=infra/terraform/github-actions validate
+          nix develop -c bash -lc 'kustomize build k8s/overlays/dev >/tmp/kestra-gke-dev-support.yaml'
+          nix develop -c bash -lc 'helm repo add kestra https://helm.kestra.io/ >/dev/null 2>&1 || true'
+          nix develop -c bash -lc 'helm repo update kestra'
+          nix develop -c bash -lc 'helm template kestra kestra/kestra --version 1.0.54 --namespace kestra-dev --values k8s/helm/kestra-values.yaml >/tmp/kestra-gke-dev-helm.yaml'
+          nix develop -c bash -lc 'helm template kestra kestra/kestra --version 1.0.54 --namespace kestra-dev --values k8s/helm/kestra-values.yaml --values k8s/helm/kestra-controller-only-values.yaml >/tmp/kestra-gke-controller-only-helm.yaml'
+
+  build-image:
+    name: Build Runtime Image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs:
+      - validate
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.target_environment != 'routed' }}
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    env:
+      IMAGE_REPOSITORY: ${{ vars.KESTRA_IMAGE_REPOSITORY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Configure Artifact Registry Docker auth
+        run: nix develop -c gcloud auth configure-docker asia-northeast1-docker.pkg.dev --quiet
+      - name: Build and push runtime image
+        id: image
+        run: |
+          IMAGE="${IMAGE_REPOSITORY}:${GITHUB_SHA}"
+          LATEST_IMAGE="${IMAGE_REPOSITORY}:latest"
+
+          nix develop -c docker build \
+            --build-arg "KESTRA_BASE_IMAGE=kestra/kestra:v1.3.15" \
+            --build-arg "REVISION=${GITHUB_SHA}" \
+            --build-arg "SOURCE_REPOSITORY=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --tag "$IMAGE" \
+            --tag "$LATEST_IMAGE" \
+            .
+          nix develop -c docker push "$IMAGE"
+          nix develop -c docker push "$LATEST_IMAGE"
+          printf 'image=%s\n' "$IMAGE" >>"$GITHUB_OUTPUT"
+
+  build-routed-image:
+    name: Build Routed Kestra Image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    needs:
+      - validate
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment == 'routed' }}
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    env:
+      IMAGE_REPOSITORY: asia-northeast1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/kestra-playground/kestra-oss-worker-routing
+      KESTRA_SOURCE_REF: bf0e3240580448a80c4fc4850883d88c50e484a7
+    steps:
+      - name: Checkout playground
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Checkout Kestra fork
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: tacogips/kestra
+          ref: ${{ env.KESTRA_SOURCE_REF }}
+          path: kestra-source
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Set up Java
+        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Build Kestra executable
+        working-directory: kestra-source
+        run: |
+          cd ui
+          npm ci
+          npm run build
+          cd ..
+          ./gradlew writeExecutableJar --no-daemon
+          cp build/executable/kestra-2.0.0-SNAPSHOT docker/app/kestra
+          chmod 755 docker/app/kestra
+      - name: Install runtime plugins
+        working-directory: kestra-source
+        run: |
+          mkdir -p plugins
+          docker/app/kestra plugins install io.kestra.storage:storage-gcs:1.2.0 \
+            --plugins plugins \
+            --repositories=https://central.sonatype.com/repository/maven-snapshots
+          docker/app/kestra plugins install io.kestra.plugin:plugin-script-shell:1.9.0 \
+            --plugins plugins \
+            --repositories=https://central.sonatype.com/repository/maven-snapshots
+          docker/app/kestra plugins install io.kestra.plugin:plugin-kubernetes:1.9.5 \
+            --plugins plugins \
+            --repositories=https://central.sonatype.com/repository/maven-snapshots
+          docker/app/kestra plugins install io.kestra.plugin:plugin-jdbc-postgres:1.15.4 \
+            --plugins plugins \
+            --repositories=https://central.sonatype.com/repository/maven-snapshots
+      - name: Copy operation demo batch source
+        run: |
+          mkdir -p kestra-source/docker/app/kestra-playground/batch-groups/ec
+          cp -R batch-groups/ec/batches kestra-source/docker/app/kestra-playground/batch-groups/ec/batches
+          chmod +x kestra-source/docker/app/kestra-playground/batch-groups/ec/batches/resource_probe/run.sh
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Configure Artifact Registry Docker auth
+        run: nix develop -c gcloud auth configure-docker asia-northeast1-docker.pkg.dev --quiet
+      - name: Build and push routed image
+        id: image
+        working-directory: kestra-source
+        run: |
+          KESTRA_SOURCE_SHA="$(git rev-parse HEAD)"
+          if [ "$KESTRA_SOURCE_SHA" != "$KESTRA_SOURCE_REF" ]; then
+            echo "Checked out Kestra source $KESTRA_SOURCE_SHA, expected $KESTRA_SOURCE_REF" >&2
+            exit 1
+          fi
+
+          IMAGE="${IMAGE_REPOSITORY}:${GITHUB_SHA}"
+          STABLE_IMAGE="${IMAGE_REPOSITORY}:oss-worker-routing"
+          SOURCE_IMAGE="${IMAGE_REPOSITORY}:oss-worker-routing-${KESTRA_SOURCE_SHA}"
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --provenance=false \
+            --push \
+            --tag "$IMAGE" \
+            --tag "$STABLE_IMAGE" \
+            --tag "$SOURCE_IMAGE" \
+            .
+
+          printf 'image=%s\n' "$IMAGE" >>"$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    needs:
+      - validate
+      - build-image
+      - build-routed-image
+    if: ${{ always() && needs.validate.result == 'success' && github.event_name == 'workflow_dispatch' && ((inputs.target_environment == 'routed' && needs.build-routed-image.result == 'success') || ((inputs.target_environment || 'all') != 'routed' && needs.build-image.result == 'success')) }}
+    environment:
+      name: development
+      url: ${{ vars.LIVE_K8S_URL }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: asia-northeast1
+      LIVE_DOMAIN_NAME: ${{ vars.LIVE_DOMAIN_NAME }}
+      TOFU_STATE_BUCKET: ${{ vars.TOFU_STATE_BUCKET }}
+      TARGET_ENVIRONMENT: ${{ inputs.target_environment || 'all' }}
+      KESTRA_IMAGE: ${{ inputs.target_environment == 'routed' && needs.build-routed-image.outputs.image || needs.build-image.outputs.image }}
+      LIVE_GKE_EXTERNAL_GCE_WORKER_ENABLED: ${{ (inputs.operation_demo || 'none') == 'gke-pod-resources' && 'false' || 'true' }}
+      GKE_WORKER_ENABLED: ${{ (inputs.operation_demo || 'none') == 'gke-pod-resources' && 'true' || 'false' }}
+      LIVE_GKE_CONTROLLER_WORKER_ENABLED: "false"
+      LIVE_GKE_ROUTED_WORKERS_ENABLED: "false"
+      KESTRA_K8S_ADDITIONAL_FLOW_DIRS: kestra/flows-federated
+      OPERATION_DEMO: ${{ inputs.operation_demo || 'none' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Apply live environments
+        run: |
+          if [ "$TARGET_ENVIRONMENT" = "routed" ]; then
+            nix develop -c scripts/deploy-routed-live.sh
+          else
+            nix develop -c scripts/deploy-live-environments.sh "$TARGET_ENVIRONMENT"
+          fi
+      - name: Register flows and check HTTPS
+        env:
+          BUSINESS_DATE: ${{ inputs.business_date || '' }}
+          MODE: health
+        run: |
+          if [ "$TARGET_ENVIRONMENT" = "routed" ]; then
+            nix develop -c scripts/verify-live-routed.sh "$BUSINESS_DATE"
+          else
+            nix develop -c scripts/verify-live-environments.sh "$TARGET_ENVIRONMENT" "$BUSINESS_DATE" "$MODE"
+          fi
+      - name: Run operation demo verification
+        if: ${{ inputs.operation_demo != '' && inputs.operation_demo != 'none' }}
+        env:
+          BUSINESS_DATE: ${{ inputs.business_date || '' }}
+        run: |
+          case "$OPERATION_DEMO" in
+            gke-pod-resources)
+              nix develop -c scripts/verify-live-operation-demo-gke-pod-resources.sh
+              ;;
+            routed-workers)
+              nix develop -c scripts/verify-live-operation-demo-routed.sh "$BUSINESS_DATE"
+              ;;
+            *)
+              echo "Unknown operation demo mode: $OPERATION_DEMO" >&2
+              exit 1
+              ;;
+          esac
+
+  run-batch:
+    name: Run Batch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    needs:
+      - validate
+      - deploy
+    if: ${{ always() && needs.validate.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.run_batch && needs.deploy.result == 'success' }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      BUSINESS_DATE: ${{ inputs.business_date || '' }}
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: asia-northeast1
+      LIVE_DOMAIN_NAME: ${{ vars.LIVE_DOMAIN_NAME }}
+      TARGET_ENVIRONMENT: ${{ inputs.target_environment || 'all' }}
+      KESTRA_K8S_ADDITIONAL_FLOW_DIRS: kestra/flows-enterprise
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Execute ecommerce batch
+        env:
+          MODE: run-batch
+        run: nix develop -c scripts/verify-live-environments.sh "$TARGET_ENVIRONMENT" "$BUSINESS_DATE" "$MODE"
