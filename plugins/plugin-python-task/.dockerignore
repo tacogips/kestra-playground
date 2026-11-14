@@ -1,0 +1,8 @@
+*
+!local/
+!local/Dockerfile
+!examples/
+!examples/**
+!build/
+!build/libs/
+!build/libs/plugin-python-task-*.jar
