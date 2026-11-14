@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kestra-batch-common"
+version = "0.1.0"
+description = "Shared runtime helpers for kestra-playground batch scripts"
+readme = "README.md"
+# Live SSH batch targets run the Debian 12 system Python (3.11), so the library
+# stays importable there while uv-managed environments use 3.12.
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3.5",
+  "ruff>=0.11.0",
+  "ty>=0.0.1a32",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kestra_batch_common"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
