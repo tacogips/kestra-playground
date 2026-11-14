@@ -1,0 +1,16 @@
+id: demo_batch_success
+namespace: playground.notification
+description: Succeeding demo batch used to verify the SUCCESS notification path.
+
+labels:
+  environment: playground
+  domain: notification
+
+tasks:
+  - id: load_data
+    type: io.kestra.plugin.core.log.Log
+    message: "demo batch loaded {{ execution.id }}"
+
+  - id: publish_report
+    type: io.kestra.plugin.core.log.Log
+    message: "demo batch published"
